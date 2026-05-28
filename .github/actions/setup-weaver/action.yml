@@ -3,10 +3,10 @@ description: Downloads and installs the OTel Weaver binary for the current runne
 
 inputs:
   weaver-version:
-    description: "Weaver release version to install (e.g. '0.12.0')"
+    description: "Weaver release version to install (e.g. '0.23.0')"
     required: true
     # renovate: datasource=github-releases depName=open-telemetry/weaver
-    default: "0.12.0"
+    default: "0.23.0"
 
 runs:
   using: composite
@@ -43,11 +43,13 @@ runs:
         WEAVER_VERSION: ${{ inputs.weaver-version }}
         TRIPLE: ${{ steps.platform.outputs.triple }}
       run: |
-        ARCHIVE="weaver-${WEAVER_VERSION}-${TRIPLE}.tar.gz"
+        # As of v0.16.0 the asset filename no longer contains the version number
+        # and uses .tar.xz instead of .tar.gz.
+        ARCHIVE="weaver-${TRIPLE}.tar.xz"
         URL="https://github.com/open-telemetry/weaver/releases/download/v${WEAVER_VERSION}/${ARCHIVE}"
         echo "Downloading Weaver from: $URL"
-        curl -fsSL "$URL" -o /tmp/weaver.tar.gz
-        tar -xzf /tmp/weaver.tar.gz -C /tmp
+        curl -fsSL "$URL" -o /tmp/weaver.tar.xz
+        tar -xJf /tmp/weaver.tar.xz -C /tmp
         chmod +x /tmp/weaver
         echo "/tmp" >> "$GITHUB_PATH"
 

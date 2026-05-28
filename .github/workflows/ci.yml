@@ -22,7 +22,7 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           # renovate: datasource=github-releases depName=golangci/golangci-lint
-          version: v1.64.8
+          version: v2.12.2
 
   check-generated:
     name: Check Generated Files
@@ -165,7 +165,8 @@ jobs:
       - name: Set up Weaver
         uses: ./.github/actions/setup-weaver
         with:
-          weaver-version: "0.12.0" # weaver
+          # renovate: datasource=github-releases depName=open-telemetry/weaver
+          weaver-version: "0.23.0"
 
       - name: Build exporter binary
         run: go build -o ./bin/renovate-exporter ./cmd/renovate-exporter/
