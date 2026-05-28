@@ -43,10 +43,10 @@ type Client struct {
 	graphql *githubv4.Client
 
 	// Rate limit state
-	mu         sync.Mutex
-	rlState    RateLimitState
-	rlPaused   bool
-	rlHooks    []RateLimitHook
+	mu       sync.Mutex
+	rlState  RateLimitState
+	rlPaused bool
+	rlHooks  []RateLimitHook
 
 	// baseURL allows tests to override the GitHub API URL.
 	baseURL string

@@ -354,7 +354,7 @@ func TestDiscoverer_IncrementalRefresh(t *testing.T) {
 	var mu sync.Mutex
 	apiRepos := []*gogithub.Repository{makeRepo("myorg/alpha", false, false)}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()
 		current := make([]*gogithub.Repository, len(apiRepos))
 		copy(current, apiRepos)
@@ -380,7 +380,7 @@ func TestDiscoverer_IncrementalRefresh(t *testing.T) {
 	go d.Start(ctx)
 
 	// Poll until initial discovery produces exactly 1 repo (or deadline).
-	initial := pollUntil(t, ctx, d, 1)
+	initial := pollUntil(ctx, t, d, 1)
 	if len(initial) != 1 {
 		t.Fatalf("expected 1 repo initially, got %d", len(initial))
 	}
@@ -391,14 +391,14 @@ func TestDiscoverer_IncrementalRefresh(t *testing.T) {
 	mu.Unlock()
 
 	// Poll until the refresh produces 2 repos (or deadline).
-	updated := pollUntil(t, ctx, d, 2)
+	updated := pollUntil(ctx, t, d, 2)
 	if len(updated) != 2 {
 		t.Errorf("expected 2 repos after refresh, got %d: %v", len(updated), repoNames(updated))
 	}
 }
 
 // pollUntil polls d.Repos until len(repos) == want or ctx expires.
-func pollUntil(t *testing.T, ctx context.Context, d interface {
+func pollUntil(ctx context.Context, t *testing.T, d interface {
 	Repos(context.Context) ([]discovery.Repo, error)
 }, want int) []discovery.Repo {
 	t.Helper()
@@ -420,5 +420,3 @@ func pollUntil(t *testing.T, ctx context.Context, d interface {
 		}
 	}
 }
-
-

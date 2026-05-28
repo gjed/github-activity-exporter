@@ -6,7 +6,9 @@ import "time"
 type Protocol string
 
 const (
+	// ProtocolHTTP selects OTLP/HTTP transport.
 	ProtocolHTTP Protocol = "http"
+	// ProtocolGRPC selects OTLP/gRPC transport.
 	ProtocolGRPC Protocol = "grpc"
 )
 

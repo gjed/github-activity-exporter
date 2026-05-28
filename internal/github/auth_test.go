@@ -67,7 +67,7 @@ func TestPATAuthenticator_Ping_success(t *testing.T) {
 }
 
 func TestPATAuthenticator_Ping_unauthorized(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"message":"Bad credentials"}`))
 	}))
@@ -133,7 +133,7 @@ func TestAppAuthenticator_Token_cached(t *testing.T) {
 	callCount := 0
 	expiresAt := time.Now().Add(55 * time.Minute).UTC().Format(time.RFC3339)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]string{
@@ -175,7 +175,7 @@ func TestAppAuthenticator_Token_refresh_near_expiry(t *testing.T) {
 	expiresAt1 := time.Now().Add(3 * time.Minute).UTC().Format(time.RFC3339)
 	expiresAt2 := time.Now().Add(55 * time.Minute).UTC().Format(time.RFC3339)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 		expiresAt := expiresAt2
 		if callCount == 1 {
@@ -245,7 +245,7 @@ func TestAppAuthenticator_Ping_success(t *testing.T) {
 func TestAppAuthenticator_Ping_failure(t *testing.T) {
 	_, keyPEM := generateTestRSAKey(t)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer srv.Close()

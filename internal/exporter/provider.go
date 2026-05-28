@@ -24,11 +24,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/otlptranslator"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	promexporter "go.opentelemetry.io/otel/exporters/prometheus"
-	"github.com/prometheus/otlptranslator"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -46,10 +46,6 @@ type Provider struct {
 	mp         *metric.MeterProvider
 	promServer *http.Server
 	logger     *slog.Logger
-
-	// OTLPErrors is the counter for OTLP push failures; filled by newOTLPExporter.
-	// Collector code can also record api.errors via mp.Meter(...).
-	otlpErrCount int64
 }
 
 // New builds and starts the MeterProvider. It returns a Provider whose
