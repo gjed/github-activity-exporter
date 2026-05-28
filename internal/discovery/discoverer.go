@@ -32,13 +32,14 @@ type RepoLister interface {
 
 // Discoverer discovers and maintains the list of monitored repositories for a target.
 type Discoverer struct {
-	target    config.Target
-	lister    RepoLister
-	logger    *slog.Logger
-	interval  time.Duration
+	target   config.Target
+	lister   RepoLister
+	logger   *slog.Logger
+	interval time.Duration
 
-	mu    sync.RWMutex
-	repos []Repo
+	mu          sync.RWMutex
+	repos       []Repo
+	initialized bool // true after the first successful refresh
 }
 
 // Option is a functional option for Discoverer.
@@ -72,14 +73,15 @@ func New(target config.Target, lister RepoLister, opts ...Option) *Discoverer {
 }
 
 // Repos returns a snapshot copy of the current discovered repositories.
-// It performs an initial discovery on first call if the list is empty.
+// It performs an initial discovery on first call if not yet initialized.
 // The returned slice is safe to read without a lock; callers must not modify it.
 func (d *Discoverer) Repos(ctx context.Context) ([]Repo, error) {
 	d.mu.RLock()
+	initialized := d.initialized
 	repos := d.repos
 	d.mu.RUnlock()
 
-	if repos != nil {
+	if initialized {
 		cp := make([]Repo, len(repos))
 		copy(cp, repos)
 		return cp, nil
@@ -134,6 +136,7 @@ func (d *Discoverer) refresh(ctx context.Context) ([]Repo, error) {
 
 	d.mu.Lock()
 	d.repos = repos
+	d.initialized = true
 	d.mu.Unlock()
 
 	d.logDiscovered(repos)
@@ -201,13 +204,13 @@ func (d *Discoverer) listOrgRepos(ctx context.Context, orgCfg config.OrgConfig) 
 		name := r.GetName()
 
 		// Apply include filter.
-		if len(orgCfg.IncludeRepos) > 0 && !matchesAny(name, orgCfg.IncludeRepos) {
+		if len(orgCfg.IncludeRepos) > 0 && !d.matchesAny(name, orgCfg.IncludeRepos) {
 			d.logger.Debug("excluding repo (not in include list)", "repo", r.GetFullName())
 			continue
 		}
 
 		// Apply exclude filter.
-		if matchesAny(name, orgCfg.ExcludeRepos) {
+		if d.matchesAny(name, orgCfg.ExcludeRepos) {
 			d.logger.Debug("excluding repo (in exclude list)", "repo", r.GetFullName())
 			continue
 		}
@@ -248,14 +251,14 @@ func splitOwnerRepo(full string) (owner, name string) {
 }
 
 // matchesAny returns true if name matches at least one glob pattern.
-// Invalid patterns are logged as warnings and treated as non-matching.
-func matchesAny(name string, patterns []string) bool {
+// Invalid patterns are logged via d.logger as warnings and treated as non-matching.
+func (d *Discoverer) matchesAny(name string, patterns []string) bool {
 	for _, pat := range patterns {
 		ok, err := filepath.Match(pat, name)
 		if err != nil {
 			// filepath.Match only errors on malformed syntax (e.g. unclosed bracket).
 			// Log and skip rather than silently dropping the pattern.
-			slog.Warn("invalid glob pattern — skipping", "pattern", pat, "err", err)
+			d.logger.Warn("invalid glob pattern — skipping", "pattern", pat, "err", err)
 			continue
 		}
 		if ok {

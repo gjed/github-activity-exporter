@@ -6,7 +6,6 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +15,11 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 )
+
+// defaultGitHubAPIURL is the base URL for the public GitHub API.
+// Used as the default in both authenticators and the client to avoid
+// repeated string literals that could silently diverge on a typo.
+const defaultGitHubAPIURL = "https://api.github.com"
 
 // Authenticator is implemented by any type that can produce a GitHub API token.
 type Authenticator interface {
@@ -40,7 +44,7 @@ type PATAuthenticator struct {
 
 // NewPATAuthenticator creates a PAT authenticator with the given token.
 func NewPATAuthenticator(token string) *PATAuthenticator {
-	return &PATAuthenticator{token: token, baseURL: "https://api.github.com"}
+	return &PATAuthenticator{token: token, baseURL: defaultGitHubAPIURL}
 }
 
 // NewPATAuthenticatorWithBase creates a PAT authenticator with a custom base URL (for testing).
@@ -87,7 +91,7 @@ type AppAuthenticator struct {
 // NewAppAuthenticator creates an AppAuthenticator, loading the private key eagerly.
 func NewAppAuthenticator(opts AppAuthOptions) (*AppAuthenticator, error) {
 	if opts.BaseURL == "" {
-		opts.BaseURL = "https://api.github.com"
+		opts.BaseURL = defaultGitHubAPIURL
 	}
 
 	pem, err := loadPrivateKeyPEM(opts)
@@ -182,7 +186,7 @@ func (a *AppAuthenticator) fetchInstallationToken(ctx context.Context) (string, 
 		return "", time.Time{}, fmt.Errorf("reading installation token response: %w", err)
 	}
 
-	if err := parseJSON(body, &result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return "", time.Time{}, fmt.Errorf("parsing installation token response: %w", err)
 	}
 
@@ -248,18 +252,10 @@ func loadPrivateKeyPEM(opts AppAuthOptions) ([]byte, error) {
 	return nil, fmt.Errorf("no private key source configured (set PrivateKeyPEM, PrivateKeyBase64, or PrivateKeyPath)")
 }
 
-// parseJSON is a thin wrapper around json.Unmarshal.
-func parseJSON(data []byte, v any) error {
-	return json.Unmarshal(data, v)
-}
-
 // parseRSAPrivateKey decodes a PEM-encoded RSA private key.
+// It delegates directly to jwt.ParseRSAPrivateKeyFromPEM which returns
+// a descriptive error for missing or malformed PEM blocks.
 func parseRSAPrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
-	block, _ := pem.Decode(pemBytes)
-	if block == nil {
-		return nil, fmt.Errorf("no PEM block found in private key")
-	}
-
 	key, err := jwt.ParseRSAPrivateKeyFromPEM(pemBytes)
 	if err != nil {
 		return nil, fmt.Errorf("parsing RSA private key: %w", err)
