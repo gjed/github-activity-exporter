@@ -63,6 +63,22 @@ attributes:
     brief: Aggregate review status of the pull request.
     examples: ["approved", "changes_requested", "pending", "none"]
 
+  - key: github.issue.state
+    type:
+      allow_custom_values: false
+      members:
+        - id: open
+          value: "open"
+          stability: development
+          brief: Issue is open.
+        - id: closed
+          value: "closed"
+          stability: development
+          brief: Issue is closed.
+    stability: development
+    brief: Current state of the GitHub issue.
+    examples: ["open", "closed"]
+
   - key: github.issue.label
     type: string
     stability: development
