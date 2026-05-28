@@ -36,4 +36,4 @@ jobs:
         run: |
           weaver registry emit \
             -r registry/ \
-            --inactivity-timeout 10
+            --stdout

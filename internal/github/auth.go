@@ -167,7 +167,7 @@ func (a *AppAuthenticator) fetchInstallationToken(ctx context.Context) (string, 
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("requesting installation token: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
@@ -216,7 +216,7 @@ func pingURL(ctx context.Context, url, token string) error {
 	if err != nil {
 		return fmt.Errorf("ping request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		body, _ := io.ReadAll(resp.Body)

@@ -136,7 +136,6 @@ func TestLoad(t *testing.T) {
 				t.Setenv(k, v)
 			}
 
-
 			cfg, err := config.Load(tt.file)
 			if tt.wantErr {
 				if err == nil {

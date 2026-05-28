@@ -17,11 +17,11 @@ type Config struct {
 
 // Target represents a single monitored GitHub target (set of orgs/repos with shared auth).
 type Target struct {
-	Name      string    `mapstructure:"name"`
-	Auth      Auth      `mapstructure:"auth"`
+	Name      string      `mapstructure:"name"`
+	Auth      Auth        `mapstructure:"auth"`
 	Orgs      []OrgConfig `mapstructure:"orgs"`
-	Repos     []string  `mapstructure:"repos"`
-	Discovery Discovery `mapstructure:"discovery"`
+	Repos     []string    `mapstructure:"repos"`
+	Discovery Discovery   `mapstructure:"discovery"`
 }
 
 // Auth specifies authentication configuration for a target.
@@ -40,7 +40,7 @@ type AppAuth struct {
 	// PrivateKeyEnv is the name of the env var holding a base64-encoded PEM private key.
 	// After config loading, the resolved key material is in PrivateKeyValue; PrivateKeyEnv
 	// retains the original env var name for diagnostics.
-	PrivateKeyEnv   string `mapstructure:"private_key_env"`
+	PrivateKeyEnv string `mapstructure:"private_key_env"`
 	// PrivateKeyValue is populated by Load from the env var named in PrivateKeyEnv.
 	// It holds the raw base64-encoded PEM; it is never set from the config file.
 	PrivateKeyValue string `mapstructure:"-"`

@@ -23,7 +23,7 @@ func TestNew_DefaultsProtocol(t *testing.T) {
 	// that export succeeds.
 	cfg := exporter.Config{
 		OTLPEndpoint:       "http://localhost:14318", // won't be dialled at startup
-		CollectionInterval: 10 * time.Minute,        // long so no push happens in test
+		CollectionInterval: 10 * time.Minute,         // long so no push happens in test
 	}
 	p, err := exporter.New(context.Background(), cfg, nil)
 	if err != nil {
@@ -87,7 +87,7 @@ func TestNew_PrometheusEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /metrics failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}

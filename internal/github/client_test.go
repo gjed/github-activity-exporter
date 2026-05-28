@@ -16,14 +16,14 @@ import (
 type mockAuthenticator struct{ token string }
 
 func (m *mockAuthenticator) Token(_ context.Context) (string, error) { return m.token, nil }
-func (m *mockAuthenticator) Ping(_ context.Context) error             { return nil }
+func (m *mockAuthenticator) Ping(_ context.Context) error            { return nil }
 
 // TestClient_RateLimitTracking verifies that REST rate limit headers are parsed
 // and the hook is invoked with the correct state.
 func TestClient_RateLimitTracking(t *testing.T) {
 	resetTime := time.Now().Add(10 * time.Minute).Unix()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("X-RateLimit-Remaining", "150")
 		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", resetTime))
 		w.WriteHeader(http.StatusOK)
@@ -69,7 +69,7 @@ func TestClient_PauseBelowThreshold(t *testing.T) {
 	resetTime := time.Now().Add(1500 * time.Millisecond).Unix()
 
 	callCount := atomic.Int32{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		n := callCount.Add(1)
 		if n == 1 {
 			// First call: set remaining below threshold; reset in ~1-2s (Unix truncation).
@@ -124,7 +124,7 @@ func TestClient_PauseBelowThreshold(t *testing.T) {
 func TestClient_RateLimitState(t *testing.T) {
 	resetTime := time.Now().Add(5 * time.Minute).Unix()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("X-RateLimit-Remaining", "4999")
 		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", resetTime))
 		w.WriteHeader(http.StatusOK)

@@ -173,7 +173,7 @@ func (d *Discoverer) listOrgRepos(ctx context.Context, orgCfg config.OrgConfig) 
 	var all []*github.Repository
 
 	opts := &github.RepositoryListByOrgOptions{
-		Type: "all",
+		Type:        "all",
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 

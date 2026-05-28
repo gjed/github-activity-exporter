@@ -5,24 +5,29 @@ linters:
     - errcheck
     - govet
     - staticcheck
-    - gofmt
-    - goimports
     - revive
 
-linters-settings:
-  goimports:
-    # Put local imports after third-party imports
-    local-prefixes: github.com/gjed/renovate-exporter
+  settings:
+    revive:
+      rules:
+        - name: exported
+        - name: var-naming
+        - name: package-comments
 
-  revive:
+  exclusions:
     rules:
-      - name: exported
-      - name: var-naming
-      - name: package-comments
+      # Test files can use unkeyed fields in struct literals
+      - path: "_test\\.go"
+        linters:
+          - revive
 
-issues:
-  exclude-rules:
-    # Test files can use unkeyed fields in struct literals
-    - path: "_test\\.go"
-      linters:
-        - revive
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+  settings:
+    goimports:
+      # Put local imports after third-party imports
+      local-prefixes:
+        - github.com/gjed/renovate-exporter

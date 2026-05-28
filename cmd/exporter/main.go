@@ -1,3 +1,4 @@
+// Package main is the entry point for the renovate-exporter binary.
 package main
 
 import (
@@ -25,7 +26,7 @@ func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "renovate-exporter",
 		Short: "Prometheus exporter for Renovate dependency update metrics",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			return run(cmd.Context(), configFile)
 		},
 	}
