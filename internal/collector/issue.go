@@ -27,8 +27,10 @@ type IssueCollector struct {
 	filter *filter.IssueFilter
 	logger *slog.Logger
 
-	// OTel instruments
-	issueCount metric.Int64ObservableGauge
+	// OTel instruments.
+	// issueCount matches the registry instrument (updowncounter) via its
+	// observable variant so we can report a full snapshot each cycle.
+	issueCount metric.Int64ObservableUpDownCounter
 	issueAge   metric.Float64ObservableGauge
 }
 
@@ -74,8 +76,8 @@ func NewIssueCollector(
 
 	var err error
 
-	c.issueCount, err = meter.Int64ObservableGauge(semconv.MetricGitHubIssueCount,
-		metric.WithDescription("Number of GitHub issues by state and label."),
+	c.issueCount, err = meter.Int64ObservableUpDownCounter(semconv.MetricGitHubIssueCount,
+		metric.WithDescription("Number of GitHub issues grouped by state and label."),
 		metric.WithUnit("{issue}"),
 	)
 	if err != nil {
@@ -133,6 +135,12 @@ func (c *IssueCollector) collectRepo(ctx context.Context, _ string, repo discove
 	var oldestOpenCreatedAt time.Time
 
 	for _, iss := range issues {
+		// The GitHub REST API returns pull requests in the issues list.
+		// Skip them — PR metrics are handled by PRCollector.
+		if iss.IsPullRequest() {
+			continue
+		}
+
 		state := iss.GetState() // "open" or "closed"
 		title := iss.GetTitle()
 

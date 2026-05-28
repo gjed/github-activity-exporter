@@ -29,9 +29,13 @@ attributes:
           value: "draft"
           stability: development
           brief: Pull request is a draft.
+        - id: merged
+          value: "merged"
+          stability: development
+          brief: Pull request was merged.
     stability: development
     brief: Current state of the pull request.
-    examples: ["open", "closed", "draft"]
+    examples: ["open", "closed", "draft", "merged"]
 
   - key: github.pr.label
     type: string

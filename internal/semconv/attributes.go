@@ -76,6 +76,7 @@ AttrGitHubPrReviewStatusNone = "none"
 AttrGitHubPrStateOpen = "open"
 AttrGitHubPrStateClosed = "closed"
 AttrGitHubPrStateDraft = "draft"
+AttrGitHubPrStateMerged = "merged"
 
 
 

@@ -21,7 +21,9 @@ import (
 // (no network calls) and asserts that the expected metric values are recorded.
 func TestCollectionLoop_MockData(t *testing.T) {
 	now := time.Now()
-	mergedAt := now.Add(-1 * time.Hour)
+	// MergedAt is 1ms in the future relative to "now" so it is guaranteed to
+	// be after the first RunOnce's lastCollectedAt (which is set to ~now).
+	mergedAt := now.Add(10 * time.Millisecond)
 
 	// ── PR fixture: 2 open, 1 merged (automerge, no reviews) ─────────────────
 	prNodes := []collector.ExportedPRNode{
@@ -102,7 +104,11 @@ func TestCollectionLoop_MockData(t *testing.T) {
 		t.Fatalf("NewRunner: %v", err)
 	}
 
-	// ── Single collection cycle ────────────────────────────────────────────────
+	// ── Two collection cycles ──────────────────────────────────────────────────
+	// First cycle: sets lastCollectedAt = now (no events recorded).
+	// Second cycle: records events for PRs closed after the first cycle.
+	runner.RunOnce(ctx)
+	time.Sleep(20 * time.Millisecond) // ensure mergedAt < lastCollectedAt of cycle 2
 	runner.RunOnce(ctx)
 
 	// ── Collect metrics ────────────────────────────────────────────────────────
@@ -166,14 +172,21 @@ func gaugeInt64Map(t *testing.T, rm metricdata.ResourceMetrics, name, attrKey st
 	t.Helper()
 	key := attribute.Key(attrKey)
 	m := make(map[string]int64)
+	dpsInt64 := func(data metricdata.Aggregation) []metricdata.DataPoint[int64] {
+		if g, ok := data.(metricdata.Gauge[int64]); ok {
+			return g.DataPoints
+		}
+		if s, ok := data.(metricdata.Sum[int64]); ok {
+			return s.DataPoints
+		}
+		return nil
+	}
 	for _, sm := range rm.ScopeMetrics {
 		for _, met := range sm.Metrics {
 			if met.Name == name {
-				if g, ok := met.Data.(metricdata.Gauge[int64]); ok {
-					for _, dp := range g.DataPoints {
-						if v, ok := dp.Attributes.Value(key); ok {
-							m[v.AsString()] += dp.Value
-						}
+				for _, dp := range dpsInt64(met.Data) {
+					if v, ok := dp.Attributes.Value(key); ok {
+						m[v.AsString()] += dp.Value
 					}
 				}
 			}

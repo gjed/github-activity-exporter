@@ -261,11 +261,11 @@ func TestDashboardCollector_ExtraSections_IgnoredGracefully(t *testing.T) {
 		}
 	}
 
-	// "Awaiting Schedule" has 1 known item + 1 item under "## Unknown Section"
-	// which falls within the Awaiting Schedule slice (unknown sections are not
-	// treated as boundaries). Total = 2.
-	if sectionMap[semconv.AttrRenovateDashboardSectionAwaitingSchedule] != 2 {
-		t.Errorf("awaiting-schedule = %d, want 2 (includes items under unknown sub-section)", sectionMap[semconv.AttrRenovateDashboardSectionAwaitingSchedule])
+	// "Awaiting Schedule" has 1 item. The "## Unknown Section" is treated as a
+	// boundary (any ## heading terminates the previous section's body) so the
+	// item under it does NOT bleed into Awaiting Schedule's count.
+	if sectionMap[semconv.AttrRenovateDashboardSectionAwaitingSchedule] != 1 {
+		t.Errorf("awaiting-schedule = %d, want 1", sectionMap[semconv.AttrRenovateDashboardSectionAwaitingSchedule])
 	}
 	if sectionMap[semconv.AttrRenovateDashboardSectionPending] != 2 {
 		t.Errorf("open (pending) = %d, want 2", sectionMap[semconv.AttrRenovateDashboardSectionPending])

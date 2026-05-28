@@ -14,8 +14,8 @@ import (
 // Rules (all must pass):
 //   - If IncludeLabels is non-empty, the PR must have at least one matching label.
 //   - If ExcludeLabels is non-empty, the PR must not carry any of those labels.
-//   - If States is non-empty, the PR state must match one of the values
-//     ("open", "closed", "merged").
+//   - If States is non-empty, the PR state must match one of the registry values
+//     ("open", "closed", "draft", "merged").
 type PRFilter struct {
 	cfg config.PRFilters
 }

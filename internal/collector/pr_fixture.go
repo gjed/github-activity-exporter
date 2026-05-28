@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/shurcooL/githubv4"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // ExportedPRNode is the public test-facing equivalent of prNode.
@@ -93,8 +92,4 @@ func InjectPRQueryResult(q interface{}, nodes []ExportedPRNode, hasNextPage bool
 	return nil
 }
 
-// ObservableInstruments returns the observable instruments for batch
-// RegisterCallback. Used in tests to register all instruments at once.
-func (c *PRCollector) ObservableInstruments() []metric.Observable {
-	return []metric.Observable{c.prCount, c.prAge, c.reviewStatus}
-}
+

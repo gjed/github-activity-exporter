@@ -39,7 +39,7 @@ type PRFilters struct {
 	IncludeLabels []string `mapstructure:"include_labels"`
 	// ExcludeLabels drops PRs carrying any of these labels.
 	ExcludeLabels []string `mapstructure:"exclude_labels"`
-	// States restricts collection to PRs in these states ("open", "closed", "merged").
+	// States restricts collection to PRs in these states ("open", "closed", "draft", "merged").
 	// When empty, all states are included.
 	States []string `mapstructure:"states"`
 }

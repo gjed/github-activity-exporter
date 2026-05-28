@@ -31,13 +31,13 @@ type GraphQLClient interface {
 
 // prNode is the GraphQL response shape for a single PR node.
 type prNode struct {
-	Number   int
-	State    string // "OPEN", "CLOSED", "MERGED"
-	IsDraft  bool
+	Number    int
+	State     string // "OPEN", "CLOSED", "MERGED"
+	IsDraft   bool
 	CreatedAt time.Time
 	MergedAt  *time.Time
 	ClosedAt  *time.Time
-	Labels   struct {
+	Labels    struct {
 		Nodes []struct{ Name string }
 	} `graphql:"labels(first: 20)"`
 	Reviews struct {
@@ -72,8 +72,11 @@ type PRCollector struct {
 	cfg    PRCollectorConfig
 	logger *slog.Logger
 
-	// OTel instruments
-	prCount      metric.Int64ObservableGauge
+	// OTel instruments.
+	// pr.count and issue.count are updowncounters in the registry; the
+	// observable variant lets us report a full snapshot each cycle without
+	// needing to track deltas manually.
+	prCount      metric.Int64ObservableUpDownCounter
 	prAge        metric.Float64ObservableGauge
 	closeDur     metric.Float64Histogram
 	automerged   metric.Int64Counter
@@ -107,8 +110,8 @@ func NewPRCollector(
 
 	var err error
 
-	c.prCount, err = meter.Int64ObservableGauge(semconv.MetricGitHubPrCount,
-		metric.WithDescription("Number of pull requests by state."),
+	c.prCount, err = meter.Int64ObservableUpDownCounter(semconv.MetricGitHubPrCount,
+		metric.WithDescription("Number of pull requests grouped by state and label."),
 		metric.WithUnit("{pr}"),
 	)
 	if err != nil {
@@ -127,8 +130,8 @@ func NewPRCollector(
 		metric.WithDescription("Time from PR creation to close in seconds."),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(
-			3600, 7200, 14400, 28800, 86400,   // 1h, 2h, 4h, 8h, 1d
-			172800, 432000, 864000, 1728000,     // 2d, 5d, 10d, 20d
+			3600, 7200, 14400, 28800, 86400,  // 1h, 2h, 4h, 8h, 1d
+			172800, 432000, 864000, 1728000,  // 2d, 5d, 10d, 20d
 		),
 	)
 	if err != nil {
@@ -154,23 +157,21 @@ func NewPRCollector(
 	return c, nil
 }
 
-// prStats aggregates per-repo PR data for observable gauge callbacks.
+// prStats aggregates per-repo PR data for observable instrument callbacks.
 type prStats struct {
-	// countByState: state → count (e.g., "open" → 12)
-	countByState map[string]int64
-	// countByLabel: label → count
-	countByLabel map[string]int64
-	// reviewStatusCount: reviewStatus → count
+	// countByStateAndLabel: (state, label) → count for pr.count dimension.
+	// Key format: "state\x00label" (NUL separator; neither field contains NUL).
+	countByStateAndLabel map[stateLabel]int64
+	// reviewStatusCount: reviewStatus → count of open PRs
 	reviewStatusCount map[string]int64
 	// oldestOpenAge is the age in seconds of the oldest open PR, or 0 if none.
 	oldestOpenAge float64
 }
 
+type stateLabel struct{ state, label string }
+
 // CollectResult holds the per-repo stats after a Collect call.
-// The actual metric recording for counters/histograms happens inside Collect.
-// The observable gauges are registered separately via RegisterCallbacks.
 type CollectResult struct {
-	// target and repo labels for attribute sets
 	target string
 	org    string
 	repo   string
@@ -183,20 +184,22 @@ type PRCollection struct {
 }
 
 // Collect fetches PRs for all repos and returns a PRCollection.
-// It also directly records close.duration and automerged counters (point-in-time events).
-func (c *PRCollector) Collect(ctx context.Context, target string, repos []discovery.Repo) (*PRCollection, error) {
+// lastCollectedAt is the timestamp of the previous successful collection;
+// close.duration and automerged events are only recorded for PRs that closed
+// after that time, preventing double-counting across cycles.
+// Pass a zero time.Time on the first cycle to skip event recording entirely.
+func (c *PRCollector) Collect(ctx context.Context, target string, repos []discovery.Repo, lastCollectedAt time.Time) (*PRCollection, error) {
 	lookbackCutoff := time.Now().AddDate(0, 0, -c.cfg.LookbackDays)
 	coll := &PRCollection{}
 
 	for _, repo := range repos {
-		stats, err := c.collectRepo(ctx, target, repo, lookbackCutoff)
+		stats, err := c.collectRepo(ctx, target, repo, lookbackCutoff, lastCollectedAt)
 		if err != nil {
 			c.logger.Error("PR collection failed for repo",
 				"target", target,
 				"repo", repo.FullName,
 				"err", err,
 			)
-			// Collect what we can; don't abort the whole cycle.
 			continue
 		}
 		coll.results = append(coll.results, CollectResult{
@@ -211,13 +214,12 @@ func (c *PRCollector) Collect(ctx context.Context, target string, repos []discov
 }
 
 // collectRepo fetches PRs for a single repo and computes stats.
-// It also directly records histogram and counter observations that are events
-// (close duration, automerge).
 func (c *PRCollector) collectRepo(
 	ctx context.Context,
 	target string,
 	repo discovery.Repo,
 	lookbackCutoff time.Time,
+	lastCollectedAt time.Time,
 ) (prStats, error) {
 	prs, err := c.fetchPRs(ctx, repo)
 	if err != nil {
@@ -225,12 +227,14 @@ func (c *PRCollector) collectRepo(
 	}
 
 	stats := prStats{
-		countByState:      make(map[string]int64),
-		countByLabel:      make(map[string]int64),
-		reviewStatusCount: make(map[string]int64),
+		countByStateAndLabel: make(map[stateLabel]int64),
+		reviewStatusCount:    make(map[string]int64),
 	}
 
 	var oldestOpenCreatedAt time.Time
+	// recordEvents is false on the first cycle (lastCollectedAt.IsZero()) to
+	// avoid replaying the entire lookback window into counters/histograms.
+	recordEvents := !lastCollectedAt.IsZero()
 
 	for i := range prs {
 		pr := &prs[i]
@@ -240,7 +244,6 @@ func (c *PRCollector) collectRepo(
 			labels = append(labels, l.Name)
 		}
 
-		// Normalise state to lowercase: "open", "closed", "merged"
 		state := normaliseState(pr.State, pr.IsDraft)
 
 		fp := filter.PR{State: state, Labels: labels}
@@ -248,29 +251,32 @@ func (c *PRCollector) collectRepo(
 			continue
 		}
 
-		// ── state counts ─────────────────────────────────────────────────────
-		stats.countByState[state]++
-
-		// ── label counts ─────────────────────────────────────────────────────
+		// ── pr.count: one point per (state, label) pair ───────────────────────
+		// Always emit the state dimension (empty label = state-only bucket).
+		stats.countByStateAndLabel[stateLabel{state: state, label: ""}]++
+		// Also emit one point per label, carrying the state, so consumers can
+		// answer "open renovate PRs" and "merged renovate PRs" independently.
 		for _, l := range labels {
-			stats.countByLabel[l]++
+			stats.countByStateAndLabel[stateLabel{state: state, label: l}]++
 		}
 
 		// ── oldest open PR age ────────────────────────────────────────────────
-		if state == "open" {
+		if state == semconv.AttrGitHubPrStateOpen {
 			if oldestOpenCreatedAt.IsZero() || pr.CreatedAt.Before(oldestOpenCreatedAt) {
 				oldestOpenCreatedAt = pr.CreatedAt
 			}
-
-			// ── review status gauge ───────────────────────────────────────────
 			rs := reviewDecisionToStatus(pr.ReviewDecision)
 			stats.reviewStatusCount[rs]++
 		}
 
-		// ── close duration histogram (events within lookback window) ──────────
-		if state == "closed" || state == "merged" {
+		if !recordEvents {
+			continue
+		}
+
+		// ── close duration histogram — only new events since last cycle ────────
+		if state == semconv.AttrGitHubPrStateClosed || state == semconv.AttrGitHubPrStateMerged {
 			closedAt := closedAtFor(pr)
-			if closedAt != nil && closedAt.After(lookbackCutoff) {
+			if closedAt != nil && closedAt.After(lastCollectedAt) && closedAt.After(lookbackCutoff) {
 				dur := closedAt.Sub(pr.CreatedAt).Seconds()
 				attrs := metric.WithAttributes(
 					attribute.String(semconv.AttrExporterTarget, target),
@@ -281,8 +287,9 @@ func (c *PRCollector) collectRepo(
 			}
 		}
 
-		// ── automerge counter (merged with no APPROVED review) ────────────────
-		if state == "merged" && pr.MergedAt != nil && pr.MergedAt.After(lookbackCutoff) {
+		// ── automerge counter — only new events since last cycle ──────────────
+		if state == semconv.AttrGitHubPrStateMerged && pr.MergedAt != nil &&
+			pr.MergedAt.After(lastCollectedAt) && pr.MergedAt.After(lookbackCutoff) {
 			if !hasApprovedReview(pr.Reviews.Nodes) {
 				attrs := metric.WithAttributes(
 					attribute.String(semconv.AttrExporterTarget, target),
@@ -338,9 +345,7 @@ func (c *PRCollector) fetchPRs(ctx context.Context, repo discovery.Repo) ([]prNo
 	return all, nil
 }
 
-// ObservableRegistration returns a function suitable for passing to
-// meter.RegisterCallback. Call this after Collect so the gauge snapshots
-// reflect the latest collection.
+// ObservableRegistration returns a metric.Callback for the observable instruments.
 func (c *PRCollector) ObservableRegistration(coll *PRCollection) metric.Callback {
 	return func(_ context.Context, obs metric.Observer) error {
 		if coll == nil {
@@ -353,15 +358,15 @@ func (c *PRCollector) ObservableRegistration(coll *PRCollection) metric.Callback
 				attribute.String(semconv.AttrGitHubRepo, r.repo),
 			}
 
-			// pr.count by state
-			for state, cnt := range r.stats.countByState {
-				attrs := append(base, attribute.String(semconv.AttrGitHubPrState, state)) //nolint:gocritic
-				obs.ObserveInt64(c.prCount, cnt, metric.WithAttributes(attrs...))
-			}
-
-			// pr.count by label
-			for label, cnt := range r.stats.countByLabel {
-				attrs := append(base, attribute.String(semconv.AttrGitHubPrLabel, label)) //nolint:gocritic
+			// pr.count: emit one point per (state, label) combination.
+			// Points with empty label carry only the state dimension.
+			for sl, cnt := range r.stats.countByStateAndLabel {
+				attrs := make([]attribute.KeyValue, 0, len(base)+2)
+				attrs = append(attrs, base...)
+				attrs = append(attrs, attribute.String(semconv.AttrGitHubPrState, sl.state))
+				if sl.label != "" {
+					attrs = append(attrs, attribute.String(semconv.AttrGitHubPrLabel, sl.label))
+				}
 				obs.ObserveInt64(c.prCount, cnt, metric.WithAttributes(attrs...))
 			}
 
@@ -373,7 +378,8 @@ func (c *PRCollector) ObservableRegistration(coll *PRCollection) metric.Callback
 
 			// pr.review_status
 			for rs, cnt := range r.stats.reviewStatusCount {
-				attrs := append(base, attribute.String(semconv.AttrGitHubPrReviewStatus, rs)) //nolint:gocritic
+				attrs := append(append([]attribute.KeyValue{}, base...), //nolint:gocritic
+					attribute.String(semconv.AttrGitHubPrReviewStatus, rs))
 				obs.ObserveInt64(c.reviewStatus, cnt, metric.WithAttributes(attrs...))
 			}
 		}
@@ -381,26 +387,26 @@ func (c *PRCollector) ObservableRegistration(coll *PRCollection) metric.Callback
 	}
 }
 
-// Instruments returns the observable instruments for batch registration.
-func (c *PRCollector) Instruments() (metric.Int64ObservableGauge, metric.Float64ObservableGauge, metric.Int64ObservableGauge) {
-	return c.prCount, c.prAge, c.reviewStatus
+// ObservableInstruments returns the observable instruments for batch RegisterCallback.
+func (c *PRCollector) ObservableInstruments() []metric.Observable {
+	return []metric.Observable{c.prCount, c.prAge, c.reviewStatus}
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-// normaliseState converts GitHub GraphQL state strings to lowercase.
-// Draft PRs have state "OPEN" but IsDraft=true — we map them to "draft".
+// normaliseState converts GitHub GraphQL PR state strings to semconv values.
+// Draft PRs have State "OPEN" with IsDraft=true.
 func normaliseState(state string, isDraft bool) string {
 	switch state {
 	case "OPEN":
 		if isDraft {
-			return "draft"
+			return semconv.AttrGitHubPrStateDraft
 		}
 		return semconv.AttrGitHubPrStateOpen
 	case "CLOSED":
 		return semconv.AttrGitHubPrStateClosed
 	case "MERGED":
-		return "merged"
+		return semconv.AttrGitHubPrStateMerged
 	default:
 		return state
 	}
@@ -433,7 +439,7 @@ func hasApprovedReview(reviews []struct{ State string }) bool {
 	return false
 }
 
-// closedAtFor returns the ClosedAt time for merged or closed PRs.
+// closedAtFor returns the effective close time for a PR.
 func closedAtFor(pr *prNode) *time.Time {
 	if pr.MergedAt != nil {
 		return pr.MergedAt
