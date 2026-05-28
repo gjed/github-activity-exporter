@@ -50,6 +50,17 @@ metrics:
 
   # ── Renovate Dashboard Metrics ─────────────────────────────────────────────
 
+  - name: github.pr.review_status
+    instrument: gauge
+    unit: "{pr}"
+    stability: development
+    brief: Number of open pull requests grouped by review status.
+    note: >
+      Uses the github.pr.review_status attribute to distinguish approved,
+      changes_requested, pending, and none states.
+
+  # ── GitHub Issue Metrics ───────────────────────────────────────────────────
+
   - name: renovate.dashboard.queue
     instrument: gauge
     unit: "{pr}"
@@ -58,6 +69,16 @@ metrics:
     note: >
       The dashboard issue sections (awaiting-schedule, rate-limited, etc.)
       are parsed from the issue body and reported per section.
+
+  - name: renovate.dashboard.parse_error
+    instrument: gauge
+    unit: "{error}"
+    stability: development
+    brief: Set to 1 when the Renovate dependency dashboard cannot be parsed, 0 on success.
+    note: >
+      Emitted per repo. A value of 1 indicates the dashboard issue was found
+      but no expected sections (Awaiting Schedule, Rate-Limited, etc.) were
+      detected — likely a format change.
 
   # ── Exporter Self-Metrics ──────────────────────────────────────────────────
 

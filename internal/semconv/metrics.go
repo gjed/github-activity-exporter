@@ -43,9 +43,17 @@ const (
 	// Duration of a complete collection cycle in seconds.
 	// Instrument: histogram, Unit: s, Stability: development
 	MetricGitHubExporterScrapeDuration = "github_exporter.scrape.duration"
+// MetricGitHubPrReviewStatus is the metric name for github.pr.review_status.
+	// Number of open pull requests grouped by review status.
+	// Instrument: gauge, Unit: {pr}, Stability: development
+	MetricGitHubPrReviewStatus = "github.pr.review_status"
 // MetricRenovateDashboardQueue is the metric name for renovate.dashboard.queue.
 	// Number of pull requests in each section of the Renovate dependency dashboard.
 	// Instrument: gauge, Unit: {pr}, Stability: development
 	MetricRenovateDashboardQueue = "renovate.dashboard.queue"
+// MetricRenovateDashboardParseError is the metric name for renovate.dashboard.parse_error.
+	// Set to 1 when the Renovate dependency dashboard cannot be parsed, 0 on success.
+	// Instrument: gauge, Unit: {error}, Stability: development
+	MetricRenovateDashboardParseError = "renovate.dashboard.parse_error"
 
 )

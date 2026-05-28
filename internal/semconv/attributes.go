@@ -12,6 +12,10 @@ const (
 	// The configured scrape target identifier (e.g., org/repo slug).
 	// Stability: development
 	AttrExporterTarget = "exporter.target"
+// AttrGitHubIssueState is the key for the github.issue.state attribute.
+	// Current state of the GitHub issue.
+	// Stability: development
+	AttrGitHubIssueState = "github.issue.state"
 // AttrGitHubIssueLabel is the key for the github.issue.label attribute.
 	// A label applied to the GitHub issue.
 	// Stability: development
@@ -55,6 +59,10 @@ const (
 
 
 
+
+// Values for github.issue.state
+AttrGitHubIssueStateOpen = "open"
+AttrGitHubIssueStateClosed = "closed"
 
 // Values for github.pr.review_status
 AttrGitHubPrReviewStatusApproved = "approved"
