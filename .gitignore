@@ -29,3 +29,6 @@ Thumbs.db
 # Built binaries
 /exporter
 /renovate-exporter
+
+# Git worktrees
+.worktrees/
