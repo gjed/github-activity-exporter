@@ -6,10 +6,10 @@ metrics:
     instrument: updowncounter
     unit: "{pr}"
     stability: development
-    brief: Number of open pull requests.
+    brief: Number of pull requests grouped by state and label.
     note: >
-      Decrements when a PR is closed or merged.
-      Use the github.pr.state attribute to distinguish open vs draft PRs.
+      Use the github.pr.state attribute to distinguish open/merged/closed/draft.
+      Use the github.pr.label attribute for label breakdown.
 
   - name: github.pr.age
     instrument: gauge
@@ -17,8 +17,8 @@ metrics:
     stability: development
     brief: Age of an open pull request in seconds (time since creation).
     note: >
-      Recorded per-PR. Consumers can compute percentiles across gauge readings.
-      The gauge is removed when the PR is closed.
+      Recorded as the oldest open PR per repo. The gauge is omitted for repos
+      with no open PRs.
 
   - name: github.pr.close.duration
     instrument: histogram
@@ -26,29 +26,17 @@ metrics:
     stability: development
     brief: Time from PR creation to close (merged or declined) in seconds.
     note: >
-      Only recorded when a PR transitions to the closed state.
+      Only recorded for PRs that transitioned to closed/merged since the
+      previous collection cycle. Prevents double-counting across cycles.
 
   - name: github.pr.automerged
     instrument: counter
     unit: "{pr}"
     stability: development
     brief: Total number of pull requests merged via automerge.
-
-  # ── GitHub Issue Metrics ───────────────────────────────────────────────────
-
-  - name: github.issue.count
-    instrument: updowncounter
-    unit: "{issue}"
-    stability: development
-    brief: Number of open GitHub issues.
-
-  - name: github.issue.age
-    instrument: gauge
-    unit: s
-    stability: development
-    brief: Age of an open GitHub issue in seconds (time since creation).
-
-  # ── Renovate Dashboard Metrics ─────────────────────────────────────────────
+    note: >
+      A PR is considered automerged if it was merged with no APPROVED review.
+      Only counted for PRs merged since the previous collection cycle.
 
   - name: github.pr.review_status
     instrument: gauge
@@ -60,6 +48,24 @@ metrics:
       changes_requested, pending, and none states.
 
   # ── GitHub Issue Metrics ───────────────────────────────────────────────────
+
+  - name: github.issue.count
+    instrument: updowncounter
+    unit: "{issue}"
+    stability: development
+    brief: Number of GitHub issues grouped by state and label.
+    note: >
+      Use the github.issue.state attribute to distinguish open and closed issues.
+      Use the github.issue.label attribute for label breakdown.
+      Pull requests returned by the GitHub API are excluded.
+
+  - name: github.issue.age
+    instrument: gauge
+    unit: s
+    stability: development
+    brief: Age of the oldest open GitHub issue in seconds (time since creation).
+
+  # ── Renovate Dashboard Metrics ─────────────────────────────────────────────
 
   - name: renovate.dashboard.queue
     instrument: gauge

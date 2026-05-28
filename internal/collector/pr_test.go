@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -68,16 +69,20 @@ func collectMetrics(t *testing.T, reader *metric.ManualReader) metricdata.Resour
 	return rm
 }
 
+// findGaugeInt returns int64 data points for metrics that are either
+// Gauge[int64] (observable gauges) or Sum[int64] (observable up/down counters).
 func findGaugeInt(t *testing.T, rm metricdata.ResourceMetrics, name string) []metricdata.DataPoint[int64] {
 	t.Helper()
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
 			if m.Name == name {
-				g, ok := m.Data.(metricdata.Gauge[int64])
-				if !ok {
-					t.Fatalf("metric %q is not a Gauge[int64]", name)
+				if g, ok := m.Data.(metricdata.Gauge[int64]); ok {
+					return g.DataPoints
 				}
-				return g.DataPoints
+				if s, ok := m.Data.(metricdata.Sum[int64]); ok {
+					return s.DataPoints
+				}
+				t.Fatalf("metric %q is neither Gauge[int64] nor Sum[int64]", name)
 			}
 		}
 	}
@@ -149,7 +154,7 @@ func TestPRCollector_StateCount(t *testing.T) {
 	}
 
 	repos := []discovery.Repo{{Owner: "myorg", Name: "myrepo", FullName: "myorg/myrepo"}}
-	result, err := coll.Collect(context.Background(), "test-target", repos)
+	result, err := coll.Collect(context.Background(), "test-target", repos, time.Now().Add(-time.Hour))
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -199,7 +204,7 @@ func TestPRCollector_OldestOpenAge(t *testing.T) {
 	}
 
 	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	result, err := coll.Collect(context.Background(), "tgt", repos)
+	result, err := coll.Collect(context.Background(), "tgt", repos, time.Now().Add(-2*time.Hour))
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -249,7 +254,7 @@ func TestPRCollector_CloseDuration(t *testing.T) {
 	}
 
 	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	if _, err := coll.Collect(context.Background(), "tgt", repos); err != nil {
+	if _, err := coll.Collect(context.Background(), "tgt", repos, time.Now().Add(-2*time.Hour)); err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
 
@@ -314,7 +319,7 @@ func TestPRCollector_AutomergeDetection(t *testing.T) {
 			}
 
 			repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-			if _, err := coll.Collect(context.Background(), "tgt", repos); err != nil {
+			if _, err := coll.Collect(context.Background(), "tgt", repos, time.Now().Add(-2*time.Hour)); err != nil {
 				t.Fatalf("Collect: %v", err)
 			}
 
@@ -365,7 +370,7 @@ func TestPRCollector_LabelFilter(t *testing.T) {
 	}
 
 	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	result, err := coll.Collect(context.Background(), "tgt", repos)
+	result, err := coll.Collect(context.Background(), "tgt", repos, time.Now().Add(-2*time.Hour))
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -377,15 +382,21 @@ func TestPRCollector_LabelFilter(t *testing.T) {
 	rm := collectMetrics(t, reader)
 	dps := findGaugeInt(t, rm, semconv.MetricGitHubPrCount)
 
-	// Only 1 PR (number 2 with label "bug" should be filtered out)
-	var stateTotal int64
+	// Only PR #1 (renovate-labeled) passes the filter.
+	// pr.count emits: (open, ""), (open, "renovate"), (open, "dependencies").
+	// The state-only point (no label attribute) should be 1.
+	stateKey := attribute.Key(semconv.AttrGitHubPrState)
+	labelKey := attribute.Key(semconv.AttrGitHubPrLabel)
+	var stateOnlyCount int64
 	for _, dp := range dps {
-		if _, ok := dp.Attributes.Value(semconv.AttrGitHubPrState); ok {
-			stateTotal += dp.Value
+		_, hasState := dp.Attributes.Value(stateKey)
+		_, hasLabel := dp.Attributes.Value(labelKey)
+		if hasState && !hasLabel {
+			stateOnlyCount += dp.Value
 		}
 	}
-	if stateTotal != 1 {
-		t.Errorf("state-keyed PR count = %d, want 1 (only renovate-labeled PR)", stateTotal)
+	if stateOnlyCount != 1 {
+		t.Errorf("state-only PR count = %d, want 1 (only renovate-labeled PR passed filter)", stateOnlyCount)
 	}
 }
 
@@ -415,7 +426,7 @@ func TestPRCollector_ReviewStatus(t *testing.T) {
 	}
 
 	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	result, err := coll.Collect(context.Background(), "tgt", repos)
+	result, err := coll.Collect(context.Background(), "tgt", repos, time.Now().Add(-2*time.Hour))
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}

@@ -325,7 +325,7 @@ func TestIssueCollector_NoPullRequests(t *testing.T) {
 		for _, m := range sm.Metrics {
 			if m.Name == semconv.MetricGitHubIssueCount {
 				if _, ok := m.Data.(metricdata.Histogram[float64]); ok {
-					t.Error("github.issue.count should be a gauge, not a histogram")
+					t.Error("github.issue.count should be an updowncounter (Sum), not a histogram")
 				}
 			}
 		}

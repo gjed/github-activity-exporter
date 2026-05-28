@@ -15,11 +15,15 @@ import (
 	"github.com/gjed/renovate-exporter/internal/semconv"
 )
 
-// dashboardSectionRE matches the section header lines in a Renovate Dependency
-// Dashboard issue body. The capturing group holds the normalised section name.
+// dashboardSectionRE matches a known Renovate Dependency Dashboard section
+// header. The capturing group holds the section name.
 var dashboardSectionRE = regexp.MustCompile(
 	`(?m)^## (Awaiting Schedule|Rate-Limited|Pending Approval|Open)\s*$`,
 )
+
+// anyH2RE matches any level-2 Markdown heading. Used as a generic boundary
+// so that unknown/future sections don't bleed into the previous known section.
+var anyH2RE = regexp.MustCompile(`(?m)^## .*$`)
 
 // checkboxRE matches both checked and unchecked Markdown list items.
 var checkboxRE = regexp.MustCompile(`(?m)^\s*- \[[ x]\]`)
@@ -199,21 +203,27 @@ func isDashboardIssue(iss *github.Issue, botLogin string) bool {
 
 // parseDashboard parses a Renovate Dependency Dashboard issue body and returns
 // queue counts per section. If no expected sections are found, parseError is set to 1.
+//
+// Any `##` heading is treated as a section boundary. This prevents items under
+// unknown/future sections from leaking into a preceding known section's count.
 func parseDashboard(body string) dashboardStats {
 	stats := dashboardStats{
 		sections: make(map[string]int64),
 	}
 
-	matches := dashboardSectionRE.FindAllStringIndex(body, -1)
-	if len(matches) == 0 {
+	// First check that at least one known section exists.
+	if !dashboardSectionRE.MatchString(body) {
 		stats.parseError = 1
 		return stats
 	}
 
-	// For each section match, count checkboxes until the next section or EOF.
-	for i, m := range matches {
+	// Collect all ## headings as boundaries (both known and unknown).
+	allBoundaries := anyH2RE.FindAllStringIndex(body, -1)
+
+	for i, m := range allBoundaries {
 		headerLine := body[m[0]:m[1]]
-		// Extract section name from the match.
+
+		// Only record metrics for known sections.
 		sub := dashboardSectionRE.FindStringSubmatch(headerLine)
 		if len(sub) < 2 {
 			continue
@@ -224,11 +234,13 @@ func parseDashboard(body string) dashboardStats {
 			continue
 		}
 
-		// Determine the body slice for this section.
+		// Section body runs from the end of this heading to the start of the
+		// next ## heading (or EOF). Unknown headings act as boundaries even
+		// though we don't record metrics for them.
 		sectionStart := m[1]
 		var sectionEnd int
-		if i+1 < len(matches) {
-			sectionEnd = matches[i+1][0]
+		if i+1 < len(allBoundaries) {
+			sectionEnd = allBoundaries[i+1][0]
 		} else {
 			sectionEnd = len(body)
 		}
