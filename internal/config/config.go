@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,6 +23,37 @@ type Target struct {
 	Orgs      []OrgConfig `mapstructure:"orgs"`
 	Repos     []string    `mapstructure:"repos"`
 	Discovery Discovery   `mapstructure:"discovery"`
+	Filters   Filters     `mapstructure:"filters"`
+}
+
+// Filters holds per-target filtering rules for PRs and issues.
+type Filters struct {
+	PRs    PRFilters    `mapstructure:"prs"`
+	Issues IssueFilters `mapstructure:"issues"`
+}
+
+// PRFilters defines label and state filters for pull requests.
+type PRFilters struct {
+	// IncludeLabels restricts collection to PRs carrying at least one of these labels.
+	// When empty, all labels are included.
+	IncludeLabels []string `mapstructure:"include_labels"`
+	// ExcludeLabels drops PRs carrying any of these labels.
+	ExcludeLabels []string `mapstructure:"exclude_labels"`
+	// States restricts collection to PRs in these states ("open", "closed", "merged").
+	// When empty, all states are included.
+	States []string `mapstructure:"states"`
+}
+
+// IssueFilters defines label and title-pattern filters for issues.
+type IssueFilters struct {
+	// ExcludeTitlePatterns holds raw regex strings from config.
+	// Compiled forms are stored in ExcludeTitleRegexps after Load().
+	ExcludeTitlePatterns []string `mapstructure:"exclude_title_patterns"`
+	// ExcludeTitleRegexps is populated by compileFilters; never set from YAML.
+	ExcludeTitleRegexps []*regexp.Regexp `mapstructure:"-"`
+	// States restricts collection to issues in these states ("open", "closed").
+	// When empty, all states are included.
+	States []string `mapstructure:"states"`
 }
 
 // Auth specifies authentication configuration for a target.
@@ -82,11 +114,37 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	if err := compileFilters(&cfg); err != nil {
+		return nil, err
+	}
+
 	if err := validate(&cfg); err != nil {
 		return nil, err
 	}
 
 	return &cfg, nil
+}
+
+// compileFilters compiles issue title exclusion patterns into regexp.Regexp values.
+// It returns an error if any pattern is invalid, reporting the target name and pattern.
+func compileFilters(cfg *Config) error {
+	for i := range cfg.Targets {
+		t := &cfg.Targets[i]
+		patterns := t.Filters.Issues.ExcludeTitlePatterns
+		if len(patterns) == 0 {
+			continue
+		}
+		compiled := make([]*regexp.Regexp, 0, len(patterns))
+		for _, p := range patterns {
+			re, err := regexp.Compile(p)
+			if err != nil {
+				return fmt.Errorf("target %q: invalid filters.issues.exclude_title_patterns %q: %w", t.Name, p, err)
+			}
+			compiled = append(compiled, re)
+		}
+		t.Filters.Issues.ExcludeTitleRegexps = compiled
+	}
+	return nil
 }
 
 // resolveEnvVars fills token/private-key values from environment variables
