@@ -43,15 +43,15 @@ runs:
         WEAVER_VERSION: ${{ inputs.weaver-version }}
         TRIPLE: ${{ steps.platform.outputs.triple }}
       run: |
-        # As of v0.16.0 the asset filename no longer contains the version number
-        # and uses .tar.xz instead of .tar.gz.
+        # As of v0.16.0 the asset filename no longer contains the version number,
+        # uses .tar.xz, and extracts into a subdirectory named after the triple.
         ARCHIVE="weaver-${TRIPLE}.tar.xz"
         URL="https://github.com/open-telemetry/weaver/releases/download/v${WEAVER_VERSION}/${ARCHIVE}"
         echo "Downloading Weaver from: $URL"
         curl -fsSL "$URL" -o /tmp/weaver.tar.xz
         tar -xJf /tmp/weaver.tar.xz -C /tmp
-        chmod +x /tmp/weaver
-        echo "/tmp" >> "$GITHUB_PATH"
+        chmod +x "/tmp/weaver-${TRIPLE}/weaver"
+        echo "/tmp/weaver-${TRIPLE}" >> "$GITHUB_PATH"
 
     - name: Verify Weaver installation
       shell: bash
