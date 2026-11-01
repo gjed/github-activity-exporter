@@ -50,17 +50,44 @@ type Runner struct {
 
 	// registration handle so we can unregister on shutdown.
 	registration metric.Registration
+
+	// scrape records the duration of each collection cycle; nil disables it.
+	scrape ScrapeRecorder
 }
 
-// NewRunner creates a Runner for the given target.
-// interval controls how often the collection loop fires; pass 0 to use the
+// ScrapeRecorder records the duration of a collection cycle.
+// Satisfied by *exporter.SelfMetrics.
+type ScrapeRecorder interface {
+	RecordScrapeDuration(ctx context.Context, target string, start time.Time)
+}
+
+// RunnerOption configures a Runner.
+type RunnerOption func(*Runner)
+
+// WithInterval sets the collection interval. Non-positive values keep the
 // default (5 minutes).
+func WithInterval(d time.Duration) RunnerOption {
+	return func(r *Runner) {
+		if d > 0 {
+			r.interval = d
+		}
+	}
+}
+
+// WithScrapeRecorder records github_exporter.scrape.duration for every cycle.
+func WithScrapeRecorder(sr ScrapeRecorder) RunnerOption {
+	return func(r *Runner) { r.scrape = sr }
+}
+
+// NewRunner creates a Runner for the given target. The collection interval
+// defaults to 5 minutes; override it with WithInterval.
 func NewRunner(
 	target config.Target,
 	source RepoSource,
 	colls RunnerCollectors,
 	meter metric.Meter,
 	logger *slog.Logger,
+	opts ...RunnerOption,
 ) (*Runner, error) {
 	if logger == nil {
 		logger = slog.Default()
@@ -72,6 +99,9 @@ func NewRunner(
 		collectors: colls,
 		interval:   5 * time.Minute,
 		logger:     logger,
+	}
+	for _, opt := range opts {
+		opt(r)
 	}
 
 	// Register one batch callback that serves all observable instruments using
@@ -202,6 +232,10 @@ func (r *Runner) runOnce(ctx context.Context) {
 	r.latestDash = dashColl
 	r.lastCollectedAt = start
 	r.mu.Unlock()
+
+	if r.scrape != nil {
+		r.scrape.RecordScrapeDuration(ctx, r.target, start)
+	}
 
 	r.logger.Debug("collection cycle complete",
 		"target", r.target,
