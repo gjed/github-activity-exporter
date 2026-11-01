@@ -8,11 +8,11 @@ package semconv
 // All metric instrumentation MUST reference these constants — no magic strings.
 const (
 // MetricGitHubIssueAge is the metric name for github.issue.age.
-	// Age of an open GitHub issue in seconds (time since creation).
+	// Age of the oldest open GitHub issue in seconds (time since creation).
 	// Instrument: gauge, Unit: s, Stability: development
 	MetricGitHubIssueAge = "github.issue.age"
 // MetricGitHubIssueCount is the metric name for github.issue.count.
-	// Number of open GitHub issues.
+	// Number of GitHub issues grouped by state and label.
 	// Instrument: updowncounter, Unit: {issue}, Stability: development
 	MetricGitHubIssueCount = "github.issue.count"
 // MetricGitHubPrAge is the metric name for github.pr.age.
@@ -28,9 +28,13 @@ const (
 	// Instrument: histogram, Unit: s, Stability: development
 	MetricGitHubPrCloseDuration = "github.pr.close.duration"
 // MetricGitHubPrCount is the metric name for github.pr.count.
-	// Number of open pull requests.
+	// Number of pull requests grouped by state and label.
 	// Instrument: updowncounter, Unit: {pr}, Stability: development
 	MetricGitHubPrCount = "github.pr.count"
+// MetricGitHubPrReviewStatus is the metric name for github.pr.review_status.
+	// Number of open pull requests grouped by review status.
+	// Instrument: gauge, Unit: {pr}, Stability: development
+	MetricGitHubPrReviewStatus = "github.pr.review_status"
 // MetricGitHubExporterApiErrors is the metric name for github_exporter.api.errors.
 	// Number of GitHub API errors encountered during collection.
 	// Instrument: counter, Unit: {error}, Stability: development
@@ -43,17 +47,13 @@ const (
 	// Duration of a complete collection cycle in seconds.
 	// Instrument: histogram, Unit: s, Stability: development
 	MetricGitHubExporterScrapeDuration = "github_exporter.scrape.duration"
-// MetricGitHubPrReviewStatus is the metric name for github.pr.review_status.
-	// Number of open pull requests grouped by review status.
-	// Instrument: gauge, Unit: {pr}, Stability: development
-	MetricGitHubPrReviewStatus = "github.pr.review_status"
-// MetricRenovateDashboardQueue is the metric name for renovate.dashboard.queue.
-	// Number of pull requests in each section of the Renovate dependency dashboard.
-	// Instrument: gauge, Unit: {pr}, Stability: development
-	MetricRenovateDashboardQueue = "renovate.dashboard.queue"
 // MetricRenovateDashboardParseError is the metric name for renovate.dashboard.parse_error.
 	// Set to 1 when the Renovate dependency dashboard cannot be parsed, 0 on success.
 	// Instrument: gauge, Unit: {error}, Stability: development
 	MetricRenovateDashboardParseError = "renovate.dashboard.parse_error"
+// MetricRenovateDashboardQueue is the metric name for renovate.dashboard.queue.
+	// Number of pull requests in each section of the Renovate dependency dashboard.
+	// Instrument: gauge, Unit: {pr}, Stability: development
+	MetricRenovateDashboardQueue = "renovate.dashboard.queue"
 
 )
