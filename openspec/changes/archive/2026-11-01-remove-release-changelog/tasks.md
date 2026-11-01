@@ -6,4 +6,4 @@
 ## 2. Verification
 
 - [x] 2.1 `pnpm install --frozen-lockfile` succeeds
-- [ ] 2.2 `pnpm exec semantic-release --dry-run --no-ci` loads the remaining plugins without error
+- [x] 2.2 `pnpm exec semantic-release --dry-run --no-ci` loads the remaining plugins without error
