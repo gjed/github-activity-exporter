@@ -43,14 +43,12 @@ module.exports = {
         changelogFile: "CHANGELOG.md",
       },
     ],
+    // Writes nextRelease.notes to /tmp/release-notes.md from the plugin
+    // context (no shell expansion of commit message content).
+    "./scripts/write-release-notes.js",
     [
       "@semantic-release/exec",
       {
-        // generateNotesCmd receives the release notes on stdin, avoiding
-        // shell expansion of commit message content (no ${nextRelease.notes}
-        // substitution in the shell command itself).
-        generateNotesCmd:
-          "node scripts/write-release-notes.js",
         publishCmd:
           "GORELEASER_CURRENT_TAG=${nextRelease.gitTag} goreleaser release --clean --release-notes /tmp/release-notes.md",
       },
