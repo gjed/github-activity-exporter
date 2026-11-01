@@ -43,10 +43,13 @@ type Runner struct {
 	latestIssue *IssueCollection
 	latestDash  *DashboardCollection
 
-	// lastCollectedAt is the wall-clock time the previous successful collection
-	// cycle completed. Zero on first run. Used to gate event-based instruments
-	// (close.duration, automerged) so we only record truly new events per cycle.
-	lastCollectedAt time.Time
+	// lastCollectedAt maps repo FullName to the start of the last cycle in
+	// which that repo's PRs were collected successfully. Used to gate
+	// event-based instruments (close.duration, automerged) so each event is
+	// recorded once. A repo whose collection fails keeps its previous value,
+	// so its events are picked up on the next successful cycle. In-memory
+	// only: events that happen while the exporter is down are not recorded.
+	lastCollectedAt map[string]time.Time
 
 	// registration handle so we can unregister on shutdown.
 	registration metric.Registration
@@ -99,6 +102,8 @@ func NewRunner(
 		collectors: colls,
 		interval:   5 * time.Minute,
 		logger:     logger,
+
+		lastCollectedAt: make(map[string]time.Time),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -190,7 +195,10 @@ func (r *Runner) runOnce(ctx context.Context) {
 	r.logger.Debug("collection cycle started", "target", r.target)
 
 	r.mu.RLock()
-	lastCollectedAt := r.lastCollectedAt
+	lastCollectedAt := make(map[string]time.Time, len(r.lastCollectedAt))
+	for k, v := range r.lastCollectedAt {
+		lastCollectedAt[k] = v
+	}
 	r.mu.RUnlock()
 
 	repos, err := r.source.Repos(ctx)
@@ -226,11 +234,31 @@ func (r *Runner) runOnce(ctx context.Context) {
 		}
 	}
 
+	// Advance lastCollectedAt only for repos whose PR collection succeeded;
+	// failed repos keep their previous timestamp. Repos no longer discovered
+	// are dropped.
+	next := make(map[string]time.Time, len(repos))
+	if prColl != nil {
+		failed := make(map[string]bool, len(prColl.FailedRepos()))
+		for _, name := range prColl.FailedRepos() {
+			failed[name] = true
+		}
+		for _, repo := range repos {
+			if failed[repo.FullName] {
+				if t, ok := lastCollectedAt[repo.FullName]; ok {
+					next[repo.FullName] = t
+				}
+				continue
+			}
+			next[repo.FullName] = start
+		}
+	}
+
 	r.mu.Lock()
 	r.latestPR = prColl
 	r.latestIssue = issColl
 	r.latestDash = dashColl
-	r.lastCollectedAt = start
+	r.lastCollectedAt = next
 	r.mu.Unlock()
 
 	if r.scrape != nil {

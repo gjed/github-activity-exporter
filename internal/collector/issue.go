@@ -55,7 +55,13 @@ type IssueCollectResult struct {
 // IssueCollection holds results from one collection cycle.
 type IssueCollection struct {
 	results []IssueCollectResult
+
+	// failed lists the FullName of repos whose collection failed this cycle.
+	failed []string
 }
+
+// FailedRepos returns the FullName of every repo whose collection failed.
+func (c *IssueCollection) FailedRepos() []string { return c.failed }
 
 // NewIssueCollector creates an IssueCollector that records metrics on the given meter.
 func NewIssueCollector(
@@ -107,6 +113,7 @@ func (c *IssueCollector) Collect(ctx context.Context, target string, repos []dis
 				"repo", repo.FullName,
 				"err", err,
 			)
+			coll.failed = append(coll.failed, repo.FullName)
 			continue
 		}
 		coll.results = append(coll.results, IssueCollectResult{

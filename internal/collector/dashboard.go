@@ -70,7 +70,13 @@ type DashboardCollectResult struct {
 // DashboardCollection holds results from one collection cycle.
 type DashboardCollection struct {
 	results []DashboardCollectResult
+
+	// failed lists the FullName of repos whose collection failed this cycle.
+	failed []string
 }
+
+// FailedRepos returns the FullName of every repo whose collection failed.
+func (c *DashboardCollection) FailedRepos() []string { return c.failed }
 
 // NewDashboardCollector creates a DashboardCollector.
 // botLogin is the GitHub username of the Renovate bot account (e.g., "renovate[bot]").
@@ -123,6 +129,7 @@ func (c *DashboardCollector) Collect(ctx context.Context, target string, repos [
 				"repo", repo.FullName,
 				"err", err,
 			)
+			coll.failed = append(coll.failed, repo.FullName)
 			continue
 		}
 		if stats == nil {

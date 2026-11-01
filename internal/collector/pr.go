@@ -181,25 +181,33 @@ type CollectResult struct {
 // PRCollection holds results from one collection cycle.
 type PRCollection struct {
 	results []CollectResult
+
+	// failed lists the FullName of repos whose collection failed this cycle.
+	failed []string
 }
 
+// FailedRepos returns the FullName of every repo whose collection failed.
+func (c *PRCollection) FailedRepos() []string { return c.failed }
+
 // Collect fetches PRs for all repos and returns a PRCollection.
-// lastCollectedAt is the timestamp of the previous successful collection;
-// close.duration and automerged events are only recorded for PRs that closed
-// after that time, preventing double-counting across cycles.
-// Pass a zero time.Time on the first cycle to skip event recording entirely.
-func (c *PRCollector) Collect(ctx context.Context, target string, repos []discovery.Repo, lastCollectedAt time.Time) (*PRCollection, error) {
+// lastCollectedAt maps repo FullName to the time of that repo's previous
+// successful collection; close.duration and automerged events are only
+// recorded for PRs that closed after it, preventing double-counting across
+// cycles. Repos missing from the map (first cycle, newly discovered) skip
+// event recording entirely.
+func (c *PRCollector) Collect(ctx context.Context, target string, repos []discovery.Repo, lastCollectedAt map[string]time.Time) (*PRCollection, error) {
 	lookbackCutoff := time.Now().AddDate(0, 0, -c.cfg.LookbackDays)
 	coll := &PRCollection{}
 
 	for _, repo := range repos {
-		stats, err := c.collectRepo(ctx, target, repo, lookbackCutoff, lastCollectedAt)
+		stats, err := c.collectRepo(ctx, target, repo, lookbackCutoff, lastCollectedAt[repo.FullName])
 		if err != nil {
 			c.logger.Error("PR collection failed for repo",
 				"target", target,
 				"repo", repo.FullName,
 				"err", err,
 			)
+			coll.failed = append(coll.failed, repo.FullName)
 			continue
 		}
 		coll.results = append(coll.results, CollectResult{
