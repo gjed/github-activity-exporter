@@ -58,7 +58,7 @@ func main() {
 	}
 
 	// SelfMetrics are registered on the global MeterProvider; each Runner
-	// records scrape duration into them at the end of a collection cycle.
+	// records scrape duration and API errors into them every collection cycle.
 	selfMetrics, err := exporter.NewSelfMetrics()
 	if err != nil {
 		logger.Error("failed to register self-metrics", "err", err)
@@ -68,7 +68,7 @@ func main() {
 	// ── Build per-target runners ──────────────────────────────────────────────
 	runners, err := buildRunners(ctx, cfg, logger,
 		collector.WithInterval(exporterCfg.CollectionInterval),
-		collector.WithScrapeRecorder(selfMetrics),
+		collector.WithSelfMetrics(selfMetrics),
 	)
 	if err != nil {
 		logger.Error("failed to build runners", "err", err)
