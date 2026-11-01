@@ -11,6 +11,8 @@ const (
 {%- set id = group.metric_name | pascal_case_const
               | replace("Githubexporter", "GitHubExporter")
               | replace("Otlp", "OTLP")
+              | replace("Reviewstatus", "ReviewStatus")
+              | replace("Parseerror", "ParseError")
               | replace("Github", "GitHub") -%}
 	// Metric{{ id }} is the metric name for {{ group.metric_name }}.
 	// {{ group.brief }}

@@ -56,7 +56,7 @@
 
     ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Number of open pull requests.",
+      "description": "Number of pull requests grouped by state and label.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
       "id": 13,
@@ -67,12 +67,25 @@
 
 
 
+    ,{
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Number of open pull requests grouped by review status.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "id": 14,
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "github.pr.review_status{job=\"$job\"}", "legendFormat": "__auto", "refId": "A" }],
+      "title": "github.pr.review_status",
+      "type": "timeseries"
+    }
+
+
+
     ,{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 }, "id": 100, "title": "Issues", "type": "row" }
 
 
     ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Age of an open GitHub issue in seconds (time since creation).",
+      "description": "Age of the oldest open GitHub issue in seconds (time since creation).",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 51 },
       "id": 101,
@@ -84,7 +97,7 @@
 
     ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Number of open GitHub issues.",
+      "description": "Number of GitHub issues grouped by state and label.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 51 },
       "id": 102,
@@ -99,10 +112,22 @@
 
     ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Number of pull requests in each section of the Renovate dependency dashboard.",
+      "description": "Set to 1 when the Renovate dependency dashboard cannot be parsed, 0 on success.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 101 },
       "id": 201,
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "renovate.dashboard.parse_error{job=\"$job\"}", "legendFormat": "{{renovate_dashboard_section}}", "refId": "A" }],
+      "title": "renovate.dashboard.parse_error",
+      "type": "timeseries"
+    }
+
+
+    ,{
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Number of pull requests in each section of the Renovate dependency dashboard.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 109 },
+      "id": 202,
       "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "renovate.dashboard.queue{job=\"$job\"}", "legendFormat": "{{renovate_dashboard_section}}", "refId": "A" }],
       "title": "renovate.dashboard.queue",
       "type": "timeseries"
