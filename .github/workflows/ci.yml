@@ -168,49 +168,7 @@ jobs:
           # renovate: datasource=github-releases depName=open-telemetry/weaver
           weaver-version: "0.23.0"
 
-      - name: Build exporter binary
-        run: go build -o ./bin/renovate-exporter ./cmd/renovate-exporter/
-
-      - name: Start mock GitHub API server
-        run: |
-          go run ./tests/integration/mockserver/ &
-          echo "MOCK_SERVER_PID=$!" >> "$GITHUB_ENV"
-          # Wait for mock server to be ready
-          for i in $(seq 1 10); do
-            if curl -sf http://localhost:18080/health > /dev/null 2>&1; then
-              echo "Mock server ready"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Mock server did not become healthy in time"
-          exit 1
-
-      - name: Start exporter and wait for healthz
-        run: |
-          ./bin/renovate-exporter \
-            --config tests/integration/config.yaml \
-            --github-api-base-url http://localhost:18080 &
-          echo "EXPORTER_PID=$!" >> "$GITHUB_ENV"
-          # Wait for exporter to be ready
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:9090/healthz > /dev/null 2>&1; then
-              echo "Exporter ready"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Exporter did not become healthy in time"
-          exit 1
-
       - name: Weaver live-check
-        run: |
-          weaver registry live-check \
-            -r registry/ \
-            --inactivity-timeout 30
-
-      - name: Stop exporter and mock server
-        if: always()
-        run: |
-          [ -n "$EXPORTER_PID" ] && kill "$EXPORTER_PID" || true
-          [ -n "$MOCK_SERVER_PID" ] && kill "$MOCK_SERVER_PID" || true
+        # Emits metrics through the exporter's OTLP pipeline into
+        # `weaver registry live-check` and asserts schema conformance.
+        run: go test -tags integration -count=1 -timeout 180s -v ./tests/integration/...
