@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,51 +35,10 @@ import (
 const weaverVersion = "0.23.0"
 const weaverImage = "otel/weaver:v" + weaverVersion
 
-// TestLiveCheck_ConformsToSchema starts the exporter with stub metric
-// emissions and runs `weaver registry live-check` to assert schema compliance.
+// TestLiveCheck_ConformsToSchema emits conforming metrics and asserts that
+// `weaver registry live-check` reports no schema violations.
 func TestLiveCheck_ConformsToSchema(t *testing.T) {
-	runner := requireWeaverRunner(t)
-
-	// Pick a free OTLP port for the live-check receiver.
-	otlpPort := freePort(t)
-	otlpEndpoint := fmt.Sprintf("http://localhost:%d", otlpPort)
-
-	// Start the MeterProvider pushing to the live-check receiver endpoint.
-	cfg := exporter.Config{
-		OTLPEndpoint:       otlpEndpoint,
-		Protocol:           exporter.ProtocolHTTP,
-		CollectionInterval: 500 * time.Millisecond, // fast cycles for the test
-	}
-	p, err := exporter.New(context.Background(), cfg, nil)
-	if err != nil {
-		t.Fatalf("exporter.New: %v", err)
-	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = p.Shutdown(ctx)
-	})
-
-	// Emit conforming metrics using generated semconv constants.
-	emitConformingMetrics(t, p)
-
-	// ForceFlush pushes pending metric data immediately rather than waiting
-	// for the next PeriodicReader cycle, eliminating timing flakiness.
-	flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer flushCancel()
-	if err := p.ForceFlush(flushCtx); err != nil {
-		t.Logf("ForceFlush warning: %v", err) // non-fatal; live-check will still receive data
-	}
-
-	// Run `weaver registry live-check` against our registry.
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	cmd := runner.liveCheckCmd(ctx, otlpPort)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
+	if err := runLiveCheck(t, emitConformingMetrics); err != nil {
 		t.Fatalf("weaver registry live-check failed (schema violation): %v", err)
 	}
 }
@@ -87,51 +47,104 @@ func TestLiveCheck_ConformsToSchema(t *testing.T) {
 // type (integer instead of string for github.org) and asserts live-check
 // returns non-zero.
 func TestLiveCheck_SchemaViolationDetected(t *testing.T) {
-	runner := requireWeaverRunner(t)
-
-	otlpPort := freePort(t)
-	otlpEndpoint := fmt.Sprintf("http://localhost:%d", otlpPort)
-
-	cfg := exporter.Config{
-		OTLPEndpoint:       otlpEndpoint,
-		Protocol:           exporter.ProtocolHTTP,
-		CollectionInterval: 500 * time.Millisecond,
-	}
-	p, err := exporter.New(context.Background(), cfg, nil)
-	if err != nil {
-		t.Fatalf("exporter.New: %v", err)
-	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = p.Shutdown(ctx)
-	})
-
-	// Deliberately violate the schema: use an integer for github.org (must be string).
-	emitViolatingMetrics(t, p)
-
-	flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer flushCancel()
-	if err := p.ForceFlush(flushCtx); err != nil {
-		t.Logf("ForceFlush warning: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	cmd := runner.liveCheckCmd(ctx, otlpPort)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	err = cmd.Run()
+	err := runLiveCheck(t, emitViolatingMetrics)
 	if err == nil {
 		t.Fatal("expected weaver live-check to return non-zero for schema violation, but it exited 0")
 	}
 	t.Logf("weaver live-check correctly detected violation: %v", err)
 }
 
-// ── weaver runner ─────────────────────────────────────────────────────────────
+// runLiveCheck starts `weaver registry live-check` as an OTLP/gRPC receiver,
+// waits for it to listen, pushes the metrics recorded by emit to it, and
+// returns the live-check exit error once it stops on inactivity.
+func runLiveCheck(t *testing.T, emit func(*testing.T, *exporter.Provider)) error {
+	t.Helper()
+	runner := requireWeaverRunner(t)
 
+	grpcPort := freePort(t)
+	adminPort := freePort(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	cmd := runner.liveCheckCmd(ctx, grpcPort, adminPort)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start weaver live-check: %v", err)
+	}
+	waitErr := make(chan error, 1)
+	go func() { waitErr <- cmd.Wait() }()
+
+	// The receiver must be listening before metrics are pushed, otherwise the
+	// export is lost and live-check sees no telemetry.
+	addr := fmt.Sprintf("127.0.0.1:%d", grpcPort)
+	if err := waitForListener(addr, waitErr, 60*time.Second); err != nil {
+		t.Fatalf("weaver live-check receiver on %s: %v", addr, err)
+	}
+
+	cfg := exporter.Config{
+		OTLPEndpoint:       addr,
+		Protocol:           exporter.ProtocolGRPC,
+		TLSInsecure:        true,      // plaintext gRPC to the local receiver
+		CollectionInterval: time.Hour, // export only via ForceFlush
+	}
+	p, err := exporter.New(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("exporter.New: %v", err)
+	}
+
+	emit(t, p)
+
+	// ForceFlush pushes pending metric data immediately rather than waiting
+	// for the next PeriodicReader cycle.
+	flushCtx, flushCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer flushCancel()
+	if err := p.ForceFlush(flushCtx); err != nil {
+		t.Fatalf("ForceFlush to weaver live-check: %v", err)
+	}
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	_ = p.Shutdown(shutdownCtx)
+
+	// Ask live-check to stop and render its report now that all telemetry
+	// has been delivered.
+	stopURL := fmt.Sprintf("http://127.0.0.1:%d/stop", adminPort)
+	resp, err := http.Post(stopURL, "text/plain", nil)
+	if err != nil {
+		t.Fatalf("POST %s: %v", stopURL, err)
+	}
+	_ = resp.Body.Close()
+
+	select {
+	case err := <-waitErr:
+		return err
+	case <-ctx.Done():
+		t.Fatalf("weaver live-check did not exit: %v", ctx.Err())
+		return nil
+	}
+}
+
+// waitForListener polls addr until it accepts TCP connections, the process
+// exits, or the timeout elapses.
+func waitForListener(addr string, exited <-chan error, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-exited:
+			return fmt.Errorf("weaver exited before listening: %v", err)
+		default:
+		}
+		if c, err := net.DialTimeout("tcp", addr, 200*time.Millisecond); err == nil {
+			_ = c.Close()
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("not listening after %s", timeout)
+}
+
+// ── weaver runner ─────────────────────────────────────────────────────────────
 // weaverRunner abstracts running weaver via Docker or a local binary.
 type weaverRunner struct {
 	useDocker   bool
@@ -169,30 +182,32 @@ func requireWeaverRunner(t *testing.T) weaverRunner {
 	return weaverRunner{}
 }
 
-// liveCheckCmd builds the exec.Cmd for `weaver registry live-check`.
-// When running via Docker, --network host is used so the container can reach
-// the OTLP port opened by the test process on localhost.
-func (r weaverRunner) liveCheckCmd(ctx context.Context, otlpPort int) *exec.Cmd {
+// liveCheckCmd builds the exec.Cmd for `weaver registry live-check`
+// listening for OTLP/gRPC on grpcPort. When running via Docker, --network host
+// is used so the test process can reach the receiver on localhost.
+func (r weaverRunner) liveCheckCmd(ctx context.Context, grpcPort, adminPort int) *exec.Cmd {
+	args := []string{
+		"registry", "live-check",
+		"--otlp-grpc-port", fmt.Sprint(grpcPort),
+		"--admin-port", fmt.Sprint(adminPort),
+		"--inactivity-timeout", "60", // stopped via the admin /stop endpoint
+		// Resolve every attribute of the semconv dependency, not only the ones
+		// our signals reference, so SDK resource attributes (host.*, process.*,
+		// service.name, ...) are recognised.
+		"--include-unreferenced",
+	}
 	if r.useDocker {
-		args := []string{
+		docker := []string{
 			"run", "--rm",
-			"--network", "host", // reach localhost OTLP port from inside container
+			"--network", "host",
 			"--mount", fmt.Sprintf("type=bind,source=%s,target=/workspace/registry,readonly", r.registryDir),
 			"--env", "HOME=/tmp/weaver",
 			weaverImage,
-			"registry", "live-check",
-			"-r", "/workspace/registry/",
-			"--otlp-endpoint", fmt.Sprintf("localhost:%d", otlpPort),
 		}
+		args = append(append(docker, args...), "-r", "/workspace/registry/")
 		return exec.CommandContext(ctx, "docker", args...)
 	}
-
-	return exec.CommandContext(ctx,
-		"weaver",
-		"registry", "live-check",
-		"-r", r.registryDir+"/",
-		"--otlp-endpoint", fmt.Sprintf("localhost:%d", otlpPort),
-	)
+	return exec.CommandContext(ctx, "weaver", append(args, "-r", r.registryDir+"/")...)
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -204,7 +219,7 @@ func freePort(t *testing.T) int {
 		t.Fatalf("freePort: %v", err)
 	}
 	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
+	_ = l.Close()
 	return port
 }
 
@@ -214,7 +229,7 @@ func emitConformingMetrics(t *testing.T, p *exporter.Provider) {
 	t.Helper()
 	meter := p.MeterProvider().Meter("integration-test")
 
-	prCount, err := meter.Int64UpDownCounter(sc.MetricGitHubPrCount)
+	prCount, err := meter.Int64UpDownCounter(sc.MetricGitHubPrCount, metric.WithUnit("{pr}"))
 	if err != nil {
 		t.Fatalf("create pr.count: %v", err)
 	}
@@ -226,7 +241,7 @@ func emitConformingMetrics(t *testing.T, p *exporter.Provider) {
 		),
 	)
 
-	scrapeDur, err := meter.Float64Histogram(sc.MetricGitHubExporterScrapeDuration)
+	scrapeDur, err := meter.Float64Histogram(sc.MetricGitHubExporterScrapeDuration, metric.WithUnit("s"))
 	if err != nil {
 		t.Fatalf("create scrape.duration: %v", err)
 	}
@@ -243,7 +258,7 @@ func emitViolatingMetrics(t *testing.T, p *exporter.Provider) {
 	t.Helper()
 	meter := p.MeterProvider().Meter("integration-test-bad")
 
-	prCount, err := meter.Int64UpDownCounter(sc.MetricGitHubPrCount)
+	prCount, err := meter.Int64UpDownCounter(sc.MetricGitHubPrCount, metric.WithUnit("{pr}"))
 	if err != nil {
 		t.Fatalf("create pr.count: %v", err)
 	}
