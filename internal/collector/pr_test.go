@@ -15,6 +15,15 @@ import (
 	"github.com/gjed/renovate-exporter/internal/semconv"
 )
 
+// sinceAll returns a lastCollectedAt map giving every repo the same timestamp.
+func sinceAll(repos []discovery.Repo, t time.Time) map[string]time.Time {
+	m := make(map[string]time.Time, len(repos))
+	for _, r := range repos {
+		m[r.FullName] = t
+	}
+	return m
+}
+
 func ptrTime(t time.Time) *time.Time { return &t }
 
 func newTestMeterProvider() (*metric.MeterProvider, *metric.ManualReader) {
@@ -109,7 +118,7 @@ func TestPRCollector_StateCount(t *testing.T) {
 	}
 
 	repos := []discovery.Repo{{Owner: "myorg", Name: "myrepo", FullName: "myorg/myrepo"}}
-	result, err := coll.Collect(context.Background(), "test-target", repos, time.Now().Add(-time.Hour))
+	result, err := coll.Collect(context.Background(), "test-target", repos, sinceAll(repos, time.Now().Add(-time.Hour)))
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -159,7 +168,7 @@ func TestPRCollector_OldestOpenAge(t *testing.T) {
 	}
 
 	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	result, err := coll.Collect(context.Background(), "tgt", repos, time.Now().Add(-2*time.Hour))
+	result, err := coll.Collect(context.Background(), "tgt", repos, sinceAll(repos, time.Now().Add(-2*time.Hour)))
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -209,7 +218,7 @@ func TestPRCollector_CloseDuration(t *testing.T) {
 	}
 
 	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	if _, err := coll.Collect(context.Background(), "tgt", repos, time.Now().Add(-2*time.Hour)); err != nil {
+	if _, err := coll.Collect(context.Background(), "tgt", repos, sinceAll(repos, time.Now().Add(-2*time.Hour))); err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
 
@@ -274,7 +283,7 @@ func TestPRCollector_AutomergeDetection(t *testing.T) {
 			}
 
 			repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-			if _, err := coll.Collect(context.Background(), "tgt", repos, time.Now().Add(-2*time.Hour)); err != nil {
+			if _, err := coll.Collect(context.Background(), "tgt", repos, sinceAll(repos, time.Now().Add(-2*time.Hour))); err != nil {
 				t.Fatalf("Collect: %v", err)
 			}
 
@@ -325,7 +334,7 @@ func TestPRCollector_LabelFilter(t *testing.T) {
 	}
 
 	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	result, err := coll.Collect(context.Background(), "tgt", repos, time.Now().Add(-2*time.Hour))
+	result, err := coll.Collect(context.Background(), "tgt", repos, sinceAll(repos, time.Now().Add(-2*time.Hour)))
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -381,7 +390,7 @@ func TestPRCollector_ReviewStatus(t *testing.T) {
 	}
 
 	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	result, err := coll.Collect(context.Background(), "tgt", repos, time.Now().Add(-2*time.Hour))
+	result, err := coll.Collect(context.Background(), "tgt", repos, sinceAll(repos, time.Now().Add(-2*time.Hour)))
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
