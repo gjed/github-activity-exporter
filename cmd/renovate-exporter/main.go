@@ -57,15 +57,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	// SelfMetrics are wired to the global MeterProvider. The PeriodicReader
-	// will flush them on each collection interval alongside business metrics.
-	if _, err = exporter.NewSelfMetrics(); err != nil {
+	// SelfMetrics are registered on the global MeterProvider; each Runner
+	// records scrape duration into them at the end of a collection cycle.
+	selfMetrics, err := exporter.NewSelfMetrics()
+	if err != nil {
 		logger.Error("failed to register self-metrics", "err", err)
 		os.Exit(1)
 	}
 
 	// ── Build per-target runners ──────────────────────────────────────────────
-	runners, err := buildRunners(ctx, cfg, logger)
+	runners, err := buildRunners(ctx, cfg, logger,
+		collector.WithInterval(exporterCfg.CollectionInterval),
+		collector.WithScrapeRecorder(selfMetrics),
+	)
 	if err != nil {
 		logger.Error("failed to build runners", "err", err)
 		os.Exit(1)
@@ -107,10 +111,10 @@ func main() {
 }
 
 // buildRunners creates one Runner per target with its own GitHub client and collectors.
-func buildRunners(ctx context.Context, cfg *config.Config, logger *slog.Logger) ([]*collector.Runner, error) {
+func buildRunners(ctx context.Context, cfg *config.Config, logger *slog.Logger, opts ...collector.RunnerOption) ([]*collector.Runner, error) {
 	runners := make([]*collector.Runner, 0, len(cfg.Targets))
 	for _, t := range cfg.Targets {
-		r, err := buildTargetRunner(ctx, t, logger)
+		r, err := buildTargetRunner(ctx, t, logger, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("target %q: %w", t.Name, err)
 		}
@@ -124,6 +128,7 @@ func buildTargetRunner(
 	ctx context.Context,
 	t config.Target,
 	logger *slog.Logger,
+	opts ...collector.RunnerOption,
 ) (*collector.Runner, error) {
 	auth, err := buildAuthenticator(t.Auth)
 	if err != nil {
@@ -179,7 +184,7 @@ func buildTargetRunner(
 		PR:        prColl,
 		Issue:     issColl,
 		Dashboard: dashColl,
-	}, otelMeter, logger)
+	}, otelMeter, logger, opts...)
 }
 
 // buildAuthenticator creates an Authenticator from the target auth config.
