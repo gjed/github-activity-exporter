@@ -91,5 +91,3 @@ func InjectPRQueryResult(q interface{}, nodes []ExportedPRNode, hasNextPage bool
 	pq.Repository.PullRequests.PageInfo.HasNextPage = hasNextPage
 	return nil
 }
-
-
