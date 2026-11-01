@@ -182,7 +182,7 @@ func (c *IssueCollector) fetchIssues(ctx context.Context, repo discovery.Repo) (
 	var all []*github.Issue
 
 	opts := &github.IssueListByRepoOptions{
-		State: "all",
+		State:       "all",
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 

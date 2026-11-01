@@ -55,8 +55,8 @@ type DashboardCollector struct {
 // dashboardStats holds the parsed queue state for one repo's dashboard.
 type dashboardStats struct {
 	// sections maps semconv section value → count of list items
-	sections    map[string]int64
-	parseError  int64 // 1 if no sections found, 0 on success
+	sections   map[string]int64
+	parseError int64 // 1 if no sections found, 0 on success
 }
 
 // DashboardCollectResult holds per-repo dashboard stats.
@@ -159,7 +159,7 @@ func (c *DashboardCollector) collectRepo(ctx context.Context, repo discovery.Rep
 // Dependency Dashboard: title == "Dependency Dashboard" AND author == botLogin.
 func (c *DashboardCollector) findDashboardIssue(ctx context.Context, repo discovery.Repo) (*github.Issue, error) {
 	opts := &github.IssueListByRepoOptions{
-		State: "open",
+		State:       "open",
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 

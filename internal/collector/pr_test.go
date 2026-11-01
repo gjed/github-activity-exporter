@@ -15,43 +15,6 @@ import (
 	"github.com/gjed/renovate-exporter/internal/semconv"
 )
 
-// fakePRGraphQL is a fake GraphQL client that returns pre-baked PR fixture data.
-type fakePRGraphQL struct {
-	// pages maps "owner/name" to pages of PR nodes.
-	pages map[string][][]collector.ExportedPRNode
-	calls map[string]int
-}
-
-func (f *fakePRGraphQL) Query(ctx context.Context, q interface{}, variables map[string]interface{}) error {
-	owner := string(variables["owner"].(interface{ String() string }).String())
-	name := string(variables["name"].(interface{ String() string }).String())
-	_ = owner
-	_ = name
-	_ = ctx
-	_ = q
-	_ = variables
-	// stub: handled by stub implementation below
-	return nil
-}
-
-// fakePRQuery is a simpler fake that holds all pages for a repo.
-type fakePRGraphQLSimple struct {
-	nodes []collector.ExportedPRNode
-}
-
-func (f *fakePRGraphQLSimple) Query(_ context.Context, q interface{}, _ map[string]interface{}) error {
-	return collector.InjectPRQueryResult(q, f.nodes, false)
-}
-
-func mustTime(s string) time.Time {
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		panic(err)
-	}
-	return t
-}
-
-func ptrStr(s string) *string { return &s }
 func ptrTime(t time.Time) *time.Time { return &t }
 
 func newTestMeterProvider() (*metric.MeterProvider, *metric.ManualReader) {
@@ -119,14 +82,6 @@ func findHistogram(t *testing.T, rm metricdata.ResourceMetrics, name string) []m
 		}
 	}
 	return nil
-}
-
-func sumInt64DataPoints(dps []metricdata.DataPoint[int64]) int64 {
-	var total int64
-	for _, dp := range dps {
-		total += dp.Value
-	}
-	return total
 }
 
 func TestPRCollector_StateCount(t *testing.T) {
@@ -273,9 +228,9 @@ func TestPRCollector_AutomergeDetection(t *testing.T) {
 	mergedAt := now.Add(-1 * time.Hour)
 
 	tests := []struct {
-		name         string
-		reviews      []string // review states
-		wantCounted  bool
+		name        string
+		reviews     []string // review states
+		wantCounted bool
 	}{
 		{
 			name:        "no reviews → automerge",

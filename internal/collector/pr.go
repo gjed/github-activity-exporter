@@ -130,8 +130,8 @@ func NewPRCollector(
 		metric.WithDescription("Time from PR creation to close in seconds."),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(
-			3600, 7200, 14400, 28800, 86400,  // 1h, 2h, 4h, 8h, 1d
-			172800, 432000, 864000, 1728000,  // 2d, 5d, 10d, 20d
+			3600, 7200, 14400, 28800, 86400, // 1h, 2h, 4h, 8h, 1d
+			172800, 432000, 864000, 1728000, // 2d, 5d, 10d, 20d
 		),
 	)
 	if err != nil {
