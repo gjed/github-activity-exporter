@@ -18,11 +18,16 @@ type staticRepoSource struct{ repos []discovery.Repo }
 
 func (s staticRepoSource) Repos(context.Context) ([]discovery.Repo, error) { return s.repos, nil }
 
-type fakeSelfMetrics struct{ scrapes []string }
+type fakeSelfMetrics struct {
+	scrapes   []string
+	apiErrors int
+}
 
 func (f *fakeSelfMetrics) RecordScrapeDuration(_ context.Context, target string, _ time.Time) {
 	f.scrapes = append(f.scrapes, target)
 }
+
+func (f *fakeSelfMetrics) RecordAPIError(context.Context, string) { f.apiErrors++ }
 
 // flakyPRClient returns nodes, or an error while fail is set.
 type flakyPRClient struct {
@@ -42,7 +47,7 @@ func TestRunner_RecordsScrapeDurationPerCycle(t *testing.T) {
 	meter := metric.NewMeterProvider().Meter("test")
 
 	r, err := collector.NewRunner(config.Target{Name: "tgt"}, staticRepoSource{},
-		collector.RunnerCollectors{}, meter, nil, collector.WithScrapeRecorder(self))
+		collector.RunnerCollectors{}, meter, nil, collector.WithSelfMetrics(self))
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)
 	}
@@ -61,6 +66,7 @@ func TestRunner_FailedRepoKeepsEventWindow(t *testing.T) {
 	ctx := context.Background()
 	mp, reader := newTestMeterProvider()
 	meter := mp.Meter("test")
+	self := &fakeSelfMetrics{}
 	gql := &flakyPRClient{}
 
 	prColl, err := collector.NewPRCollector(gql, config.PRFilters{},
@@ -70,7 +76,7 @@ func TestRunner_FailedRepoKeepsEventWindow(t *testing.T) {
 	}
 	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
 	r, err := collector.NewRunner(config.Target{Name: "tgt"}, staticRepoSource{repos: repos},
-		collector.RunnerCollectors{PR: prColl}, meter, nil)
+		collector.RunnerCollectors{PR: prColl}, meter, nil, collector.WithSelfMetrics(self))
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)
 	}
@@ -97,5 +103,8 @@ func TestRunner_FailedRepoKeepsEventWindow(t *testing.T) {
 	}
 	if automerged != 1 {
 		t.Errorf("github.pr.automerged = %d, want 1", automerged)
+	}
+	if self.apiErrors != 1 {
+		t.Errorf("api errors = %d, want 1", self.apiErrors)
 	}
 }

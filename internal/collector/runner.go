@@ -54,14 +54,15 @@ type Runner struct {
 	// registration handle so we can unregister on shutdown.
 	registration metric.Registration
 
-	// scrape records the duration of each collection cycle; nil disables it.
-	scrape ScrapeRecorder
+	// self records exporter self-metrics; nil disables them.
+	self SelfMetricsRecorder
 }
 
-// ScrapeRecorder records the duration of a collection cycle.
+// SelfMetricsRecorder records exporter self-metrics for a collection cycle.
 // Satisfied by *exporter.SelfMetrics.
-type ScrapeRecorder interface {
+type SelfMetricsRecorder interface {
 	RecordScrapeDuration(ctx context.Context, target string, start time.Time)
+	RecordAPIError(ctx context.Context, target string)
 }
 
 // RunnerOption configures a Runner.
@@ -77,9 +78,11 @@ func WithInterval(d time.Duration) RunnerOption {
 	}
 }
 
-// WithScrapeRecorder records github_exporter.scrape.duration for every cycle.
-func WithScrapeRecorder(sr ScrapeRecorder) RunnerOption {
-	return func(r *Runner) { r.scrape = sr }
+// WithSelfMetrics records github_exporter.scrape.duration once per cycle and
+// github_exporter.api.errors once per failed GitHub API collection (repo
+// discovery, or one collector on one repo).
+func WithSelfMetrics(sm SelfMetricsRecorder) RunnerOption {
+	return func(r *Runner) { r.self = sm }
 }
 
 // NewRunner creates a Runner for the given target. The collection interval
@@ -204,6 +207,7 @@ func (r *Runner) runOnce(ctx context.Context) {
 	repos, err := r.source.Repos(ctx)
 	if err != nil {
 		r.logger.Error("repo discovery failed", "target", r.target, "err", err)
+		r.recordAPIErrors(ctx, 1)
 		return
 	}
 
@@ -261,8 +265,17 @@ func (r *Runner) runOnce(ctx context.Context) {
 	r.lastCollectedAt = next
 	r.mu.Unlock()
 
-	if r.scrape != nil {
-		r.scrape.RecordScrapeDuration(ctx, r.target, start)
+	if prColl != nil {
+		r.recordAPIErrors(ctx, len(prColl.FailedRepos()))
+	}
+	if issColl != nil {
+		r.recordAPIErrors(ctx, len(issColl.FailedRepos()))
+	}
+	if dashColl != nil {
+		r.recordAPIErrors(ctx, len(dashColl.FailedRepos()))
+	}
+	if r.self != nil {
+		r.self.RecordScrapeDuration(ctx, r.target, start)
 	}
 
 	r.logger.Debug("collection cycle complete",
@@ -270,4 +283,14 @@ func (r *Runner) runOnce(ctx context.Context) {
 		"repos", len(repos),
 		"duration", time.Since(start),
 	)
+}
+
+// recordAPIErrors adds n to github_exporter.api.errors for this target.
+func (r *Runner) recordAPIErrors(ctx context.Context, n int) {
+	if r.self == nil {
+		return
+	}
+	for i := 0; i < n; i++ {
+		r.self.RecordAPIError(ctx, r.target)
+	}
 }
