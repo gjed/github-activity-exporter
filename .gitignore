@@ -25,3 +25,7 @@ Thumbs.db
 
 # pnpm-lock.yaml is intentionally committed for reproducible installs
 # (do NOT add pnpm-lock.yaml here)
+
+# Built binaries
+/exporter
+/renovate-exporter
