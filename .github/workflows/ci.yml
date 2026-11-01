@@ -63,7 +63,7 @@ jobs:
 
       - name: Install gotestsum
         # renovate: datasource=github-releases depName=gotestyourself/gotestsum
-        run: go install gotest.tools/gotestsum@v1.12.1
+        run: go install gotest.tools/gotestsum@v1.13.0
 
       - name: Run tests
         run: |
