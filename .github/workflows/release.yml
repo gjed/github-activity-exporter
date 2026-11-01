@@ -5,8 +5,10 @@ on:
     branches:
       - main
 
+# GITHUB_TOKEN only checks out and pushes images. Tags, the release commit
+# and the GitHub release are written with the gjed-release app token below.
 permissions:
-  contents: write
+  contents: read
   packages: write
   id-token: write
 
@@ -15,11 +17,32 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Holds the gjed-release app credentials and only accepts runs from
+    # protected branches, so a workflow on any other branch cannot mint the token.
+    environment: release
     steps:
+      # gjed-oss-main requires signed commits on main. The CHANGELOG commit made
+      # by @semantic-release/git is unsigned, so it is pushed with the
+      # gjed-release app, which bypasses the ruleset. The built-in GitHub
+      # Actions app cannot be a bypass actor on a personal account.
+      - name: Mint release app token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write # push the release commit and tag, create the GitHub release
+          permission-issues: write # comment on issues fixed by the release
+          permission-pull-requests: write # comment on pull requests included in the release
+
       - uses: actions/checkout@v4
         with:
           # semantic-release requires full git history to determine the next version
           fetch-depth: 0
+          # Otherwise git pushes with the persisted GITHUB_TOKEN header instead of
+          # the app token semantic-release puts in the remote URL.
+          persist-credentials: false
 
       - uses: actions/setup-go@v5
         with:
@@ -59,5 +82,6 @@ jobs:
 
       - name: Run semantic-release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Also used by goreleaser (via @semantic-release/exec) to publish the release.
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: pnpm exec semantic-release
