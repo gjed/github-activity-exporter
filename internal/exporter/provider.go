@@ -32,9 +32,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -178,18 +176,18 @@ func (p *Provider) newHTTPExporter(ctx context.Context, cfg Config) (metric.Expo
 }
 
 func (p *Provider) newGRPCExporter(ctx context.Context, cfg Config) (metric.Exporter, error) {
-	var dialOpts []grpc.DialOption
-	if cfg.TLSInsecure {
-		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	} else {
-		dialOpts = append(dialOpts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-			MinVersion: tls.VersionTLS12,
-		})))
-	}
-
+	// Credentials must be set via the otlpmetricgrpc options: the exporter
+	// appends its own default TLS credentials after any WithDialOption, so
+	// transport credentials passed as dial options are silently overridden.
 	opts := []otlpmetricgrpc.Option{
 		otlpmetricgrpc.WithEndpoint(cfg.OTLPEndpoint),
-		otlpmetricgrpc.WithDialOption(dialOpts...),
+	}
+	if cfg.TLSInsecure {
+		opts = append(opts, otlpmetricgrpc.WithInsecure())
+	} else {
+		opts = append(opts, otlpmetricgrpc.WithTLSCredentials(credentials.NewTLS(&tls.Config{
+			MinVersion: tls.VersionTLS12,
+		})))
 	}
 	if len(cfg.Headers) > 0 {
 		opts = append(opts, otlpmetricgrpc.WithHeaders(cfg.Headers))
