@@ -138,7 +138,7 @@ When the Prometheus bridge is enabled, OTel metric names are translated to Prome
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.25+
 - [golangci-lint](https://golangci-lint.run/usage/install/)
 - [OTel Weaver](https://github.com/open-telemetry/weaver/releases) (for schema validation)
 
