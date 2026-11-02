@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	internalgithub "github.com/gjed/renovate-exporter/internal/github"
+	internalgithub "github.com/gjed/github-activity-exporter/internal/github"
 )
 
 // mockAuthenticator is a simple PAT authenticator for tests.

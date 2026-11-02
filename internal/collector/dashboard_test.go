@@ -7,9 +7,9 @@ import (
 
 	"github.com/google/go-github/v62/github"
 
-	"github.com/gjed/renovate-exporter/internal/collector"
-	"github.com/gjed/renovate-exporter/internal/discovery"
-	"github.com/gjed/renovate-exporter/internal/semconv"
+	"github.com/gjed/github-activity-exporter/internal/collector"
+	"github.com/gjed/github-activity-exporter/internal/discovery"
+	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
 // fakeDashboardClient implements DashboardIssueClient using fixture issues.

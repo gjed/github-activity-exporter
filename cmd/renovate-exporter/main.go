@@ -15,11 +15,11 @@ import (
 
 	"go.opentelemetry.io/otel"
 
-	"github.com/gjed/renovate-exporter/internal/collector"
-	"github.com/gjed/renovate-exporter/internal/config"
-	"github.com/gjed/renovate-exporter/internal/discovery"
-	"github.com/gjed/renovate-exporter/internal/exporter"
-	ghclient "github.com/gjed/renovate-exporter/internal/github"
+	"github.com/gjed/github-activity-exporter/internal/collector"
+	"github.com/gjed/github-activity-exporter/internal/config"
+	"github.com/gjed/github-activity-exporter/internal/discovery"
+	"github.com/gjed/github-activity-exporter/internal/exporter"
+	ghclient "github.com/gjed/github-activity-exporter/internal/github"
 )
 
 // Set at build time via -ldflags (see Dockerfile).
@@ -163,7 +163,7 @@ func buildTargetRunner(
 
 	disc := discovery.New(t, ghc.REST().Repositories, discovery.WithLogger(logger))
 
-	otelMeter := otel.GetMeterProvider().Meter("github.com/gjed/renovate-exporter/" + t.Name)
+	otelMeter := otel.GetMeterProvider().Meter("github.com/gjed/github-activity-exporter/" + t.Name)
 
 	prCfg := collector.PRCollectorConfig{
 		MaxPRsPerRepo: 500,

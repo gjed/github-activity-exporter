@@ -12,10 +12,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/gjed/renovate-exporter/internal/config"
-	"github.com/gjed/renovate-exporter/internal/discovery"
-	"github.com/gjed/renovate-exporter/internal/filter"
-	"github.com/gjed/renovate-exporter/internal/semconv"
+	"github.com/gjed/github-activity-exporter/internal/config"
+	"github.com/gjed/github-activity-exporter/internal/discovery"
+	"github.com/gjed/github-activity-exporter/internal/filter"
+	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
 const (

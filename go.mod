@@ -1,4 +1,4 @@
-module github.com/gjed/renovate-exporter
+module github.com/gjed/github-activity-exporter
 
 go 1.26.0
 

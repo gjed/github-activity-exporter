@@ -30,4 +30,4 @@ formatters:
     goimports:
       # Put local imports after third-party imports
       local-prefixes:
-        - github.com/gjed/renovate-exporter
+        - github.com/gjed/github-activity-exporter

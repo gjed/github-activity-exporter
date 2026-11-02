@@ -8,7 +8,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 
-	"github.com/gjed/renovate-exporter/internal/exporter"
+	"github.com/gjed/github-activity-exporter/internal/exporter"
 )
 
 func TestNew_MissingEndpoint(t *testing.T) {
