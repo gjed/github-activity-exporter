@@ -54,6 +54,27 @@ func TestLiveCheck_SchemaViolationDetected(t *testing.T) {
 	t.Logf("weaver live-check correctly detected violation: %v", err)
 }
 
+// TestLiveCheck_UndeclaredMetricDetected emits a metric the registry does not
+// define and asserts live-check returns non-zero.
+func TestLiveCheck_UndeclaredMetricDetected(t *testing.T) {
+	err := runLiveCheck(t, emitUndeclaredMetric)
+	if err == nil {
+		t.Fatal("expected weaver live-check to return non-zero for an undeclared metric, but it exited 0")
+	}
+	t.Logf("weaver live-check correctly detected undeclared metric: %v", err)
+}
+
+// TestLiveCheck_UndeclaredAttributeDetected emits github.pr.count with an
+// attribute that the registry declares only on github.issue.count and asserts
+// live-check returns non-zero.
+func TestLiveCheck_UndeclaredAttributeDetected(t *testing.T) {
+	err := runLiveCheck(t, emitUndeclaredAttribute)
+	if err == nil {
+		t.Fatal("expected weaver live-check to return non-zero for an attribute not declared on the metric, but it exited 0")
+	}
+	t.Logf("weaver live-check correctly detected undeclared attribute: %v", err)
+}
+
 // runLiveCheck starts `weaver registry live-check` as an OTLP/gRPC receiver,
 // waits for it to listen, pushes the metrics recorded by emit to it, and
 // returns the live-check exit error once it stops on inactivity.
@@ -191,23 +212,24 @@ func (r weaverRunner) liveCheckCmd(ctx context.Context, grpcPort, adminPort int)
 		"--otlp-grpc-port", fmt.Sprint(grpcPort),
 		"--admin-port", fmt.Sprint(adminPort),
 		"--inactivity-timeout", "60", // stopped via the admin /stop endpoint
-		// Resolve every attribute of the semconv dependency, not only the ones
-		// our signals reference, so SDK resource attributes (host.*, process.*,
-		// service.name, ...) are recognised.
-		"--include-unreferenced",
+		// Match samples against the v2 registry: an attribute not declared on
+		// the matched metric is reported as a violation.
+		"--v2",
 	}
+	configFile := filepath.Join(filepath.Dir(r.registryDir), ".weaver.toml")
 	if r.useDocker {
 		docker := []string{
 			"run", "--rm",
 			"--network", "host",
 			"--mount", fmt.Sprintf("type=bind,source=%s,target=/workspace/registry,readonly", r.registryDir),
+			"--mount", fmt.Sprintf("type=bind,source=%s,target=/workspace/.weaver.toml,readonly", configFile),
 			"--env", "HOME=/tmp/weaver",
 			weaverImage,
 		}
-		args = append(append(docker, args...), "-r", "/workspace/registry/")
+		args = append(append(docker, args...), "-r", "/workspace/registry/", "--config", "/workspace/.weaver.toml")
 		return exec.CommandContext(ctx, "docker", args...)
 	}
-	return exec.CommandContext(ctx, "weaver", append(args, "-r", r.registryDir+"/")...)
+	return exec.CommandContext(ctx, "weaver", append(args, "-r", r.registryDir+"/", "--config", configFile)...)
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -251,6 +273,13 @@ func emitConformingMetrics(t *testing.T, p *exporter.Provider) {
 			attribute.String(sc.AttrExporterTarget, "test-org/test-repo"),
 		),
 	)
+
+	// Self-metrics use the global MeterProvider set by exporter.New.
+	self, err := exporter.NewSelfMetrics()
+	if err != nil {
+		t.Fatalf("NewSelfMetrics: %v", err)
+	}
+	self.RecordAPIError(context.Background(), "test-org/test-repo", sc.AttrGitHubApiEndpointGraphQL)
 }
 
 // emitViolatingMetrics records github.pr.count with github.org set to an
@@ -272,4 +301,44 @@ func emitViolatingMetrics(t *testing.T, p *exporter.Provider) {
 			attribute.String(sc.AttrGitHubPrState, sc.AttrGitHubPrStateOpen),
 		),
 	)
+}
+
+// conformingPRCountAttrs are the attributes github.pr.count requires.
+func conformingPRCountAttrs() []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String(sc.AttrExporterTarget, "test-org/test-repo"),
+		attribute.String(sc.AttrGitHubOrg, "test-org"),
+		attribute.String(sc.AttrGitHubRepo, "test-repo"),
+		attribute.String(sc.AttrGitHubPrState, sc.AttrGitHubPrStateOpen),
+	}
+}
+
+// emitUndeclaredMetric records a metric that is not in the registry.
+func emitUndeclaredMetric(t *testing.T, p *exporter.Provider) {
+	t.Helper()
+	meter := p.MeterProvider().Meter("integration-test-undeclared-metric")
+
+	// VIOLATION: github.pr.merged is not defined in registry/signals.yaml.
+	c, err := meter.Int64Counter("github.pr.merged", metric.WithUnit("{pr}"))
+	if err != nil {
+		t.Fatalf("create github.pr.merged: %v", err)
+	}
+	c.Add(context.Background(), 1, metric.WithAttributes(conformingPRCountAttrs()...))
+}
+
+// emitUndeclaredAttribute records github.pr.count with every required
+// attribute plus github.issue.state, which the registry declares only on
+// github.issue.count.
+func emitUndeclaredAttribute(t *testing.T, p *exporter.Provider) {
+	t.Helper()
+	meter := p.MeterProvider().Meter("integration-test-undeclared-attribute")
+
+	prCount, err := meter.Int64UpDownCounter(sc.MetricGitHubPrCount, metric.WithUnit("{pr}"))
+	if err != nil {
+		t.Fatalf("create pr.count: %v", err)
+	}
+	// VIOLATION: github.issue.state is not in github.pr.count's attributes.
+	attrs := append(conformingPRCountAttrs(),
+		attribute.String(sc.AttrGitHubIssueState, sc.AttrGitHubIssueStateOpen))
+	prCount.Add(context.Background(), 3, metric.WithAttributes(attrs...))
 }
