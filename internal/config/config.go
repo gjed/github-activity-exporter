@@ -13,7 +13,39 @@ import (
 
 // Config is the top-level configuration.
 type Config struct {
-	Targets []Target `mapstructure:"targets"`
+	// CollectionInterval is how often metrics are collected and pushed. Defaults to 5m.
+	CollectionInterval time.Duration `mapstructure:"collection_interval"`
+	Export             Export        `mapstructure:"export"`
+	Targets            []Target      `mapstructure:"targets"`
+}
+
+// Export holds the metric export settings.
+type Export struct {
+	OTLP       OTLP       `mapstructure:"otlp"`
+	Prometheus Prometheus `mapstructure:"prometheus"`
+}
+
+// OTLP holds the OTLP push settings. Endpoint is required.
+type OTLP struct {
+	Endpoint string `mapstructure:"endpoint"`
+	// Protocol is "http" (default) or "grpc".
+	Protocol string `mapstructure:"protocol"`
+	// Headers are sent on every OTLP request. Keys are lower-cased by the config loader.
+	Headers map[string]string `mapstructure:"headers"`
+	TLS     TLS               `mapstructure:"tls"`
+}
+
+// TLS holds the OTLP TLS settings.
+type TLS struct {
+	// Insecure skips certificate verification (HTTP) or disables TLS (gRPC).
+	Insecure bool `mapstructure:"insecure"`
+}
+
+// Prometheus holds the optional Prometheus /metrics bridge settings.
+type Prometheus struct {
+	Enabled bool `mapstructure:"enabled"`
+	// ListenAddress defaults to ":9090".
+	ListenAddress string `mapstructure:"listen_address"`
 }
 
 // Target represents a single monitored GitHub target (set of orgs/repos with shared auth).
@@ -101,6 +133,10 @@ func Load(path string) (*Config, error) {
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
+	v.SetDefault("collection_interval", "5m")
+	v.SetDefault("export.otlp.protocol", "http")
+	v.SetDefault("export.prometheus.listen_address", ":9090")
+
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("reading config %q: %w", path, err)
 	}
@@ -174,8 +210,13 @@ func resolveEnvVars(cfg *Config) error {
 	return nil
 }
 
-// validate checks that each target has valid, non-conflicting auth and required fields.
+// validate checks the export settings and that each target has valid,
+// non-conflicting auth and required fields.
 func validate(cfg *Config) error {
+	if err := validateExport(cfg); err != nil {
+		return err
+	}
+
 	names := make(map[string]bool)
 	for _, t := range cfg.Targets {
 		if t.Name == "" {
@@ -193,6 +234,22 @@ func validate(cfg *Config) error {
 		if len(t.Orgs) == 0 && len(t.Repos) == 0 {
 			return fmt.Errorf("target %q: must specify at least one org or explicit repo", t.Name)
 		}
+	}
+	return nil
+}
+
+// validateExport checks the OTLP endpoint, protocol and collection interval.
+func validateExport(cfg *Config) error {
+	if cfg.Export.OTLP.Endpoint == "" {
+		return fmt.Errorf("export.otlp.endpoint is required")
+	}
+	switch cfg.Export.OTLP.Protocol {
+	case "http", "grpc":
+	default:
+		return fmt.Errorf("export.otlp.protocol must be \"http\" or \"grpc\", got %q", cfg.Export.OTLP.Protocol)
+	}
+	if cfg.CollectionInterval <= 0 {
+		return fmt.Errorf("collection_interval must be positive, got %s", cfg.CollectionInterval)
 	}
 	return nil
 }

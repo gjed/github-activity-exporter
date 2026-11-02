@@ -1,0 +1,6 @@
+targets:
+  - name: myorg
+    auth:
+      token: ghp_testtoken123
+    orgs:
+      - org: myorg
