@@ -29,6 +29,14 @@
   "customManagers": [
     {
       "customType": "regex",
+      "description": "Track versions pinned with a `# renovate:` comment in workflow files",
+      "fileMatch": ["^\\.github/workflows/.*\\.ya?ml$"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)\\s+[^\\n]*?(?:version: \"?|@)(?<currentValue>v?[0-9][^\\s\"]*)"
+      ]
+    },
+    {
+      "customType": "regex",
       "description": "Track Weaver version in setup-weaver composite action",
       "fileMatch": ["^\\.github/actions/setup-weaver/action\\.yml$"],
       "matchStrings": [
