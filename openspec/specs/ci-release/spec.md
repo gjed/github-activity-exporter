@@ -42,12 +42,12 @@ The system SHALL use `semantic-release` to automatically determine the next vers
 
 ### Requirement: Docker image published to GHCR
 
-The system SHALL build and push a multi-arch Docker image to `ghcr.io/gjed/renovate-exporter` when a GitHub Release is published, tagged with the full version, the major.minor version, the major version and `latest`.
+The system SHALL build and push a multi-arch Docker image to `ghcr.io/gjed/github-activity-exporter` when a GitHub Release is published, tagged with the full version, the major.minor version, the major version and `latest`.
 
 #### Scenario: Image pushed on release
 
 - **WHEN** release `vX.Y.Z` is published
-- **THEN** `ghcr.io/gjed/renovate-exporter:X.Y.Z`, `:X.Y`, `:X` and `:latest` are available on GHCR
+- **THEN** `ghcr.io/gjed/github-activity-exporter:X.Y.Z`, `:X.Y`, `:X` and `:latest` are available on GHCR
 
 #### Scenario: Image is multi-arch
 
@@ -56,7 +56,7 @@ The system SHALL build and push a multi-arch Docker image to `ghcr.io/gjed/renov
 
 #### Scenario: Image reports the release version
 
-- **WHEN** `docker run ghcr.io/gjed/renovate-exporter:X.Y.Z --version` is executed
+- **WHEN** `docker run ghcr.io/gjed/github-activity-exporter:X.Y.Z --version` is executed
 - **THEN** the output contains `X.Y.Z`
 
 #### Scenario: Image failure does not orphan the release

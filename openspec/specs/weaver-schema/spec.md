@@ -47,7 +47,12 @@ The registry SHALL define every metric emitted by the exporter: name, instrument
 #### Scenario: Resource attributes declared
 
 - **WHEN** the registry is resolved
-- **THEN** the attribute group `renovate_github_exporter.resource` declares `service.name` as required, plus the host, os, process and container attributes set by the SDK resource detectors in `internal/exporter/provider.go`
+- **THEN** the attribute group `github_activity_exporter.resource` declares `service.name` as required, plus the host, os, process and container attributes set by the SDK resource detectors in `internal/exporter/provider.go`
+
+#### Scenario: Resource identifies the exporter
+
+- **WHEN** the exporter exports metrics
+- **THEN** the resource carries `service.name` = `github-activity-exporter`
 
 ### Requirement: Go constants generated from schema
 
@@ -65,7 +70,7 @@ The system SHALL generate a `internal/semconv/` Go package from the Weaver regis
 
 ### Requirement: Grafana dashboard generated from schema
 
-The system SHALL generate a `dashboards/renovate-github.json` Grafana dashboard JSON file from the Weaver registry using a Jinja2 template.
+The system SHALL generate a `dashboards/github-activity.json` Grafana dashboard JSON file from the Weaver registry using a Jinja2 template.
 
 #### Scenario: Dashboard regenerated on schema change
 
