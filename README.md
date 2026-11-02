@@ -1,20 +1,20 @@
-# renovate-exporter
+# github-activity-exporter
 
-[![CI](https://github.com/gjed/renovate-exporter/actions/workflows/ci.yml/badge.svg)](https://github.com/gjed/renovate-exporter/actions/workflows/ci.yml)
-[![Registry Validate](https://github.com/gjed/renovate-exporter/actions/workflows/registry-validate.yml/badge.svg)](https://github.com/gjed/renovate-exporter/actions/workflows/registry-validate.yml)
-[![Release](https://github.com/gjed/renovate-exporter/actions/workflows/release.yml/badge.svg)](https://github.com/gjed/renovate-exporter/actions/workflows/release.yml)
-[![Latest Release](https://img.shields.io/github/v/release/gjed/renovate-exporter)](https://github.com/gjed/renovate-exporter/releases/latest)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/gjed/renovate-exporter)](go.mod)
-[![License](https://img.shields.io/github/license/gjed/renovate-exporter)](LICENSE)
+[![CI](https://github.com/gjed/github-activity-exporter/actions/workflows/ci.yml/badge.svg)](https://github.com/gjed/github-activity-exporter/actions/workflows/ci.yml)
+[![Registry Validate](https://github.com/gjed/github-activity-exporter/actions/workflows/registry-validate.yml/badge.svg)](https://github.com/gjed/github-activity-exporter/actions/workflows/registry-validate.yml)
+[![Release](https://github.com/gjed/github-activity-exporter/actions/workflows/release.yml/badge.svg)](https://github.com/gjed/github-activity-exporter/actions/workflows/release.yml)
+[![Latest Release](https://img.shields.io/github/v/release/gjed/github-activity-exporter)](https://github.com/gjed/github-activity-exporter/releases/latest)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/gjed/github-activity-exporter)](go.mod)
+[![License](https://img.shields.io/github/license/gjed/github-activity-exporter)](LICENSE)
 
-GitHub metrics exporter for [Renovate](https://docs.renovatebot.com/) — collects PR and issue metrics from the GitHub API and pushes them via OTLP to any OpenTelemetry-compatible backend (Grafana Cloud, Prometheus with OTLP receiver, Datadog, etc.).
+GitHub pull request and issue activity exporter — collects PR and issue metrics from the GitHub API, including [Renovate](https://docs.renovatebot.com/) Dependency Dashboard state, and pushes them via OTLP to any OpenTelemetry-compatible backend (Grafana Cloud, Prometheus with OTLP receiver, Datadog, etc.).
 
 ## Features
 
 - Pushes PR and issue metrics via **OTLP** (HTTP or gRPC) as primary output
 - Optional Prometheus `/metrics` bridge for scrape-based setups (disabled by default)
 - Metrics conform to the [OTel semantic convention registry](registry/) and are validated by [Weaver](https://github.com/open-telemetry/weaver) in CI
-- Multi-arch Docker image published to [GHCR](https://ghcr.io/gjed/renovate-exporter)
+- Multi-arch Docker image published to [GHCR](https://ghcr.io/gjed/github-activity-exporter)
 - Fully automated releases via [semantic-release](https://semantic-release.gitbook.io/) — no manual tagging
 
 ## Quick Start
@@ -33,13 +33,13 @@ targets:
       - org: my-org
 ```
 
-Run the image with the config mounted at `/etc/renovate-exporter/config.yaml`:
+Run the image with the config mounted at `/etc/github-activity-exporter/config.yaml`:
 
 ```bash
 docker run --rm \
   -e GITHUB_TOKEN=ghp_... \
-  -v "$PWD/config.yaml:/etc/renovate-exporter/config.yaml:ro" \
-  ghcr.io/gjed/renovate-exporter:latest
+  -v "$PWD/config.yaml:/etc/github-activity-exporter/config.yaml:ro" \
+  ghcr.io/gjed/github-activity-exporter:latest
 ```
 
 Metrics are pushed to the OTLP endpoint after each collection cycle (default: every 5 minutes).
@@ -51,13 +51,13 @@ To also expose a Prometheus scrape endpoint, set `export.prometheus.enabled: tru
 ### Docker
 
 ```bash
-docker pull ghcr.io/gjed/renovate-exporter:latest
+docker pull ghcr.io/gjed/github-activity-exporter:latest
 ```
 
 ### From source
 
 ```bash
-go install github.com/gjed/renovate-exporter/cmd/renovate-exporter@latest
+go install github.com/gjed/github-activity-exporter/cmd/github-activity-exporter@latest
 ```
 
 ## Configuration
@@ -66,7 +66,7 @@ The exporter takes no flags other than `--version`. Targets, GitHub auth and exp
 
 ### Config file
 
-The path is read from `CONFIG_FILE`. It defaults to `config.yaml` in the working directory, and to `/etc/renovate-exporter/config.yaml` in the Docker image.
+The path is read from `CONFIG_FILE`. It defaults to `config.yaml` in the working directory, and to `/etc/github-activity-exporter/config.yaml` in the Docker image.
 
 ```yaml
 collection_interval: 5m           # how often to collect and push metrics
@@ -89,7 +89,7 @@ targets:
       # app:
       #   app_id: 12345
       #   installation_id: 67890
-      #   private_key_path: /etc/renovate-exporter/key.pem
+      #   private_key_path: /etc/github-activity-exporter/key.pem
       #   private_key_env: GITHUB_APP_KEY   # base64-encoded PEM, instead of the path
     orgs:                         # at least one org or repo is required
       - org: my-org
