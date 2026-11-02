@@ -11,7 +11,7 @@ attributes:
     type: string
     stability: development
     brief: GitHub repository name (without org prefix).
-    examples: ["renovate-exporter", "my-app"]
+    examples: ["github-activity-exporter", "my-app"]
 
   - key: github.pr.state
     type:
@@ -117,7 +117,7 @@ attributes:
     type: string
     stability: development
     brief: The configured scrape target identifier (e.g., org/repo slug).
-    examples: ["my-org/renovate-exporter", "acme-corp/platform"]
+    examples: ["my-org/github-activity-exporter", "acme-corp/platform"]
 
   - key: github.api.endpoint
     type:
@@ -140,7 +140,7 @@ attributes:
     examples: ["graphql", "rest.issues", "rest.repos"]
 
 attribute_groups:
-  - id: renovate_github_exporter.resource
+  - id: github_activity_exporter.resource
     visibility: public
     stability: development
     brief: Resource attributes set by the exporter's MeterProvider.

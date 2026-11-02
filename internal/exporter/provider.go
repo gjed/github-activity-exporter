@@ -234,7 +234,7 @@ func buildResource(ctx context.Context) (*resource.Resource, error) {
 		resource.WithContainer(),
 		resource.WithHost(),
 		resource.WithAttributes(
-			semconv.ServiceName("renovate-github-exporter"),
+			semconv.ServiceName("github-activity-exporter"),
 		),
 	)
 }
