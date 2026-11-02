@@ -8,7 +8,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	sc "github.com/gjed/renovate-exporter/internal/semconv"
+	sc "github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
 // SelfMetrics holds the instruments for exporter self-monitoring.
@@ -22,7 +22,7 @@ type SelfMetrics struct {
 // NewSelfMetrics creates and registers all exporter self-metric instruments
 // against the global MeterProvider (set by New).
 func NewSelfMetrics() (*SelfMetrics, error) {
-	meter := otel.GetMeterProvider().Meter("github.com/gjed/renovate-exporter")
+	meter := otel.GetMeterProvider().Meter("github.com/gjed/github-activity-exporter")
 
 	scrapeDuration, err := meter.Float64Histogram(
 		sc.MetricGitHubExporterScrapeDuration,

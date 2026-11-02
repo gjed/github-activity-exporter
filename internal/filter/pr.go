@@ -6,7 +6,7 @@ package filter
 import (
 	"strings"
 
-	"github.com/gjed/renovate-exporter/internal/config"
+	"github.com/gjed/github-activity-exporter/internal/config"
 )
 
 // PRFilter decides whether a pull request should be collected.

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gjed/renovate-exporter/internal/config"
+	"github.com/gjed/github-activity-exporter/internal/config"
 )
 
 func TestLoad(t *testing.T) {

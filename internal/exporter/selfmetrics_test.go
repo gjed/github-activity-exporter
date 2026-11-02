@@ -9,8 +9,8 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	"github.com/gjed/renovate-exporter/internal/exporter"
-	sc "github.com/gjed/renovate-exporter/internal/semconv"
+	"github.com/gjed/github-activity-exporter/internal/exporter"
+	sc "github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
 func TestSelfMetrics_RecordAPIError_Endpoint(t *testing.T) {

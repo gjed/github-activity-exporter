@@ -30,8 +30,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/gjed/renovate-exporter/internal/exporter"
-	sc "github.com/gjed/renovate-exporter/internal/semconv"
+	"github.com/gjed/github-activity-exporter/internal/exporter"
+	sc "github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
 const weaverVersion = "0.28.0"

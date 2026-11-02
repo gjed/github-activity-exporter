@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/go-github/v62/github"
 
-	"github.com/gjed/renovate-exporter/internal/config"
+	"github.com/gjed/github-activity-exporter/internal/config"
 )
 
 const defaultRefreshInterval = 60 * time.Minute

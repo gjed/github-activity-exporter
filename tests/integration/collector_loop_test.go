@@ -11,10 +11,10 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	"github.com/gjed/renovate-exporter/internal/collector"
-	"github.com/gjed/renovate-exporter/internal/config"
-	"github.com/gjed/renovate-exporter/internal/discovery"
-	"github.com/gjed/renovate-exporter/internal/semconv"
+	"github.com/gjed/github-activity-exporter/internal/collector"
+	"github.com/gjed/github-activity-exporter/internal/config"
+	"github.com/gjed/github-activity-exporter/internal/discovery"
+	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
 // TestCollectionLoop_MockData starts a full collection cycle using fixture data

@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/go-github/v62/github"
 
-	"github.com/gjed/renovate-exporter/internal/discovery"
+	"github.com/gjed/github-activity-exporter/internal/discovery"
 )
 
 // fakeIssueListClient serves pre-baked issues for both the issue and dashboard collectors.

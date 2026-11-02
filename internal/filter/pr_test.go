@@ -3,8 +3,8 @@ package filter_test
 import (
 	"testing"
 
-	"github.com/gjed/renovate-exporter/internal/config"
-	"github.com/gjed/renovate-exporter/internal/filter"
+	"github.com/gjed/github-activity-exporter/internal/config"
+	"github.com/gjed/github-activity-exporter/internal/filter"
 )
 
 func TestPRFilter_Match(t *testing.T) {

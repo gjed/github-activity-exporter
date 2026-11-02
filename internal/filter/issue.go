@@ -1,7 +1,7 @@
 package filter
 
 import (
-	"github.com/gjed/renovate-exporter/internal/config"
+	"github.com/gjed/github-activity-exporter/internal/config"
 )
 
 // IssueFilter decides whether an issue should be collected.
