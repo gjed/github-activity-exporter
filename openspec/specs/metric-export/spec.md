@@ -105,7 +105,7 @@ The system SHALL emit metrics about its own operation using the same OTel MeterP
 #### Scenario: API error counter incremented
 
 - **WHEN** a GitHub API call returns an error
-- **THEN** `github_exporter.api.errors` counter is incremented with `target` and `endpoint` attributes
+- **THEN** `github_exporter.api.errors` counter is incremented with `exporter.target` and `github.api.endpoint` attributes
 
 #### Scenario: OTLP error counter incremented
 
