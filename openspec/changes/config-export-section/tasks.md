@@ -9,8 +9,8 @@
 
 ## 2. Wiring
 
-- [ ] 2.1 Build `exporter.Config` from `cfg.Export` and `cfg.CollectionInterval` in `cmd/renovate-exporter/main.go`; remove reads of `OTLP_ENDPOINT`, `OTLP_PROTOCOL`, `OTLP_AUTH_HEADER`, `OTLP_TLS_INSECURE`, `COLLECTION_INTERVAL`, `PROMETHEUS_ENABLED`, `PROMETHEUS_ADDR` and the now-unused `mustDuration`; verify `go build ./...` and a grep for the removed names in `cmd/` returns nothing
-- [ ] 2.2 Verify a config without `export.otlp.endpoint` makes the binary exit non-zero with an error naming the key (run the built binary against a temp config)
+- [x] 2.1 Build `exporter.Config` from `cfg.Export` and `cfg.CollectionInterval` in `cmd/renovate-exporter/main.go`; remove reads of `OTLP_ENDPOINT`, `OTLP_PROTOCOL`, `OTLP_AUTH_HEADER`, `OTLP_TLS_INSECURE`, `COLLECTION_INTERVAL`, `PROMETHEUS_ENABLED`, `PROMETHEUS_ADDR` and the now-unused `mustDuration`; verify `go build ./...` and a grep for the removed names in `cmd/` returns nothing
+- [x] 2.2 Verify a config without `export.otlp.endpoint` makes the binary exit non-zero with an error naming the key (run the built binary against a temp config)
 
 ## 3. Documentation
 
