@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Automate releases: version and release notes from Conventional Commits, multi-arch binaries and GHCR images built by GoReleaser, and a GitHub Release with checksums.
+Automate releases: version, tag and GitHub Release with notes from Conventional Commits, and a multi-arch GHCR image built when the release is published.
 
 ## Requirements
 
