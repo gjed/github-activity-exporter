@@ -8,7 +8,7 @@ Automate releases: version, tag and GitHub Release with notes from Conventional 
 
 ### Requirement: Semantic-release drives version and release on push to main
 
-The system SHALL use `semantic-release` to automatically determine the next version, generate release notes, create a git tag, and trigger GoReleaser — all triggered by a push to `main`, not by a manual tag push. The release SHALL NOT commit to `main`.
+The system SHALL use `semantic-release` to automatically determine the next version, generate release notes, create a git tag, and create the GitHub Release with those notes — all triggered by a push to `main`, not by a manual tag push. The release SHALL NOT commit to `main`.
 
 #### Scenario: feat commit triggers minor release
 
@@ -35,43 +35,31 @@ The system SHALL use `semantic-release` to automatically determine the next vers
 - **WHEN** a release is published
 - **THEN** the only ref the release pushes is the version tag, and `main` has no new commit
 
-### Requirement: semantic-release invokes GoReleaser for artifact production
+#### Scenario: GitHub Release carries the generated notes
 
-The system SHALL use `@semantic-release/exec` to invoke GoReleaser with the version and release notes determined by semantic-release.
-
-#### Scenario: GoReleaser receives version from semantic-release
-
-- **WHEN** semantic-release determines the next version
-- **THEN** it sets `GORELEASER_CURRENT_TAG` and calls `goreleaser release --clean --release-notes /tmp/release-notes.md`
-
-### Requirement: Multi-arch binary builds via GoReleaser
-
-The system SHALL produce release binaries for at minimum: `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`.
-
-#### Scenario: All target platform binaries present in release
-
-- **WHEN** the release workflow completes
-- **THEN** the GitHub Release contains archives for all four platform/arch combinations
-
-### Requirement: Checksums file
-
-The system SHALL generate a `checksums.txt` file listing SHA256 hashes for all release artifacts.
-
-#### Scenario: Checksums file attached to release
-
-- **WHEN** the release workflow completes
-- **THEN** a `checksums.txt` file is attached to the GitHub Release
+- **WHEN** semantic-release publishes version `X.Y.Z`
+- **THEN** a GitHub Release for tag `vX.Y.Z` exists with the conventional-commits release notes and no attached binary assets
 
 ### Requirement: Docker image published to GHCR
 
-The system SHALL build and push a multi-arch Docker image to `ghcr.io/gjed/renovate-exporter` tagged with the release version and `latest`.
+The system SHALL build and push a multi-arch Docker image to `ghcr.io/gjed/renovate-exporter` when a GitHub Release is published, tagged with the full version, the major.minor version, the major version and `latest`.
 
 #### Scenario: Image pushed on release
 
-- **WHEN** a release is published
-- **THEN** `ghcr.io/gjed/renovate-exporter:<version>` and `ghcr.io/gjed/renovate-exporter:latest` are available on GHCR
+- **WHEN** release `vX.Y.Z` is published
+- **THEN** `ghcr.io/gjed/renovate-exporter:X.Y.Z`, `:X.Y`, `:X` and `:latest` are available on GHCR
 
 #### Scenario: Image is multi-arch
 
 - **WHEN** the image is pulled
 - **THEN** it runs natively on both `linux/amd64` and `linux/arm64`
+
+#### Scenario: Image reports the release version
+
+- **WHEN** `docker run ghcr.io/gjed/renovate-exporter:X.Y.Z --version` is executed
+- **THEN** the output contains `X.Y.Z`
+
+#### Scenario: Image failure does not orphan the release
+
+- **WHEN** the image build fails after release `vX.Y.Z` is published
+- **THEN** the tag and the GitHub Release remain, and re-running only the image workflow publishes the image
