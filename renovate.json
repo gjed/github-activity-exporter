@@ -7,6 +7,13 @@
     ":dependencyDashboard"
   ],
   "labels": ["dependencies"],
+  "osvVulnerabilityAlerts": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 4am on monday"],
+    "automerge": true,
+    "automergeType": "pr"
+  },
   "packageRules": [
     {
       "matchManagers": ["github-actions"],
