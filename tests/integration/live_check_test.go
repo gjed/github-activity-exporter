@@ -32,7 +32,7 @@ import (
 	sc "github.com/gjed/renovate-exporter/internal/semconv"
 )
 
-const weaverVersion = "0.23.0"
+const weaverVersion = "0.28.0"
 const weaverImage = "otel/weaver:v" + weaverVersion
 
 // TestLiveCheck_ConformsToSchema emits conforming metrics and asserts that
@@ -235,6 +235,7 @@ func emitConformingMetrics(t *testing.T, p *exporter.Provider) {
 	}
 	prCount.Add(context.Background(), 5,
 		metric.WithAttributes(
+			attribute.String(sc.AttrExporterTarget, "test-org/test-repo"),
 			attribute.String(sc.AttrGitHubOrg, "test-org"),
 			attribute.String(sc.AttrGitHubRepo, "test-repo"),
 			attribute.String(sc.AttrGitHubPrState, sc.AttrGitHubPrStateOpen),
@@ -265,6 +266,7 @@ func emitViolatingMetrics(t *testing.T, p *exporter.Provider) {
 	// VIOLATION: github.org must be string, not int.
 	prCount.Add(context.Background(), 3,
 		metric.WithAttributes(
+			attribute.String(sc.AttrExporterTarget, "test-org/test-repo"),
 			attribute.Int(sc.AttrGitHubOrg, 42), // wrong type: int instead of string
 			attribute.String(sc.AttrGitHubRepo, "test-repo"),
 			attribute.String(sc.AttrGitHubPrState, sc.AttrGitHubPrStateOpen),

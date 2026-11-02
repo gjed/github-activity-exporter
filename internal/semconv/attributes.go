@@ -12,6 +12,10 @@ const (
 	// The configured scrape target identifier (e.g., org/repo slug).
 	// Stability: development
 	AttrExporterTarget = "exporter.target"
+// AttrGitHubApiEndpoint is the key for the github.api.endpoint attribute.
+	// GitHub API endpoint whose call failed.
+	// Stability: development
+	AttrGitHubApiEndpoint = "github.api.endpoint"
 // AttrGitHubIssueLabel is the key for the github.issue.label attribute.
 	// A label applied to the GitHub issue.
 	// Stability: development
@@ -51,6 +55,13 @@ const (
 // Enum values for typed attribute constants.
 const (
 
+
+
+
+// Values for github.api.endpoint
+AttrGitHubApiEndpointGraphQL = "graphql"
+AttrGitHubApiEndpointRestIssues = "rest.issues"
+AttrGitHubApiEndpointRestRepos = "rest.repos"
 
 
 

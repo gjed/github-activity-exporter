@@ -118,3 +118,60 @@ attributes:
     stability: development
     brief: The configured scrape target identifier (e.g., org/repo slug).
     examples: ["my-org/renovate-exporter", "acme-corp/platform"]
+
+  - key: github.api.endpoint
+    type:
+      allow_custom_values: false
+      members:
+        - id: graphql
+          value: "graphql"
+          stability: development
+          brief: GitHub GraphQL API (pull request query).
+        - id: rest_issues
+          value: "rest.issues"
+          stability: development
+          brief: GitHub REST issues list endpoint (issues and Renovate dashboard).
+        - id: rest_repos
+          value: "rest.repos"
+          stability: development
+          brief: GitHub REST organization repositories list endpoint (repo discovery).
+    stability: development
+    brief: GitHub API endpoint whose call failed.
+    examples: ["graphql", "rest.issues", "rest.repos"]
+
+attribute_groups:
+  - id: renovate_github_exporter.resource
+    visibility: public
+    stability: development
+    brief: Resource attributes set by the exporter's MeterProvider.
+    note: >
+      Populated in internal/exporter/provider.go (buildResource) by the Go SDK
+      resource detectors. Backends derive `job` and `instance` from them.
+    attributes:
+      - ref: service.name
+        requirement_level: required
+      - ref: host.name
+        requirement_level: recommended
+      - ref: os.type
+        requirement_level: recommended
+      - ref: os.description
+        requirement_level: recommended
+      - ref: process.pid
+        requirement_level: recommended
+      - ref: process.owner
+        requirement_level: recommended
+      - ref: process.command_args
+        requirement_level: recommended
+      - ref: process.executable.name
+        requirement_level: recommended
+      - ref: process.executable.path
+        requirement_level: recommended
+      - ref: process.runtime.name
+        requirement_level: recommended
+      - ref: process.runtime.version
+        requirement_level: recommended
+      - ref: process.runtime.description
+        requirement_level: recommended
+      - ref: container.id
+        requirement_level:
+          conditionally_required: If the exporter runs in a container.
