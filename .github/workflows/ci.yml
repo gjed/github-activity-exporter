@@ -24,6 +24,19 @@ jobs:
           # renovate: datasource=github-releases depName=golangci/golangci-lint
           version: v2.12.2
 
+  goreleaser-check:
+    name: GoReleaser Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate .goreleaser.yaml
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          # renovate: datasource=github-releases depName=goreleaser/goreleaser
+          version: v2.9.0
+          args: check
+
   check-generated:
     name: Check Generated Files
     runs-on: ubuntu-latest
