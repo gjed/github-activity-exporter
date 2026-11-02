@@ -20,14 +20,16 @@ func (s staticRepoSource) Repos(context.Context) ([]discovery.Repo, error) { ret
 
 type fakeSelfMetrics struct {
 	scrapes   []string
-	apiErrors int
+	apiErrors []string // endpoint per recorded error
 }
 
 func (f *fakeSelfMetrics) RecordScrapeDuration(_ context.Context, target string, _ time.Time) {
 	f.scrapes = append(f.scrapes, target)
 }
 
-func (f *fakeSelfMetrics) RecordAPIError(context.Context, string) { f.apiErrors++ }
+func (f *fakeSelfMetrics) RecordAPIError(_ context.Context, _, endpoint string) {
+	f.apiErrors = append(f.apiErrors, endpoint)
+}
 
 // flakyPRClient returns nodes, or an error while fail is set.
 type flakyPRClient struct {
@@ -104,7 +106,7 @@ func TestRunner_FailedRepoKeepsEventWindow(t *testing.T) {
 	if automerged != 1 {
 		t.Errorf("github.pr.automerged = %d, want 1", automerged)
 	}
-	if self.apiErrors != 1 {
-		t.Errorf("api errors = %d, want 1", self.apiErrors)
+	if len(self.apiErrors) != 1 || self.apiErrors[0] != semconv.AttrGitHubApiEndpointGraphQL {
+		t.Errorf("api errors = %v, want [%s]", self.apiErrors, semconv.AttrGitHubApiEndpointGraphQL)
 	}
 }

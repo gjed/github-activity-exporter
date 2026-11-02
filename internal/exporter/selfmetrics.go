@@ -73,11 +73,13 @@ func (s *SelfMetrics) RecordScrapeDuration(ctx context.Context, target string, s
 }
 
 // RecordAPIError increments the API error counter.
-// target is the org/repo slug (e.g. "my-org/my-repo").
-func (s *SelfMetrics) RecordAPIError(ctx context.Context, target string) {
+// target is the org/repo slug (e.g. "my-org/my-repo"); endpoint is a
+// github.api.endpoint value (e.g. sc.AttrGitHubApiEndpointGraphQL).
+func (s *SelfMetrics) RecordAPIError(ctx context.Context, target, endpoint string) {
 	s.apiErrors.Add(ctx, 1,
 		metric.WithAttributes(
 			attribute.String(sc.AttrExporterTarget, target),
+			attribute.String(sc.AttrGitHubApiEndpoint, endpoint),
 		),
 	)
 }

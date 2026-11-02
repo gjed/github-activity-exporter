@@ -137,6 +137,6 @@ func TestSelfMetrics_RecordScrapeDuration(t *testing.T) {
 
 	// Should not panic
 	sm.RecordScrapeDuration(context.Background(), "test-org/test-repo", time.Now().Add(-100*time.Millisecond))
-	sm.RecordAPIError(context.Background(), "test-org/test-repo")
+	sm.RecordAPIError(context.Background(), "test-org/test-repo", "graphql")
 	sm.RecordOTLPError(context.Background(), "test-org/test-repo")
 }
