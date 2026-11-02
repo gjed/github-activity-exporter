@@ -9,7 +9,7 @@
 ## 2. Endpoint attribute in code
 
 - [x] 2.1 `SelfMetrics.RecordAPIError(ctx, target, endpoint)` records `github.api.endpoint`
-- [x] 2.2 `Runner` passes `graphql` for PR failures and `rest.issues` for issue/dashboard failures; update `SelfMetricsRecorder` and test fakes
+- [x] 2.2 `Runner` passes `graphql` for PR failures, `rest.issues` for issue/dashboard failures and `rest.repos` for repo discovery failures; update `SelfMetricsRecorder` and test fakes
 - [x] 2.3 Unit test asserts the endpoint attribute on `github_exporter.api.errors`
 
 ## 3. Live-check strictness

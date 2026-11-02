@@ -21,6 +21,7 @@ Out of scope: metric naming/suffix policy (#14), rate-limit gauges (#16).
 ### Modified Capabilities
 
 - `weaver-schema`: manifest filename, attribute and requirement-level declarations per metric, signal requirement levels, declared resource attributes, live-check fails on undeclared metrics/attributes.
+- `metric-export`: `github_exporter.api.errors` attribute keys are `exporter.target` and `github.api.endpoint`.
 
 ## Impact
 
