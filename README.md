@@ -82,7 +82,7 @@ The path is read from `CONFIG_FILE`. It defaults to `config.yaml` in the working
 collection_interval: 5m           # how often to collect and push metrics
 export:
   otlp:
-    endpoint: https://otlp.example.com:4318  # required; the exporter exits if unset
+    endpoint: https://otlp.example.com:4318  # required; http: full URL, grpc: host:port without scheme
     protocol: http                # http or grpc
     headers:                      # sent on every OTLP request; names are lower-cased
       Authorization: Bearer <token>
