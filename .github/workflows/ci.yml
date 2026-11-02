@@ -179,7 +179,7 @@ jobs:
         uses: ./.github/actions/setup-weaver
         with:
           # renovate: datasource=github-releases depName=open-telemetry/weaver
-          weaver-version: "0.23.0"
+          weaver-version: "0.28.0"
 
       - name: Weaver live-check
         # Emits metrics through the exporter's OTLP pipeline into

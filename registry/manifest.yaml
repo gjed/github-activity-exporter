@@ -5,4 +5,5 @@ schema_url: https://github.com/gjed/renovate-exporter/schemas/0.1.0
 # Pin the official OTel semantic conventions version we depend on.
 dependencies:
   - name: otel
+    schema_url: https://opentelemetry.io/schemas/1.41.1
     registry_path: https://github.com/open-telemetry/semantic-conventions/archive/refs/tags/v1.41.1.zip[model]

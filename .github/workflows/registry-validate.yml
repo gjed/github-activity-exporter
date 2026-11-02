@@ -17,7 +17,7 @@ jobs:
         uses: ./.github/actions/setup-weaver
         with:
           # renovate: datasource=github-releases depName=open-telemetry/weaver
-          weaver-version: "0.23.0"
+          weaver-version: "0.28.0"
 
       - name: Check registry schema
         run: weaver registry check -r registry/

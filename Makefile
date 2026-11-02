@@ -1,7 +1,7 @@
 BINARY        := renovate-exporter
 CMD           := ./cmd/renovate-exporter
 
-WEAVER_VERSION ?= 0.23.0
+WEAVER_VERSION ?= 0.28.0
 WEAVER_IMAGE   ?= otel/weaver:v$(WEAVER_VERSION)
 
 # Prefer Docker when available, fall back to local binary.
