@@ -1,0 +1,19 @@
+collection_interval: 15m
+export:
+  otlp:
+    endpoint: otel-collector:4317
+    protocol: grpc
+    headers:
+      Authorization: Bearer secret
+      X-Scope-OrgID: tenant-a
+    tls:
+      insecure: true
+  prometheus:
+    enabled: true
+    listen_address: ":9464"
+targets:
+  - name: myorg
+    auth:
+      token: ghp_testtoken123
+    orgs:
+      - org: myorg

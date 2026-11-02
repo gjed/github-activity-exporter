@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/gjed/renovate-exporter/internal/config"
 )
@@ -26,6 +27,73 @@ func TestLoad(t *testing.T) {
 					t.Errorf("expected token ghp_testtoken123, got %q", cfg.Targets[0].Auth.Token)
 				}
 			},
+		},
+		{
+			name: "export defaults",
+			file: "testdata/pat_token.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.CollectionInterval != 5*time.Minute {
+					t.Errorf("expected collection_interval 5m, got %s", cfg.CollectionInterval)
+				}
+				otlp := cfg.Export.OTLP
+				if otlp.Endpoint != "http://localhost:4318" {
+					t.Errorf("expected endpoint http://localhost:4318, got %q", otlp.Endpoint)
+				}
+				if otlp.Protocol != "http" {
+					t.Errorf("expected protocol http, got %q", otlp.Protocol)
+				}
+				if len(otlp.Headers) != 0 || otlp.TLS.Insecure {
+					t.Errorf("expected no headers and secure TLS, got %+v", otlp)
+				}
+				prom := cfg.Export.Prometheus
+				if prom.Enabled || prom.ListenAddress != ":9090" {
+					t.Errorf("expected prometheus disabled on :9090, got %+v", prom)
+				}
+			},
+		},
+		{
+			name: "full export section",
+			file: "testdata/export_full.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.CollectionInterval != 15*time.Minute {
+					t.Errorf("expected collection_interval 15m, got %s", cfg.CollectionInterval)
+				}
+				otlp := cfg.Export.OTLP
+				if otlp.Endpoint != "otel-collector:4317" || otlp.Protocol != "grpc" || !otlp.TLS.Insecure {
+					t.Errorf("unexpected otlp config: %+v", otlp)
+				}
+				// The config loader lower-cases map keys.
+				want := map[string]string{"authorization": "Bearer secret", "x-scope-orgid": "tenant-a"}
+				if len(otlp.Headers) != len(want) {
+					t.Fatalf("expected %d headers, got %v", len(want), otlp.Headers)
+				}
+				for k, v := range want {
+					if otlp.Headers[k] != v {
+						t.Errorf("header %q: expected %q, got %q", k, v, otlp.Headers[k])
+					}
+				}
+				prom := cfg.Export.Prometheus
+				if !prom.Enabled || prom.ListenAddress != ":9464" {
+					t.Errorf("expected prometheus enabled on :9464, got %+v", prom)
+				}
+			},
+		},
+		{
+			name:    "missing otlp endpoint is fatal",
+			file:    "testdata/no_endpoint.yaml",
+			wantErr: true,
+		},
+		{
+			name:    "unknown otlp protocol is fatal",
+			file:    "testdata/bad_protocol.yaml",
+			wantErr: true,
+		},
+		{
+			name:    "non-positive collection interval is fatal",
+			file:    "testdata/bad_interval.yaml",
+			wantErr: true,
 		},
 		{
 			name:    "pat token from env var",
