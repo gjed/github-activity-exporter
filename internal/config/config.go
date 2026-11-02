@@ -129,8 +129,8 @@ func Load(path string) (*Config, error) {
 	v := viper.New()
 	v.SetConfigFile(path)
 
-	// Allow env var overrides with RENOVATE_EXPORTER_ prefix.
-	v.SetEnvPrefix("RENOVATE_EXPORTER")
+	// Allow env var overrides with GITHUB_ACTIVITY_EXPORTER_ prefix.
+	v.SetEnvPrefix("GITHUB_ACTIVITY_EXPORTER")
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
