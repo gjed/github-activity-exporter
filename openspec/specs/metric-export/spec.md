@@ -15,6 +15,16 @@ The system SHALL push metrics to an OTLP-compatible endpoint after each collecti
 - **WHEN** a collection cycle completes
 - **THEN** all collected metrics are pushed to the configured OTLP endpoint within the same cycle
 
+#### Scenario: Missing endpoint is fatal
+
+- **WHEN** `export.otlp.endpoint` is not configured or is empty
+- **THEN** the exporter logs an error naming `export.otlp.endpoint` and exits with a non-zero status before collecting anything
+
+#### Scenario: Malformed endpoint is fatal
+
+- **WHEN** `export.otlp.endpoint` is not an `http://` or `https://` URL with a host for protocol `http`, or contains a scheme for protocol `grpc`
+- **THEN** the exporter logs an error naming `export.otlp.endpoint` and exits with a non-zero status
+
 #### Scenario: OTLP/HTTP supported
 
 - **WHEN** `export.otlp.protocol: http` is configured
@@ -29,6 +39,11 @@ The system SHALL push metrics to an OTLP-compatible endpoint after each collecti
 
 - **WHEN** `export.otlp.protocol` is not configured
 - **THEN** OTLP/HTTP is used
+
+#### Scenario: Unknown protocol is fatal
+
+- **WHEN** `export.otlp.protocol` is set to a value other than `http` or `grpc`
+- **THEN** the exporter logs an error naming `export.otlp.protocol` and exits with a non-zero status
 
 #### Scenario: OTLP push failure does not crash exporter
 
@@ -48,6 +63,16 @@ The system SHALL optionally expose a `/metrics` HTTP endpoint in Prometheus text
 
 - **WHEN** `export.prometheus.enabled: true` is configured
 - **THEN** a GET request to `/metrics` returns HTTP 200 with Prometheus text format exposing the same metrics as the OTLP output
+
+#### Scenario: Default listen address
+
+- **WHEN** `export.prometheus.enabled: true` is configured and `export.prometheus.listen_address` is not set
+- **THEN** the `/metrics` server listens on `:9090`
+
+#### Scenario: Custom listen address
+
+- **WHEN** `export.prometheus.listen_address: ":9464"` is configured with the bridge enabled
+- **THEN** the `/metrics` server listens on `:9464`
 
 #### Scenario: Prometheus bridge reads same metric state as OTLP
 
@@ -95,3 +120,18 @@ The system SHALL support configuring arbitrary HTTP headers (e.g., `Authorizatio
 
 - **WHEN** `export.otlp.headers: {Authorization: "Bearer <token>"}` is configured
 - **THEN** all OTLP push requests include that header
+
+#### Scenario: Multiple arbitrary headers injected
+
+- **WHEN** `export.otlp.headers` contains more than one entry, e.g. `Authorization` and `X-Scope-OrgID`
+- **THEN** all OTLP push requests include every configured header
+
+#### Scenario: TLS verification on by default
+
+- **WHEN** `export.otlp.tls.insecure` is not set or is `false`
+- **THEN** OTLP connections verify the server's TLS certificate
+
+#### Scenario: Insecure TLS opt-in
+
+- **WHEN** `export.otlp.tls.insecure: true` is configured
+- **THEN** OTLP/HTTP skips TLS certificate verification and OTLP/gRPC connects without TLS
