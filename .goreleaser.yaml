@@ -35,7 +35,7 @@ checksum:
 
 changelog:
   # semantic-release owns the changelog; GoReleaser skips it
-  skip: true
+  disable: true
 
 dockers:
   - id: renovate-exporter-amd64
