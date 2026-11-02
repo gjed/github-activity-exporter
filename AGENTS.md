@@ -1,4 +1,4 @@
-# renovate-exporter Agent Rules
+# github-activity-exporter Agent Rules
 
 ## Commit Convention
 
