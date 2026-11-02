@@ -1,5 +1,5 @@
 # Build on the native platform and cross-compile for the target one: no QEMU.
-FROM --platform=$BUILDPLATFORM golang:1.25 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26 AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
