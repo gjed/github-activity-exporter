@@ -1,0 +1,8 @@
+# Weaver live-check configuration (used by tests/integration).
+# A resource carries no identifier, so a matcher pairs the exporter's
+# resource with the attribute group that declares it.
+[[live-check.matchers]]
+id = "match.resource"
+sample_type = "resource"
+when = 'attributes["service.name"] == "renovate-github-exporter"'
+strict_attribute_groups = ["renovate_github_exporter.resource"]
