@@ -22,6 +22,9 @@ GitHub metrics exporter for [Renovate](https://docs.renovatebot.com/) — collec
 Create `config.yaml`:
 
 ```yaml
+export:
+  otlp:
+    endpoint: http://my-otel-collector:4318
 targets:
   - name: my-org
     auth:
@@ -35,14 +38,13 @@ Run the image with the config mounted at `/etc/renovate-exporter/config.yaml`:
 ```bash
 docker run --rm \
   -e GITHUB_TOKEN=ghp_... \
-  -e OTLP_ENDPOINT=http://my-otel-collector:4318 \
   -v "$PWD/config.yaml:/etc/renovate-exporter/config.yaml:ro" \
   ghcr.io/gjed/renovate-exporter:latest
 ```
 
 Metrics are pushed to the OTLP endpoint after each collection cycle (default: every 5 minutes).
 
-To also expose a Prometheus scrape endpoint, add `-e PROMETHEUS_ENABLED=true -p 9090:9090`.
+To also expose a Prometheus scrape endpoint, set `export.prometheus.enabled: true` in the config and add `-p 9090:9090`.
 
 ## Installation
 
@@ -70,13 +72,26 @@ go install github.com/gjed/renovate-exporter/cmd/renovate-exporter@latest
 
 ## Configuration
 
-The exporter takes no flags other than `--version`. Targets and GitHub auth come from a YAML file; the OTLP and runtime settings come from environment variables.
+The exporter takes no flags other than `--version`. Targets, GitHub auth and export settings come from a YAML file.
 
 ### Config file
 
 The path is read from `CONFIG_FILE`. It defaults to `config.yaml` in the working directory, and to `/etc/renovate-exporter/config.yaml` in the Docker image.
 
 ```yaml
+collection_interval: 5m           # how often to collect and push metrics
+export:
+  otlp:
+    endpoint: https://otlp.example.com:4318  # required; the exporter exits if unset
+    protocol: http                # http or grpc
+    headers:                      # sent on every OTLP request; names are lower-cased
+      Authorization: Bearer <token>
+      X-Scope-OrgID: my-tenant
+    tls:
+      insecure: false             # http: skip cert verification; grpc: no TLS. Not for production
+  prometheus:
+    enabled: false                # optional /metrics bridge
+    listen_address: ":9090"
 targets:
   - name: my-org                  # unique per target
     auth:                         # exactly one of token, token_env, or app
@@ -105,17 +120,10 @@ targets:
 
 ### Environment variables
 
-| Env                   | Default                 | Description                                                  |
-| --------------------- | ----------------------- | ------------------------------------------------------------ |
-| `CONFIG_FILE`         | `config.yaml`           | Path to the config file                                      |
-| `OTLP_ENDPOINT`       | `http://localhost:4318` | OTLP endpoint URL                                            |
-| `OTLP_PROTOCOL`       | `http`                  | OTLP protocol: `http` or `grpc`                              |
-| `OTLP_AUTH_HEADER`    | —                       | Value sent as the `Authorization` header on OTLP requests    |
-| `OTLP_TLS_INSECURE`   | `false`                 | Skip TLS certificate verification. Do not use in production  |
-| `COLLECTION_INTERVAL` | `5m`                    | How often to collect and push metrics                        |
-| `PROMETHEUS_ENABLED`  | `false`                 | Enable the optional Prometheus `/metrics` bridge             |
-| `PROMETHEUS_ADDR`     | `:9090`                 | Listen address for the Prometheus bridge                     |
-| `RENOVATE_BOT_LOGIN`  | `renovate[bot]`         | Login of the Renovate bot that owns the Dependency Dashboard |
+| Env                  | Default         | Description                                                  |
+| -------------------- | --------------- | ------------------------------------------------------------ |
+| `CONFIG_FILE`        | `config.yaml`   | Path to the config file                                      |
+| `RENOVATE_BOT_LOGIN` | `renovate[bot]` | Login of the Renovate bot that owns the Dependency Dashboard |
 
 ## Metrics
 

@@ -14,8 +14,8 @@
 
 ## 3. Documentation
 
-- [ ] 3.1 Update `README.md`: quick start config and `docker run` (drop `-e OTLP_ENDPOINT`/`PROMETHEUS_ENABLED`), the config file example with the `export` section and `collection_interval`, and drop the removed rows from the env var table; verify markdown lint passes on `README.md`
+- [x] 3.1 Update `README.md`: quick start config and `docker run` (drop `-e OTLP_ENDPOINT`/`PROMETHEUS_ENABLED`), the config file example with the `export` section and `collection_interval`, and drop the removed rows from the env var table; verify markdown lint passes on `README.md`
 
 ## 4. Integration
 
-- [ ] 4.1 Run `go build ./... && go test ./... && make check-schema`; verify all pass
+- [x] 4.1 Run `go build ./... && go test ./... && make check-schema`; verify all pass
