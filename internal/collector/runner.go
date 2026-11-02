@@ -10,6 +10,7 @@ import (
 
 	"github.com/gjed/renovate-exporter/internal/config"
 	"github.com/gjed/renovate-exporter/internal/discovery"
+	"github.com/gjed/renovate-exporter/internal/semconv"
 )
 
 // RepoSource provides the current list of repositories for a target.
@@ -62,7 +63,7 @@ type Runner struct {
 // Satisfied by *exporter.SelfMetrics.
 type SelfMetricsRecorder interface {
 	RecordScrapeDuration(ctx context.Context, target string, start time.Time)
-	RecordAPIError(ctx context.Context, target string)
+	RecordAPIError(ctx context.Context, target, endpoint string)
 }
 
 // RunnerOption configures a Runner.
@@ -207,7 +208,7 @@ func (r *Runner) runOnce(ctx context.Context) {
 	repos, err := r.source.Repos(ctx)
 	if err != nil {
 		r.logger.Error("repo discovery failed", "target", r.target, "err", err)
-		r.recordAPIErrors(ctx, 1)
+		r.recordAPIErrors(ctx, 1, semconv.AttrGitHubApiEndpointRestRepos)
 		return
 	}
 
@@ -266,13 +267,13 @@ func (r *Runner) runOnce(ctx context.Context) {
 	r.mu.Unlock()
 
 	if prColl != nil {
-		r.recordAPIErrors(ctx, len(prColl.FailedRepos()))
+		r.recordAPIErrors(ctx, len(prColl.FailedRepos()), semconv.AttrGitHubApiEndpointGraphQL)
 	}
 	if issColl != nil {
-		r.recordAPIErrors(ctx, len(issColl.FailedRepos()))
+		r.recordAPIErrors(ctx, len(issColl.FailedRepos()), semconv.AttrGitHubApiEndpointRestIssues)
 	}
 	if dashColl != nil {
-		r.recordAPIErrors(ctx, len(dashColl.FailedRepos()))
+		r.recordAPIErrors(ctx, len(dashColl.FailedRepos()), semconv.AttrGitHubApiEndpointRestIssues)
 	}
 	if r.self != nil {
 		r.self.RecordScrapeDuration(ctx, r.target, start)
@@ -285,12 +286,13 @@ func (r *Runner) runOnce(ctx context.Context) {
 	)
 }
 
-// recordAPIErrors adds n to github_exporter.api.errors for this target.
-func (r *Runner) recordAPIErrors(ctx context.Context, n int) {
+// recordAPIErrors adds n to github_exporter.api.errors for this target and
+// GitHub API endpoint.
+func (r *Runner) recordAPIErrors(ctx context.Context, n int, endpoint string) {
 	if r.self == nil {
 		return
 	}
 	for i := 0; i < n; i++ {
-		r.self.RecordAPIError(ctx, r.target)
+		r.self.RecordAPIError(ctx, r.target, endpoint)
 	}
 }
