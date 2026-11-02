@@ -55,15 +55,13 @@ func main() {
 
 	// ── Build OTLP provider ───────────────────────────────────────────────────
 	exporterCfg := exporter.Config{
-		OTLPEndpoint:       envOr("OTLP_ENDPOINT", "http://localhost:4318"),
-		Protocol:           exporter.Protocol(envOr("OTLP_PROTOCOL", "http")),
-		CollectionInterval: mustDuration(envOr("COLLECTION_INTERVAL", "5m")),
-		PrometheusEnabled:  os.Getenv("PROMETHEUS_ENABLED") == "true",
-		PrometheusAddr:     envOr("PROMETHEUS_ADDR", ":9090"),
-		TLSInsecure:        os.Getenv("OTLP_TLS_INSECURE") == "true",
-	}
-	if authHeader := os.Getenv("OTLP_AUTH_HEADER"); authHeader != "" {
-		exporterCfg.Headers = map[string]string{"Authorization": authHeader}
+		OTLPEndpoint:       cfg.Export.OTLP.Endpoint,
+		Protocol:           exporter.Protocol(cfg.Export.OTLP.Protocol),
+		Headers:            cfg.Export.OTLP.Headers,
+		TLSInsecure:        cfg.Export.OTLP.TLS.Insecure,
+		CollectionInterval: cfg.CollectionInterval,
+		PrometheusEnabled:  cfg.Export.Prometheus.Enabled,
+		PrometheusAddr:     cfg.Export.Prometheus.ListenAddress,
 	}
 
 	provider, err := exporter.New(ctx, exporterCfg, logger)
@@ -223,13 +221,4 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-func mustDuration(s string) time.Duration {
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		slog.Error("invalid duration", "value", s, "err", err)
-		os.Exit(1)
-	}
-	return d
 }
