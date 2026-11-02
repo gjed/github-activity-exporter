@@ -5,6 +5,8 @@ templates:
     file_name: metrics.go
 
   - template: attributes.go.j2
-    filter: '.groups | map(select(.type == "attribute_group"))'
+    # The resource attribute group refs OTel attributes set by the Go SDK
+    # resource detectors; they have upstream constants, so skip it.
+    filter: '.groups | map(select(.type == "attribute_group" and .id != "renovate_github_exporter.resource"))'
     application_mode: single
     file_name: attributes.go

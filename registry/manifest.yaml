@@ -1,3 +1,4 @@
+file_format: definition_manifest/2.0
 name: renovate-github-exporter
 description: OTel semantic convention registry for the renovate-github-exporter project.
 schema_url: https://github.com/gjed/renovate-exporter/schemas/0.1.0

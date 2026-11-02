@@ -6,46 +6,93 @@ metrics:
     instrument: updowncounter
     unit: "{pr}"
     stability: development
+    requirement_level: recommended
     brief: Number of pull requests grouped by state and label.
     note: >
       Use the github.pr.state attribute to distinguish open/merged/closed/draft.
       Use the github.pr.label attribute for label breakdown.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
+      - ref: github.pr.state
+        requirement_level: required
+      - ref: github.pr.label
+        requirement_level:
+          conditionally_required: If the data point counts pull requests carrying a specific label.
 
   - name: github.pr.age
     instrument: gauge
     unit: s
     stability: development
+    requirement_level: recommended
     brief: Age of an open pull request in seconds (time since creation).
     note: >
       Recorded as the oldest open PR per repo. The gauge is omitted for repos
       with no open PRs.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
 
   - name: github.pr.close.duration
     instrument: histogram
     unit: s
     stability: development
+    requirement_level: recommended
     brief: Time from PR creation to close (merged or declined) in seconds.
     note: >
       Only recorded for PRs that transitioned to closed/merged since the
       previous collection cycle. Prevents double-counting across cycles.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
 
   - name: github.pr.automerged
     instrument: counter
     unit: "{pr}"
     stability: development
+    requirement_level: recommended
     brief: Total number of pull requests merged via automerge.
     note: >
       A PR is considered automerged if it was merged with no APPROVED review.
       Only counted for PRs merged since the previous collection cycle.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
 
   - name: github.pr.review_status
     instrument: gauge
     unit: "{pr}"
     stability: development
+    requirement_level: recommended
     brief: Number of open pull requests grouped by review status.
     note: >
       Uses the github.pr.review_status attribute to distinguish approved,
       changes_requested, pending, and none states.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
+      - ref: github.pr.review_status
+        requirement_level: required
 
   # ── GitHub Issue Metrics ───────────────────────────────────────────────────
 
@@ -53,17 +100,39 @@ metrics:
     instrument: updowncounter
     unit: "{issue}"
     stability: development
+    requirement_level: recommended
     brief: Number of GitHub issues grouped by state and label.
     note: >
       Use the github.issue.state attribute to distinguish open and closed issues.
       Use the github.issue.label attribute for label breakdown.
       Pull requests returned by the GitHub API are excluded.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
+      - ref: github.issue.state
+        requirement_level:
+          conditionally_required: If the data point counts issues by state.
+      - ref: github.issue.label
+        requirement_level:
+          conditionally_required: If the data point counts issues carrying a specific label.
 
   - name: github.issue.age
     instrument: gauge
     unit: s
     stability: development
+    requirement_level: recommended
     brief: Age of the oldest open GitHub issue in seconds (time since creation).
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
 
   # ── Renovate Dashboard Metrics ─────────────────────────────────────────────
 
@@ -71,20 +140,38 @@ metrics:
     instrument: gauge
     unit: "{pr}"
     stability: development
+    requirement_level: recommended
     brief: Number of pull requests in each section of the Renovate dependency dashboard.
     note: >
       The dashboard issue sections (awaiting-schedule, rate-limited, etc.)
       are parsed from the issue body and reported per section.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
+      - ref: renovate.dashboard.section
+        requirement_level: required
 
   - name: renovate.dashboard.parse_error
     instrument: gauge
     unit: "{error}"
     stability: development
+    requirement_level: recommended
     brief: Set to 1 when the Renovate dependency dashboard cannot be parsed, 0 on success.
     note: >
       Emitted per repo. A value of 1 indicates the dashboard issue was found
       but no expected sections (Awaiting Schedule, Rate-Limited, etc.) were
       detected — likely a format change.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
 
   # ── Exporter Self-Metrics ──────────────────────────────────────────────────
 
@@ -92,17 +179,31 @@ metrics:
     instrument: histogram
     unit: s
     stability: development
+    requirement_level: recommended
     brief: Duration of a complete collection cycle in seconds.
     note: Recorded once per collection cycle after all GitHub API calls complete.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
 
   - name: github_exporter.api.errors
     instrument: counter
     unit: "{error}"
     stability: development
+    requirement_level: recommended
     brief: Number of GitHub API errors encountered during collection.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.api.endpoint
+        requirement_level: required
 
   - name: github_exporter.otlp.errors
     instrument: counter
     unit: "{error}"
     stability: development
+    requirement_level: recommended
     brief: Number of OTLP push failures.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required

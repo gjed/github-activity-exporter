@@ -35,7 +35,10 @@ const (
                     | replace("Awaitingschedule", "AwaitingSchedule")
                     | replace("Ratelimited", "RateLimited")
                     | replace("Pendingapproval", "PendingApproval")
-                    | replace("Changesrequested", "ChangesRequested") -%}
+                    | replace("Changesrequested", "ChangesRequested")
+                    | replace("Restissues", "RestIssues")
+                    | replace("Restrepos", "RestRepos")
+                    | replace("Graphql", "GraphQL") -%}
 	Attr{{ attr_id }}{{ member_id }} = "{{ member.value }}"
 {% endfor %}
 {% endif %}
