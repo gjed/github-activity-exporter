@@ -22,7 +22,7 @@ Pure rename of `renovate-exporter` to `github-activity-exporter`. The GitHub rep
 ## Risks / Trade-offs
 
 - New `service.name` → new `job` label → series discontinuity in the backend → noted in the PR description; dashboards use `$job`, so they keep working after selecting the new value.
-- Commit types: the rename commits are `refactor`/`build`/`ci`/`docs`/`chore`, which semantic-release does not release. The first image under the new name appears with the next `feat`/`fix` release; no release is forced.
+- Release: the env-prefix rename is typed `fix`, so the merge cuts a 0.x patch release and `go install …@latest` and the new image resolve on day one.
 
 ## Migration Plan
 
