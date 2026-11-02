@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -238,13 +239,22 @@ func validate(cfg *Config) error {
 	return nil
 }
 
-// validateExport checks the OTLP endpoint, protocol and collection interval.
+// validateExport checks the OTLP endpoint and protocol, and the collection interval.
+// The endpoint shape depends on the protocol: an http(s) URL for http, host:port for grpc.
 func validateExport(cfg *Config) error {
 	if cfg.Export.OTLP.Endpoint == "" {
 		return fmt.Errorf("export.otlp.endpoint is required")
 	}
 	switch cfg.Export.OTLP.Protocol {
-	case "http", "grpc":
+	case "http":
+		u, err := url.Parse(cfg.Export.OTLP.Endpoint)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("export.otlp.endpoint must be an http(s) URL for protocol http, got %q", cfg.Export.OTLP.Endpoint)
+		}
+	case "grpc":
+		if strings.Contains(cfg.Export.OTLP.Endpoint, "://") {
+			return fmt.Errorf("export.otlp.endpoint must be host:port for protocol grpc, got %q", cfg.Export.OTLP.Endpoint)
+		}
 	default:
 		return fmt.Errorf("export.otlp.protocol must be \"http\" or \"grpc\", got %q", cfg.Export.OTLP.Protocol)
 	}

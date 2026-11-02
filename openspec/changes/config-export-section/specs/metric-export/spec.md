@@ -16,6 +16,11 @@ The system SHALL push metrics to an OTLP-compatible endpoint after each collecti
 - **WHEN** `export.otlp.endpoint` is not configured or is empty
 - **THEN** the exporter logs an error naming `export.otlp.endpoint` and exits with a non-zero status before collecting anything
 
+#### Scenario: Malformed endpoint is fatal
+
+- **WHEN** `export.otlp.endpoint` is not an `http://` or `https://` URL with a host for protocol `http`, or contains a scheme for protocol `grpc`
+- **THEN** the exporter logs an error naming `export.otlp.endpoint` and exits with a non-zero status
+
 #### Scenario: OTLP/HTTP supported
 
 - **WHEN** `export.otlp.protocol: http` is configured

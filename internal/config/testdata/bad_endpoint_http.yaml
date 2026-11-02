@@ -1,0 +1,10 @@
+export:
+  otlp:
+    endpoint: 10.0.0.1:4318
+    protocol: http
+targets:
+  - name: myorg
+    auth:
+      token: ghp_testtoken123
+    orgs:
+      - org: myorg

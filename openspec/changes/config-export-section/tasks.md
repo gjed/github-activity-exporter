@@ -6,6 +6,7 @@
 - [x] 1.2 Set viper defaults for `collection_interval` (`5m`), `export.otlp.protocol` (`http`) and `export.prometheus.listen_address` (`:9090`); verify a test loading a minimal file asserts those values
 - [x] 1.3 Validate in `validate`: required `export.otlp.endpoint`, protocol in {`http`, `grpc`}, `collection_interval > 0`; verify table tests in `config_test.go` cover each error
 - [x] 1.4 Add `export.otlp.endpoint` to every existing `internal/config/testdata/*.yaml` and add testdata for a full export section (multiple headers, grpc, tls insecure, prometheus enabled with custom address); verify `go test ./internal/config/...` passes
+- [x] 1.5 Validate the endpoint shape per protocol (http: http(s) URL with host; grpc: no scheme); verify table tests cover both error cases
 
 ## 2. Wiring
 
