@@ -13,8 +13,10 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -38,7 +40,7 @@ const weaverImage = "otel/weaver:v" + weaverVersion
 // TestLiveCheck_ConformsToSchema emits conforming metrics and asserts that
 // `weaver registry live-check` reports no schema violations.
 func TestLiveCheck_ConformsToSchema(t *testing.T) {
-	if err := runLiveCheck(t, emitConformingMetrics); err != nil {
+	if _, err := runLiveCheck(t, emitConformingMetrics); err != nil {
 		t.Fatalf("weaver registry live-check failed (schema violation): %v", err)
 	}
 }
@@ -47,38 +49,42 @@ func TestLiveCheck_ConformsToSchema(t *testing.T) {
 // type (integer instead of string for github.org) and asserts live-check
 // returns non-zero.
 func TestLiveCheck_SchemaViolationDetected(t *testing.T) {
-	err := runLiveCheck(t, emitViolatingMetrics)
-	if err == nil {
-		t.Fatal("expected weaver live-check to return non-zero for schema violation, but it exited 0")
-	}
-	t.Logf("weaver live-check correctly detected violation: %v", err)
+	out, err := runLiveCheck(t, emitViolatingMetrics)
+	requireViolation(t, out, err, "Attribute 'github.org' has type 'int'. Type should be 'string'.")
 }
 
 // TestLiveCheck_UndeclaredMetricDetected emits a metric the registry does not
 // define and asserts live-check returns non-zero.
 func TestLiveCheck_UndeclaredMetricDetected(t *testing.T) {
-	err := runLiveCheck(t, emitUndeclaredMetric)
-	if err == nil {
-		t.Fatal("expected weaver live-check to return non-zero for an undeclared metric, but it exited 0")
-	}
-	t.Logf("weaver live-check correctly detected undeclared metric: %v", err)
+	out, err := runLiveCheck(t, emitUndeclaredMetric)
+	requireViolation(t, out, err, "Metric does not exist in the registry.")
 }
 
 // TestLiveCheck_UndeclaredAttributeDetected emits github.pr.count with an
 // attribute that the registry declares only on github.issue.count and asserts
 // live-check returns non-zero.
 func TestLiveCheck_UndeclaredAttributeDetected(t *testing.T) {
-	err := runLiveCheck(t, emitUndeclaredAttribute)
+	out, err := runLiveCheck(t, emitUndeclaredAttribute)
+	requireViolation(t, out, err, "Attribute 'github.issue.state' does not exist in the registry.")
+}
+
+// requireViolation asserts that live-check exited non-zero and that its report
+// contains the expected violation message, so an unrelated weaver failure
+// cannot make a negative test pass.
+func requireViolation(t *testing.T, out string, err error, msg string) {
+	t.Helper()
 	if err == nil {
-		t.Fatal("expected weaver live-check to return non-zero for an attribute not declared on the metric, but it exited 0")
+		t.Fatal("expected weaver live-check to return non-zero, but it exited 0")
 	}
-	t.Logf("weaver live-check correctly detected undeclared attribute: %v", err)
+	if !strings.Contains(out, msg) {
+		t.Fatalf("weaver live-check exited with %v but its report lacks %q", err, msg)
+	}
 }
 
 // runLiveCheck starts `weaver registry live-check` as an OTLP/gRPC receiver,
 // waits for it to listen, pushes the metrics recorded by emit to it, and
-// returns the live-check exit error once it stops on inactivity.
-func runLiveCheck(t *testing.T, emit func(*testing.T, *exporter.Provider)) error {
+// returns the live-check report (stdout) and exit error once it stops.
+func runLiveCheck(t *testing.T, emit func(*testing.T, *exporter.Provider)) (string, error) {
 	t.Helper()
 	runner := requireWeaverRunner(t)
 
@@ -89,7 +95,8 @@ func runLiveCheck(t *testing.T, emit func(*testing.T, *exporter.Provider)) error
 	defer cancel()
 
 	cmd := runner.liveCheckCmd(ctx, grpcPort, adminPort)
-	cmd.Stdout = os.Stdout
+	var report bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &report)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start weaver live-check: %v", err)
@@ -139,10 +146,10 @@ func runLiveCheck(t *testing.T, emit func(*testing.T, *exporter.Provider)) error
 
 	select {
 	case err := <-waitErr:
-		return err
+		return report.String(), err
 	case <-ctx.Done():
 		t.Fatalf("weaver live-check did not exit: %v", ctx.Err())
-		return nil
+		return "", nil
 	}
 }
 
