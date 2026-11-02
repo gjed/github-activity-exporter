@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -21,7 +22,21 @@ import (
 	ghclient "github.com/gjed/renovate-exporter/internal/github"
 )
 
+// Set at build time via -ldflags by GoReleaser.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
+	showVersion := flag.Bool("version", false, "print version and exit")
+	flag.Parse()
+	if *showVersion {
+		fmt.Printf("renovate-exporter %s (commit %s, built %s)\n", version, commit, date)
+		return
+	}
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
@@ -76,6 +91,8 @@ func main() {
 	}
 
 	logger.Info("renovate-exporter started",
+		"version", version,
+		"commit", commit,
 		"targets", len(cfg.Targets),
 		"otlp_endpoint", exporterCfg.OTLPEndpoint,
 		"protocol", exporterCfg.Protocol,
