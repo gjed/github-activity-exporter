@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "_comment": "Renovate is the sole dependency manager for this repo. Dependabot is NOT used — Renovate covers Go modules, GitHub Actions, and Node.js (semantic-release plugins).",
+  "description": ["Renovate is the sole dependency manager for this repo. Dependabot is NOT used — Renovate covers Go modules, GitHub Actions, and Node.js (semantic-release plugins)."],
   "extends": [
     "config:recommended",
     ":semanticCommits",
@@ -19,7 +19,7 @@
       "groupName": "Go dependencies"
     },
     {
-      "matchManagers": ["pnpm"],
+      "matchManagers": ["npm"],
       "matchFileNames": ["pnpm-lock.yaml"],
       "groupName": "semantic-release plugins",
       "automerge": true,
