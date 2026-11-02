@@ -22,15 +22,20 @@ jobs:
       - name: Check registry schema
         run: weaver registry check -r registry/
 
-      - name: Resolve registry (dump for inspection)
+      - name: Package registry (resolved dump for inspection)
+        # `weaver registry resolve` is deprecated; `package` writes
+        # manifest.yaml + resolved.yaml.
         run: |
-          weaver registry resolve -r registry/ > /tmp/resolved-registry.yaml
+          weaver registry package --v2 \
+            -r registry/ \
+            -o /tmp/registry-package \
+            --resolved-registry-uri "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Upload resolved registry
         uses: actions/upload-artifact@v4
         with:
           name: resolved-registry
-          path: /tmp/resolved-registry.yaml
+          path: /tmp/registry-package/
 
       - name: Smoke-test registry emit
         run: |
