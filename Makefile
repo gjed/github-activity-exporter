@@ -1,5 +1,5 @@
 BINARY        := renovate-exporter
-CMD           := ./cmd/exporter
+CMD           := ./cmd/renovate-exporter
 
 WEAVER_VERSION ?= 0.23.0
 WEAVER_IMAGE   ?= otel/weaver:v$(WEAVER_VERSION)
