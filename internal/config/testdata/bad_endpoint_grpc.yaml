@@ -1,0 +1,10 @@
+export:
+  otlp:
+    endpoint: https://otel:4317
+    protocol: grpc
+targets:
+  - name: myorg
+    auth:
+      token: ghp_testtoken123
+    orgs:
+      - org: myorg

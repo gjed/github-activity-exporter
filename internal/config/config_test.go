@@ -86,6 +86,16 @@ func TestLoad(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "http endpoint without scheme is fatal",
+			file:    "testdata/bad_endpoint_http.yaml",
+			wantErr: true,
+		},
+		{
+			name:    "grpc endpoint with scheme is fatal",
+			file:    "testdata/bad_endpoint_grpc.yaml",
+			wantErr: true,
+		},
+		{
 			name:    "unknown otlp protocol is fatal",
 			file:    "testdata/bad_protocol.yaml",
 			wantErr: true,
