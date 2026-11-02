@@ -1,5 +1,5 @@
-BINARY        := renovate-exporter
-CMD           := ./cmd/renovate-exporter
+BINARY        := github-activity-exporter
+CMD           := ./cmd/github-activity-exporter
 
 WEAVER_VERSION ?= 0.28.0
 WEAVER_IMAGE   ?= otel/weaver:v$(WEAVER_VERSION)

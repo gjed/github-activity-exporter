@@ -1,4 +1,4 @@
-// Command renovate-exporter collects GitHub/Renovate metrics and exports them
+// Command github-activity-exporter collects GitHub/Renovate metrics and exports them
 // via OTLP (primary) with an optional Prometheus /metrics bridge (secondary).
 package main
 
@@ -33,7 +33,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *showVersion {
-		fmt.Printf("renovate-exporter %s (commit %s, built %s)\n", version, commit, date)
+		fmt.Printf("github-activity-exporter %s (commit %s, built %s)\n", version, commit, date)
 		return
 	}
 
@@ -88,7 +88,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger.Info("renovate-exporter started",
+	logger.Info("github-activity-exporter started",
 		"version", version,
 		"commit", commit,
 		"targets", len(cfg.Targets),

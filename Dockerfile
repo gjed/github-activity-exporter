@@ -11,9 +11,9 @@ COPY cmd/ cmd/
 COPY internal/ internal/
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
-    -o /out/renovate-exporter ./cmd/renovate-exporter
+    -o /out/github-activity-exporter ./cmd/github-activity-exporter
 
 FROM gcr.io/distroless/static:nonroot
-COPY --from=build /out/renovate-exporter /usr/local/bin/renovate-exporter
-ENV CONFIG_FILE=/etc/renovate-exporter/config.yaml
-ENTRYPOINT ["/usr/local/bin/renovate-exporter"]
+COPY --from=build /out/github-activity-exporter /usr/local/bin/github-activity-exporter
+ENV CONFIG_FILE=/etc/github-activity-exporter/config.yaml
+ENTRYPOINT ["/usr/local/bin/github-activity-exporter"]
