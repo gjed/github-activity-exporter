@@ -9,10 +9,6 @@ bin/
 coverage.out
 test-results.xml
 
-# GoReleaser
-*.tar.gz
-*.zip
-
 # OS
 .DS_Store
 Thumbs.db

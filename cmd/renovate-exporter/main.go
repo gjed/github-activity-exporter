@@ -22,7 +22,7 @@ import (
 	ghclient "github.com/gjed/renovate-exporter/internal/github"
 )
 
-// Set at build time via -ldflags by GoReleaser.
+// Set at build time via -ldflags (see Dockerfile).
 var (
 	version = "dev"
 	commit  = "none"

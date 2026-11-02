@@ -52,16 +52,6 @@ To also expose a Prometheus scrape endpoint, add `-e PROMETHEUS_ENABLED=true -p 
 docker pull ghcr.io/gjed/renovate-exporter:latest
 ```
 
-### Binary
-
-Download the latest release for your platform from the [releases page](https://github.com/gjed/renovate-exporter/releases/latest), then:
-
-```bash
-tar -xzf renovate-exporter_*_linux_amd64.tar.gz
-chmod +x renovate-exporter
-./renovate-exporter --help
-```
-
 ### From source
 
 ```bash
@@ -143,7 +133,6 @@ When the Prometheus bridge is enabled, OTel metric names are translated to Prome
 - Go 1.22+
 - [golangci-lint](https://golangci-lint.run/usage/install/)
 - [OTel Weaver](https://github.com/open-telemetry/weaver/releases) (for schema validation)
-- [GoReleaser](https://goreleaser.com/install/) (for release builds)
 
 ### Build
 
@@ -182,10 +171,12 @@ make generate
 | `lint`              | every PR + push to `main` | golangci-lint                                             |
 | `test`              | every PR + push to `main` | `go test -race`, JUnit XML upload, coverage PR comment    |
 | `build`             | every PR + push to `main` | `go build ./...` for `linux/amd64`                        |
+| `docker-build`      | every PR + push to `main` | Multi-arch image build (`linux/amd64`, `linux/arm64`)     |
 | `check-generated`   | every PR + push to `main` | Fails if `make generate` produces uncommitted changes     |
 | `registry-validate` | every PR + push to `main` | Weaver schema check + emit smoke-test (separate workflow) |
 | `integration-test`  | PRs targeting `main`      | Starts exporter + mock GitHub API, runs Weaver live-check |
-| `release`           | push to `main`            | semantic-release → GoReleaser → GHCR                      |
+| `release`           | push to `main`            | semantic-release → version tag + GitHub Release           |
+| `image`             | release published         | Multi-arch image → GHCR (`X.Y.Z`, `X.Y`, `X`, `latest`)   |
 
 ## Release
 

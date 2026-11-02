@@ -5,12 +5,10 @@ on:
     branches:
       - main
 
-# GITHUB_TOKEN only checks out and pushes images. The version tag and the
-# GitHub release are written with the gjed-release app token below.
+# GITHUB_TOKEN only checks out. The version tag and the GitHub release are
+# written with the gjed-release app token below.
 permissions:
   contents: read
-  packages: write
-  id-token: write
 
 jobs:
   release:
@@ -21,8 +19,9 @@ jobs:
     # protected branches, so a workflow on any other branch cannot mint the token.
     environment: release
     steps:
-      # semantic-release pushes the version tag and GoReleaser creates the GitHub
-      # release with this token. The release does not commit to main.
+      # semantic-release pushes the version tag and creates the GitHub release
+      # with this token, so the `release: published` event triggers image.yml.
+      # The release does not commit to main.
       - name: Mint release app token
         id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -34,7 +33,7 @@ jobs:
           permission-issues: write # comment on issues fixed by the release
           permission-pull-requests: write # comment on pull requests included in the release
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # semantic-release requires full git history to determine the next version
           fetch-depth: 0
@@ -42,35 +41,13 @@ jobs:
           # the app token semantic-release puts in the remote URL.
           persist-credentials: false
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          install-only: true
-          # renovate: datasource=github-releases depName=goreleaser/goreleaser
-          version: v2.9.0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           run_install: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: lts/*
           cache: pnpm
@@ -80,6 +57,5 @@ jobs:
 
       - name: Run semantic-release
         env:
-          # Also used by goreleaser (via @semantic-release/exec) to publish the release.
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: pnpm exec semantic-release
