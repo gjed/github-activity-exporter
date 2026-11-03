@@ -15,6 +15,16 @@ The system SHALL push metrics to an OTLP-compatible endpoint after each collecti
 - **WHEN** a collection cycle completes
 - **THEN** all collected metrics are pushed to the configured OTLP endpoint within the same cycle
 
+#### Scenario: One push per target cycle
+
+- **WHEN** N targets are configured and each completes a collection cycle
+- **THEN** the exporter pushes once per completed target cycle (N pushes per interval), each push carrying the latest data of all targets
+
+#### Scenario: Failed push does not stop collection
+
+- **WHEN** the push at the end of a collection cycle fails
+- **THEN** the exporter logs a warning, increments `github_exporter.otlp.errors`, and the next collection cycle still runs
+
 #### Scenario: Missing endpoint is fatal
 
 - **WHEN** `export.otlp.endpoint` is not configured or is empty
