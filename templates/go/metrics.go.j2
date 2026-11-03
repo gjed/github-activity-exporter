@@ -20,3 +20,24 @@ const (
 	Metric{{ id }} = "{{ group.metric_name }}"
 {% endfor %}
 )
+
+// MetricDef is a registry metric: its name, instrument type and unit.
+type MetricDef struct {
+	Name       string
+	Instrument string
+	Unit       string
+}
+
+// Metrics lists every metric declared in the registry. Tests use it to check
+// that emitted names equal the registry names.
+var Metrics = []MetricDef{
+{%- for group in ctx %}
+{%- set id = group.metric_name | pascal_case_const
+              | replace("Githubexporter", "GitHubExporter")
+              | replace("Otlp", "OTLP")
+              | replace("Reviewstatus", "ReviewStatus")
+              | replace("Parseerror", "ParseError")
+              | replace("Github", "GitHub") %}
+	{Name: Metric{{ id }}, Instrument: "{{ group.instrument }}", Unit: "{{ group.unit }}"},
+{%- endfor %}
+}
