@@ -116,8 +116,8 @@ func (p *Provider) MeterProvider() *metric.MeterProvider {
 	return p.mp
 }
 
-// ForceFlush triggers an immediate export of all pending metrics.
-// Useful in tests to ensure data reaches the OTLP receiver before assertions.
+// ForceFlush triggers an immediate export of all pending metrics. Each Runner
+// calls it at the end of every collection cycle.
 func (p *Provider) ForceFlush(ctx context.Context) error {
 	return p.mp.ForceFlush(ctx)
 }

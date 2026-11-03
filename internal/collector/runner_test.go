@@ -1,8 +1,11 @@
 package collector_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,8 +22,9 @@ type staticRepoSource struct{ repos []discovery.Repo }
 func (s staticRepoSource) Repos(context.Context) ([]discovery.Repo, error) { return s.repos, nil }
 
 type fakeSelfMetrics struct {
-	scrapes   []string
-	apiErrors []string // endpoint per recorded error
+	scrapes    []string
+	apiErrors  []string // endpoint per recorded error
+	otlpErrors []string // target per recorded error
 }
 
 func (f *fakeSelfMetrics) RecordScrapeDuration(_ context.Context, target string, _ time.Time) {
@@ -29,6 +33,10 @@ func (f *fakeSelfMetrics) RecordScrapeDuration(_ context.Context, target string,
 
 func (f *fakeSelfMetrics) RecordAPIError(_ context.Context, _, endpoint string) {
 	f.apiErrors = append(f.apiErrors, endpoint)
+}
+
+func (f *fakeSelfMetrics) RecordOTLPError(_ context.Context, target string) {
+	f.otlpErrors = append(f.otlpErrors, target)
 }
 
 // flakyPRClient returns nodes, or an error while fail is set.
@@ -108,5 +116,67 @@ func TestRunner_FailedRepoKeepsEventWindow(t *testing.T) {
 	}
 	if len(self.apiErrors) != 1 || self.apiErrors[0] != semconv.AttrGitHubApiEndpointGraphQL {
 		t.Errorf("api errors = %v, want [%s]", self.apiErrors, semconv.AttrGitHubApiEndpointGraphQL)
+	}
+}
+
+func TestRunner_FlushesOncePerCycle(t *testing.T) {
+	flushes := 0
+	meter := metric.NewMeterProvider().Meter("test")
+
+	r, err := collector.NewRunner(config.Target{Name: "tgt"}, staticRepoSource{},
+		collector.RunnerCollectors{}, meter, nil,
+		collector.WithFlush(func(context.Context) error { flushes++; return nil }))
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+
+	r.RunOnce(context.Background())
+
+	if flushes != 1 {
+		t.Fatalf("flushes = %d, want 1", flushes)
+	}
+}
+
+func TestRunner_FlushErrorIsLoggedCountedAndNonFatal(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	self := &fakeSelfMetrics{}
+	flushed := make(chan struct{}, 100)
+	meter := metric.NewMeterProvider().Meter("test")
+
+	r, err := collector.NewRunner(config.Target{Name: "tgt"}, staticRepoSource{},
+		collector.RunnerCollectors{}, meter, logger,
+		collector.WithInterval(time.Millisecond),
+		collector.WithSelfMetrics(self),
+		collector.WithFlush(func(context.Context) error {
+			flushed <- struct{}{}
+			return errors.New("context deadline exceeded")
+		}))
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { r.Run(ctx); close(done) }()
+
+	// A second flush proves the loop survived the first failed one.
+	for i := 0; i < 2; i++ {
+		select {
+		case <-flushed:
+		case <-done:
+			t.Fatal("Run returned after a flush error")
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for flush %d", i+1)
+		}
+	}
+	cancel()
+	<-done
+
+	if len(self.otlpErrors) < 2 || self.otlpErrors[0] != "tgt" {
+		t.Fatalf("otlp errors = %v, want at least 2 for target tgt", self.otlpErrors)
+	}
+	if !strings.Contains(logs.String(), "metrics flush failed") {
+		t.Fatalf("flush error not logged; logs:\n%s", logs.String())
 	}
 }

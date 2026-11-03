@@ -82,6 +82,7 @@ func main() {
 	runners, err := buildRunners(ctx, cfg, logger,
 		collector.WithInterval(exporterCfg.CollectionInterval),
 		collector.WithSelfMetrics(selfMetrics),
+		collector.WithFlush(provider.ForceFlush),
 	)
 	if err != nil {
 		logger.Error("failed to build runners", "err", err)

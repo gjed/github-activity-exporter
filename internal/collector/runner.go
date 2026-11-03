@@ -57,6 +57,10 @@ type Runner struct {
 
 	// self records exporter self-metrics; nil disables them.
 	self SelfMetricsRecorder
+
+	// flush pushes the collected metrics at the end of each cycle; nil
+	// disables it.
+	flush func(context.Context) error
 }
 
 // SelfMetricsRecorder records exporter self-metrics for a collection cycle.
@@ -64,6 +68,7 @@ type Runner struct {
 type SelfMetricsRecorder interface {
 	RecordScrapeDuration(ctx context.Context, target string, start time.Time)
 	RecordAPIError(ctx context.Context, target, endpoint string)
+	RecordOTLPError(ctx context.Context, target string)
 }
 
 // RunnerOption configures a Runner.
@@ -84,6 +89,14 @@ func WithInterval(d time.Duration) RunnerOption {
 // discovery, or one collector on one repo).
 func WithSelfMetrics(sm SelfMetricsRecorder) RunnerOption {
 	return func(r *Runner) { r.self = sm }
+}
+
+// WithFlush calls flush once at the end of every collection cycle so the
+// cycle's metrics are pushed immediately (e.g. Provider.ForceFlush). A flush
+// error is logged and counted in github_exporter.otlp.errors; it never stops
+// the loop.
+func WithFlush(flush func(context.Context) error) RunnerOption {
+	return func(r *Runner) { r.flush = flush }
 }
 
 // NewRunner creates a Runner for the given target. The collection interval
@@ -114,8 +127,9 @@ func NewRunner(
 	}
 
 	// Register one batch callback that serves all observable instruments using
-	// the latest collected snapshots. The OTel SDK calls this on each
-	// PeriodicReader flush; we just return whatever the most recent cycle gave us.
+	// the latest collected snapshots. The OTel SDK calls this on every metric
+	// collection (per-cycle flush, PeriodicReader tick, Prometheus scrape); we
+	// just return whatever the most recent cycle gave us.
 	instruments := make([]metric.Observable, 0)
 	if colls.PR != nil {
 		instruments = append(instruments, colls.PR.ObservableInstruments()...)
@@ -192,9 +206,29 @@ func (r *Runner) RunOnce(ctx context.Context) {
 	r.runOnce(ctx)
 }
 
-// runOnce performs one collection cycle: discover repos, run all collectors,
-// update snapshots and advance lastCollectedAt.
+// runOnce performs one collection cycle, then flushes its metrics.
 func (r *Runner) runOnce(ctx context.Context) {
+	r.collect(ctx)
+	r.flushMetrics(ctx)
+}
+
+// flushMetrics pushes the collected metrics. Skipped once ctx is cancelled:
+// shutdown performs its own final flush.
+func (r *Runner) flushMetrics(ctx context.Context) {
+	if r.flush == nil || ctx.Err() != nil {
+		return
+	}
+	if err := r.flush(ctx); err != nil {
+		r.logger.Warn("metrics flush failed", "target", r.target, "err", err)
+		if r.self != nil {
+			r.self.RecordOTLPError(ctx, r.target)
+		}
+	}
+}
+
+// collect discovers repos, runs all collectors, updates snapshots and
+// advances lastCollectedAt.
+func (r *Runner) collect(ctx context.Context) {
 	start := time.Now()
 	r.logger.Debug("collection cycle started", "target", r.target)
 
