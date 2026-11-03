@@ -57,3 +57,27 @@ const (
 	MetricRenovateDashboardQueue = "renovate.dashboard.queue"
 
 )
+
+// MetricDef is a registry metric: its name, instrument type and unit.
+type MetricDef struct {
+	Name       string
+	Instrument string
+	Unit       string
+}
+
+// Metrics lists every metric declared in the registry. Tests use it to check
+// that emitted names equal the registry names.
+var Metrics = []MetricDef{
+	{Name: MetricGitHubIssueAge, Instrument: "gauge", Unit: "s"},
+	{Name: MetricGitHubIssueCount, Instrument: "updowncounter", Unit: "{issue}"},
+	{Name: MetricGitHubPrAge, Instrument: "gauge", Unit: "s"},
+	{Name: MetricGitHubPrAutomerged, Instrument: "counter", Unit: "{pr}"},
+	{Name: MetricGitHubPrCloseDuration, Instrument: "histogram", Unit: "s"},
+	{Name: MetricGitHubPrCount, Instrument: "updowncounter", Unit: "{pr}"},
+	{Name: MetricGitHubPrReviewStatus, Instrument: "gauge", Unit: "{pr}"},
+	{Name: MetricGitHubExporterApiErrors, Instrument: "counter", Unit: "{error}"},
+	{Name: MetricGitHubExporterOTLPErrors, Instrument: "counter", Unit: "{error}"},
+	{Name: MetricGitHubExporterScrapeDuration, Instrument: "histogram", Unit: "s"},
+	{Name: MetricRenovateDashboardParseError, Instrument: "gauge", Unit: "{error}"},
+	{Name: MetricRenovateDashboardQueue, Instrument: "gauge", Unit: "{pr}"},
+}
