@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "CI tooling for github-activity-exporter release automation",
-  "packageManager": "pnpm@10.11.0",
+  "packageManager": "pnpm@10.34.5",
   "devDependencies": {
     "@semantic-release/commit-analyzer": "^13.0.0",
     "@semantic-release/github": "^11.0.6",
