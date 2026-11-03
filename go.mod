@@ -7,6 +7,7 @@ toolchain go1.26.10
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-github/v62 v62.0.0
+	github.com/google/go-github/v93 v93.0.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/otlptranslator v1.0.0
 	github.com/shurcooL/githubv4 v0.0.0-20260209031235-2402fdf4a9ed
@@ -30,7 +31,7 @@ require (
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
-	github.com/google/go-querystring v1.1.0 // indirect
+	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
