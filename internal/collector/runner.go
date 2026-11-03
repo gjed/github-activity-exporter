@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -218,7 +219,15 @@ func (r *Runner) flushMetrics(ctx context.Context) {
 	if r.flush == nil || ctx.Err() != nil {
 		return
 	}
-	if err := r.flush(ctx); err != nil {
+	err := r.flush(ctx)
+	switch {
+	case err == nil || ctx.Err() != nil:
+		// Shutdown landed mid-flush; it performs its own final flush.
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		// Timed out, e.g. queued behind another target's slow export. Export
+		// failures are already counted in otlp.errors by the OTLP exporter.
+		r.logger.Warn("metrics flush timed out", "target", r.target, "err", err)
+	default:
 		r.logger.Warn("metrics flush failed", "target", r.target, "err", err)
 		if r.self != nil {
 			r.self.RecordOTLPError(ctx, r.target)
