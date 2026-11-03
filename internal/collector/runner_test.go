@@ -169,7 +169,10 @@ func TestRunner_FlushErrorIsLoggedCountedAndNonFatal(t *testing.T) {
 		collector.WithInterval(time.Millisecond),
 		collector.WithSelfMetrics(self),
 		collector.WithFlush(func(context.Context) error {
-			flushed <- struct{}{}
+			select {
+			case flushed <- struct{}{}:
+			default:
+			}
 			return errors.New("context deadline exceeded")
 		}))
 	if err != nil {
