@@ -11,7 +11,7 @@ jobs:
     name: Registry Validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Weaver
         uses: ./.github/actions/setup-weaver
@@ -32,7 +32,7 @@ jobs:
             --resolved-registry-uri "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Upload resolved registry
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: resolved-registry
           path: /tmp/registry-package/
