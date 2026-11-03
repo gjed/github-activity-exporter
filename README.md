@@ -27,11 +27,11 @@ export:
     endpoint: http://my-otel-collector:4318
 targets:
   - name: my-org
-    auth:
-      token_env: GITHUB_TOKEN
     orgs:
       - org: my-org
 ```
+
+With no `auth` block the target uses the `GITHUB_TOKEN` env var as a PAT.
 
 Run the image with the config mounted at `/etc/github-activity-exporter/config.yaml`:
 
@@ -84,8 +84,8 @@ export:
     listen_address: ":9090"
 targets:
   - name: my-org                  # unique per target
-    auth:                         # exactly one of token, token_env, or app
-      token_env: GITHUB_TOKEN     # env var holding a PAT with repo read access
+    auth:                         # exactly one of token, token_env, or app; empty or omitted uses GITHUB_TOKEN
+      token_env: MY_GITHUB_TOKEN  # env var holding a PAT with repo read access
       # app:
       #   app_id: 12345
       #   installation_id: 67890
@@ -113,7 +113,17 @@ targets:
 | Env                  | Default         | Description                                                  |
 | -------------------- | --------------- | ------------------------------------------------------------ |
 | `CONFIG_FILE`        | `config.yaml`   | Path to the config file                                      |
+| `GITHUB_TOKEN`       |                 | PAT for targets with an empty or omitted `auth` block        |
 | `RENOVATE_BOT_LOGIN` | `renovate[bot]` | Login of the Renovate bot that owns the Dependency Dashboard |
+
+A target's credential is resolved in this order:
+
+1. The target's own `auth.token`, `auth.token_env` or `auth.app`. `GITHUB_TOKEN` is then ignored for that target.
+1. `GITHUB_TOKEN`, when the target's `auth` block is empty or omitted. Every such target shares it. If it is unset or empty, startup fails with an error naming the target.
+
+A partially filled `auth` block (for example `app` without `app_id`) is a startup error; it does not fall back to `GITHUB_TOKEN`.
+
+Scalar config keys can be overridden with `GITHUB_ACTIVITY_EXPORTER_` env vars, upper-cased with `.` replaced by `_` (for example `GITHUB_ACTIVITY_EXPORTER_EXPORT_OTLP_ENDPOINT`). Per-target settings, including `auth`, cannot be overridden this way.
 
 ## Metrics
 
