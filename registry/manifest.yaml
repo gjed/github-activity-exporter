@@ -1,6 +1,31 @@
+# Metric naming contract (https://github.com/gjed/github-activity-exporter/issues/14)
+#
+# Every exposed metric name equals the registry metric name exactly, on OTLP
+# and on the Prometheus bridge (/metrics): no type or unit suffix (_total,
+# _seconds, ...) and no underscore escaping. github.pr.count is stored as
+# github.pr.count. The only derived names are the classic histogram sample
+# series <name>_bucket, <name>_sum and <name>_count.
+#
+# Backend requirements (translation strategy NoTranslation):
+#   - Prometheus 3.x: UTF-8 metric names (metric_name_validation_scheme: utf8,
+#     the 3.x default). OTLP ingestion: --web.enable-otlp-receiver and
+#     otlp.translation_strategy: NoTranslation.
+#   - Mimir: -validation.name-validation-scheme=utf8,
+#     -distributor.otel-translation-strategy=NoTranslation and
+#     -distributor.otel-metric-suffixes-enabled=false (per-tenant limits
+#     name_validation_scheme, otel_translation_strategy,
+#     otel_metric_suffixes_enabled).
+#   - Grafana Cloud Metrics: the same Mimir per-tenant limits on the stack.
+#
+# Enforced in CI by internal/exporter (/metrics) and tests/integration
+# (OTLP live-check).
 file_format: definition_manifest/2.0
 name: github-activity-exporter
-description: OTel semantic convention registry for the github-activity-exporter project.
+description: >-
+  OTel semantic convention registry for the github-activity-exporter project.
+  Exposed metric names equal the registry names exactly (translation strategy
+  NoTranslation: no suffixes, no escaping); histograms add only _bucket, _sum
+  and _count. See the header comment for backend requirements.
 schema_url: https://github.com/gjed/github-activity-exporter/schemas/0.1.0
 
 # Pin the official OTel semantic conventions version we depend on.
