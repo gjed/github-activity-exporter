@@ -118,7 +118,6 @@ targets:
 ## Metrics
 
 All metric names and attributes are defined in the OTel registry at [`registry/`](registry/).
-When the Prometheus bridge is enabled, OTel metric names are translated to Prometheus naming conventions automatically.
 
 | Metric                            | Instrument    | Description                                              |
 | --------------------------------- | ------------- | -------------------------------------------------------- |
@@ -133,6 +132,20 @@ When the Prometheus bridge is enabled, OTel metric names are translated to Prome
 | `github_exporter.scrape.duration` | Histogram     | Collection cycle duration in seconds                     |
 | `github_exporter.api.errors`      | Counter       | GitHub API errors by target and endpoint                 |
 | `github_exporter.otlp.errors`     | Counter       | OTLP push failures                                       |
+
+### Metric naming
+
+The registry name is the stored name ([#14](https://github.com/gjed/github-activity-exporter/issues/14)). OTLP and the Prometheus bridge expose `github.pr.count` as `github.pr.count`: no `_total` or unit suffix (`_seconds`), no underscore escaping. Histograms add only the classic sample series `<name>_bucket`, `<name>_sum` and `<name>_count`, for example `github_exporter.scrape.duration_bucket`. CI checks both outputs against the registry.
+
+Your backend must keep the names as sent (OTLP translation strategy `NoTranslation`):
+
+- Prometheus 3.x: UTF-8 metric names (`metric_name_validation_scheme: utf8`, the 3.x default). For OTLP ingestion, run with `--web.enable-otlp-receiver` and set `otlp.translation_strategy: NoTranslation`.
+- Mimir: `-validation.name-validation-scheme=utf8`, `-distributor.otel-translation-strategy=NoTranslation` and `-distributor.otel-metric-suffixes-enabled=false` (per-tenant limits `name_validation_scheme`, `otel_translation_strategy`, `otel_metric_suffixes_enabled`).
+- Grafana Cloud Metrics: the same Mimir per-tenant limits on your stack.
+
+With any other setting the backend stores escaped or suffixed names (for example `github_pr_count`), which do not match the registry.
+
+On `/metrics`, a scraper that negotiates the OpenMetrics text format sees counters typed `unknown`, because OpenMetrics requires counter names to end in `_total`. The Prometheus text and protobuf formats keep the `counter` type, and Prometheus 3.x asks for protobuf first by default.
 
 ## Development
 

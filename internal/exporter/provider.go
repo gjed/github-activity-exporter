@@ -86,13 +86,13 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Provider, error
 	var promReg *prometheus.Registry
 	if cfg.PrometheusEnabled {
 		promReg = prometheus.NewRegistry()
-		// WithTranslationStrategy(NoUTF8EscapingWithSuffixes) preserves OTel
-		// dotted metric names (e.g. github.pr.count) in the Prometheus exposition
-		// output. This requires Grafana / Prometheus to be configured with the
-		// UTF-8 name validation scheme (prometheus.model.NameValidationScheme=utf8).
+		// NoTranslation exposes the registry metric names verbatim (e.g.
+		// github.pr.count): no _total or unit suffix, no underscore escaping.
+		// Histograms add only _bucket/_sum/_count. This is the naming contract
+		// in registry/manifest.yaml; scrapers need UTF-8 metric names.
 		promExp, err := promexporter.New(
 			promexporter.WithRegisterer(promReg),
-			promexporter.WithTranslationStrategy(otlptranslator.NoUTF8EscapingWithSuffixes),
+			promexporter.WithTranslationStrategy(otlptranslator.NoTranslation),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("exporter: build Prometheus bridge: %w", err)
