@@ -137,6 +137,26 @@ func TestRunner_FlushesOncePerCycle(t *testing.T) {
 	}
 }
 
+func TestRunner_SkipsFlushWhenContextCancelled(t *testing.T) {
+	flushes := 0
+	meter := metric.NewMeterProvider().Meter("test")
+
+	r, err := collector.NewRunner(config.Target{Name: "tgt"}, staticRepoSource{},
+		collector.RunnerCollectors{}, meter, nil,
+		collector.WithFlush(func(context.Context) error { flushes++; return nil }))
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r.RunOnce(ctx)
+
+	if flushes != 0 {
+		t.Fatalf("flushes = %d, want 0", flushes)
+	}
+}
+
 func TestRunner_FlushErrorIsLoggedCountedAndNonFatal(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
