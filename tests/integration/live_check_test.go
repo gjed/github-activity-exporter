@@ -15,6 +15,8 @@ package integration
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -23,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +69,60 @@ func TestLiveCheck_UndeclaredMetricDetected(t *testing.T) {
 func TestLiveCheck_UndeclaredAttributeDetected(t *testing.T) {
 	out, err := runLiveCheck(t, emitUndeclaredAttribute)
 	requireViolation(t, out, err, "Attribute 'github.issue.state' does not exist in the registry.")
+}
+
+// TestLiveCheck_NamesEqualRegistry emits every registry metric over OTLP and
+// asserts that the metric names live-check saw are exactly the registry names
+// (naming contract in registry/manifest.yaml). Metrics are emitted without
+// attributes, so live-check reports missing required attributes and exits
+// non-zero; attribute conformance is TestLiveCheck_ConformsToSchema's job.
+func TestLiveCheck_NamesEqualRegistry(t *testing.T) {
+	out, _ := runLiveCheck(t, emitAllRegistryMetrics)
+	stats, err := liveCheckStatistics(out)
+	if err != nil {
+		t.Fatalf("live-check report: %v", err)
+	}
+
+	var unseen []string
+	for _, m := range sc.Metrics {
+		if stats.SeenRegistryMetrics[m.Name] == 0 {
+			unseen = append(unseen, m.Name)
+		}
+	}
+	var extra []string
+	for name := range stats.SeenNonRegistryMetrics {
+		extra = append(extra, name)
+	}
+	sort.Strings(extra)
+	if len(unseen) > 0 || len(extra) > 0 {
+		t.Fatalf("OTLP metric names != registry names\nregistry metrics not seen: %v\nnon-registry metrics seen: %v", unseen, extra)
+	}
+}
+
+// liveCheckStats is the subset of the live-check JSON statistics object
+// this suite reads.
+type liveCheckStats struct {
+	SeenRegistryMetrics    map[string]int `json:"seen_registry_metrics"`
+	SeenNonRegistryMetrics map[string]int `json:"seen_non_registry_metrics"`
+}
+
+// liveCheckStatistics decodes the stream of JSON documents live-check writes
+// with --format json and returns the final statistics document.
+func liveCheckStatistics(report string) (liveCheckStats, error) {
+	dec := json.NewDecoder(strings.NewReader(report))
+	for {
+		var stats liveCheckStats
+		if err := dec.Decode(&stats); err != nil {
+			if errors.Is(err, io.EOF) {
+				return liveCheckStats{}, errors.New("no statistics document (seen_registry_metrics) in the report")
+			}
+			return liveCheckStats{}, fmt.Errorf("decode: %w", err)
+		}
+		// Sample documents (resource, scope, metric) lack this key.
+		if stats.SeenRegistryMetrics != nil {
+			return stats, nil
+		}
+	}
 }
 
 // requireViolation asserts that live-check exited non-zero and that its report
@@ -222,6 +279,8 @@ func (r weaverRunner) liveCheckCmd(ctx context.Context, grpcPort, adminPort int)
 		// Match samples against the v2 registry: an attribute not declared on
 		// the matched metric is reported as a violation.
 		"--v2",
+		// JSON report: the name check reads its statistics document.
+		"--format", "json",
 	}
 	configFile := filepath.Join(filepath.Dir(r.registryDir), ".weaver.toml")
 	if r.useDocker {
@@ -348,4 +407,43 @@ func emitUndeclaredAttribute(t *testing.T, p *exporter.Provider) {
 	attrs := append(conformingPRCountAttrs(),
 		attribute.String(sc.AttrGitHubIssueState, sc.AttrGitHubIssueStateOpen))
 	prCount.Add(context.Background(), 3, metric.WithAttributes(attrs...))
+}
+
+// emitAllRegistryMetrics records one value on every registry metric, using
+// the instrument type and unit the registry declares.
+func emitAllRegistryMetrics(t *testing.T, p *exporter.Provider) {
+	t.Helper()
+	ctx := context.Background()
+	meter := p.MeterProvider().Meter("integration-test-all-metrics")
+	for _, m := range sc.Metrics {
+		var err error
+		unit := metric.WithUnit(m.Unit)
+		switch m.Instrument {
+		case "counter":
+			var c metric.Int64Counter
+			if c, err = meter.Int64Counter(m.Name, unit); err == nil {
+				c.Add(ctx, 1)
+			}
+		case "updowncounter":
+			var c metric.Int64UpDownCounter
+			if c, err = meter.Int64UpDownCounter(m.Name, unit); err == nil {
+				c.Add(ctx, 1)
+			}
+		case "gauge":
+			var g metric.Float64Gauge
+			if g, err = meter.Float64Gauge(m.Name, unit); err == nil {
+				g.Record(ctx, 1)
+			}
+		case "histogram":
+			var h metric.Float64Histogram
+			if h, err = meter.Float64Histogram(m.Name, unit); err == nil {
+				h.Record(ctx, 1)
+			}
+		default:
+			t.Fatalf("metric %s: unknown instrument %q", m.Name, m.Instrument)
+		}
+		if err != nil {
+			t.Fatalf("create %s: %v", m.Name, err)
+		}
+	}
 }
