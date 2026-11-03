@@ -209,6 +209,17 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name:    "explicit token_env wins over GITHUB_TOKEN",
+			file:    "testdata/pat_env.yaml",
+			envVars: map[string]string{"TEST_GITHUB_TOKEN": "ghp_from_env", "GITHUB_TOKEN": "ghp_fallback"},
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Targets[0].Auth.Token != "ghp_from_env" {
+					t.Errorf("expected token from token_env, got %q", cfg.Targets[0].Auth.Token)
+				}
+			},
+		},
+		{
 			name:    "explicit app wins over GITHUB_TOKEN",
 			file:    "testdata/app_auth.yaml",
 			envVars: map[string]string{"GITHUB_TOKEN": "ghp_fallback"},
