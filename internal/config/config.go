@@ -195,7 +195,7 @@ func resolveEnvVars(cfg *Config) error {
 		if t.Auth == (Auth{}) {
 			val := os.Getenv("GITHUB_TOKEN")
 			if val == "" {
-				return fmt.Errorf("target %q: no auth configured and GITHUB_TOKEN is not set; set auth.token, auth.token_env, auth.app, or GITHUB_TOKEN", t.Name)
+				return fmt.Errorf("target %q: no auth configured and GITHUB_TOKEN is not set or empty; set auth.token, auth.token_env, auth.app, or GITHUB_TOKEN", t.Name)
 			}
 			t.Auth.Token = val
 			continue
