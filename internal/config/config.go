@@ -91,6 +91,7 @@ type IssueFilters struct {
 
 // Auth specifies authentication configuration for a target.
 // Exactly one of Token/TokenEnv (PAT) or App (GitHub App) must be set.
+// An empty Auth falls back to the GITHUB_TOKEN env var as a PAT.
 type Auth struct {
 	Token    string  `mapstructure:"token"`
 	TokenEnv string  `mapstructure:"token_env"`
@@ -185,10 +186,20 @@ func compileFilters(cfg *Config) error {
 }
 
 // resolveEnvVars fills token/private-key values from environment variables
-// as specified by token_env and private_key_env.
+// as specified by token_env and private_key_env. A target with an empty auth
+// block takes its PAT from GITHUB_TOKEN.
 func resolveEnvVars(cfg *Config) error {
 	for i := range cfg.Targets {
 		t := &cfg.Targets[i]
+
+		if t.Auth == (Auth{}) {
+			val := os.Getenv("GITHUB_TOKEN")
+			if val == "" {
+				return fmt.Errorf("target %q: no auth configured and GITHUB_TOKEN is not set; set auth.token, auth.token_env, auth.app, or GITHUB_TOKEN", t.Name)
+			}
+			t.Auth.Token = val
+			continue
+		}
 
 		if t.Auth.TokenEnv != "" {
 			val := os.Getenv(t.Auth.TokenEnv)

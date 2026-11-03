@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,8 @@ func TestLoad(t *testing.T) {
 		envVars map[string]string
 		check   func(t *testing.T, cfg *config.Config)
 		wantErr bool
+		// errContains, when set, must be a substring of the returned error.
+		errContains string
 	}{
 		{
 			name: "pat token from config",
@@ -166,9 +169,63 @@ func TestLoad(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "no auth is error",
+			name:        "empty auth without GITHUB_TOKEN is fatal",
+			file:        "testdata/no_auth.yaml",
+			envVars:     map[string]string{"GITHUB_TOKEN": ""},
+			wantErr:     true,
+			errContains: `target "myorg": no auth configured and GITHUB_TOKEN is not set`,
+		},
+		{
+			name:    "empty auth falls back to GITHUB_TOKEN",
 			file:    "testdata/no_auth.yaml",
-			wantErr: true,
+			envVars: map[string]string{"GITHUB_TOKEN": "ghp_fallback"},
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Targets[0].Auth.Token != "ghp_fallback" {
+					t.Errorf("expected token from GITHUB_TOKEN, got %q", cfg.Targets[0].Auth.Token)
+				}
+			},
+		},
+		{
+			name:    "omitted auth falls back to GITHUB_TOKEN",
+			file:    "testdata/omitted_auth.yaml",
+			envVars: map[string]string{"GITHUB_TOKEN": "ghp_fallback"},
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Targets[0].Auth.Token != "ghp_fallback" {
+					t.Errorf("expected token from GITHUB_TOKEN, got %q", cfg.Targets[0].Auth.Token)
+				}
+			},
+		},
+		{
+			name:    "explicit token wins over GITHUB_TOKEN",
+			file:    "testdata/pat_token.yaml",
+			envVars: map[string]string{"GITHUB_TOKEN": "ghp_fallback"},
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Targets[0].Auth.Token != "ghp_testtoken123" {
+					t.Errorf("expected explicit token, got %q", cfg.Targets[0].Auth.Token)
+				}
+			},
+		},
+		{
+			name:    "explicit app wins over GITHUB_TOKEN",
+			file:    "testdata/app_auth.yaml",
+			envVars: map[string]string{"GITHUB_TOKEN": "ghp_fallback"},
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				a := cfg.Targets[0].Auth
+				if a.Token != "" || a.App.AppID != 12345 {
+					t.Errorf("expected app auth without token, got %+v", a)
+				}
+			},
+		},
+		{
+			name:        "partial app auth does not fall back",
+			file:        "testdata/partial_app.yaml",
+			envVars:     map[string]string{"GITHUB_TOKEN": "ghp_fallback"},
+			wantErr:     true,
+			errContains: `target "myorg": must specify auth.token, auth.token_env, or auth.app`,
 		},
 		{
 			name:    "no orgs and no repos is error",
@@ -218,6 +275,9 @@ func TestLoad(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("expected error containing %q, got %q", tt.errContains, err)
 				}
 				return
 			}

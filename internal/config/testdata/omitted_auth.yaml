@@ -1,0 +1,7 @@
+export:
+  otlp:
+    endpoint: http://localhost:4318
+targets:
+  - name: myorg
+    orgs:
+      - org: myorg
