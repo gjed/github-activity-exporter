@@ -145,7 +145,7 @@ Your backend must keep the names as sent (OTLP translation strategy `NoTranslati
 
 With any other setting the backend stores escaped or suffixed names (for example `github_pr_count`), which do not match the registry.
 
-On `/metrics`, a scraper that negotiates the OpenMetrics text format sees counters typed `unknown`, because OpenMetrics requires counter names to end in `_total`. The Prometheus text and protobuf formats keep the `counter` type, and Prometheus 3.x asks for protobuf first by default.
+`/metrics` does not serve the OpenMetrics text format, because OpenMetrics requires counter names to end in `_total`. Scrapers that ask for OpenMetrics first, as Prometheus 3.x and Alloy do by default, get the Prometheus text format, which keeps the `counter` type.
 
 ## Development
 

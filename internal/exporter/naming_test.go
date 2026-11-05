@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
 	"go.opentelemetry.io/otel/metric"
@@ -40,7 +41,21 @@ func TestPrometheusBridge_NamesEqualRegistry(t *testing.T) {
 
 	recordAll(t, p.MeterProvider().Meter("naming-test"))
 
-	body := scrape(t, "http://"+addr+"/metrics")
+	for name, accept := range map[string]string{
+		// Prometheus 3.x and Alloy default scrape: OpenMetrics first.
+		"openmetrics": "application/openmetrics-text;version=1.0.0;escaping=allow-utf-8",
+		"text":        "text/plain;version=1.0.0;escaping=allow-utf-8",
+	} {
+		t.Run(name, func(t *testing.T) {
+			checkExposition(t, scrape(t, "http://"+addr+"/metrics", accept))
+		})
+	}
+}
+
+// checkExposition asserts a /metrics body follows the naming contract and
+// keeps the counter type of registry counters.
+func checkExposition(t *testing.T, body string) {
+	t.Helper()
 	parser := expfmt.NewTextParser(model.UTF8Validation)
 	families, err := parser.TextToMetricFamilies(strings.NewReader(body))
 	if err != nil {
@@ -95,6 +110,12 @@ func TestPrometheusBridge_NamesEqualRegistry(t *testing.T) {
 			t.Errorf("sample %q is neither a registry name nor a registry histogram + _bucket/_sum/_count", sample)
 		}
 	}
+
+	for name, instrument := range want {
+		if instrument == "counter" && families[name].GetType() != dto.MetricType_COUNTER {
+			t.Errorf("%s: type %s, want COUNTER", name, families[name].GetType())
+		}
+	}
 }
 
 // recordAll creates one instrument per registry metric, with the instrument
@@ -134,14 +155,14 @@ func recordAll(t *testing.T, meter metric.Meter) {
 	}
 }
 
-// scrape GETs url asking for the classic text format with UTF-8 names.
-func scrape(t *testing.T, url string) string {
+// scrape GETs url with the given Accept header.
+func scrape(t *testing.T, url, accept string) string {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("Accept", "text/plain;version=1.0.0;escaping=allow-utf-8")
+	req.Header.Set("Accept", accept)
 	// The bridge's HTTP server binds in a goroutine; retry until it listens.
 	var resp *http.Response
 	deadline := time.Now().Add(2 * time.Second)
