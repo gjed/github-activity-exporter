@@ -39,7 +39,7 @@ type Authenticator interface {
 // PATAuthenticator provides authentication via a GitHub Personal Access Token.
 type PATAuthenticator struct {
 	token   string
-	baseURL string // optional override for testing
+	baseURL string // REST API root, e.g. https://ghes.example.com/api/v3
 }
 
 // NewPATAuthenticator creates a PAT authenticator with the given token.
@@ -47,7 +47,7 @@ func NewPATAuthenticator(token string) *PATAuthenticator {
 	return &PATAuthenticator{token: token, baseURL: defaultGitHubAPIURL}
 }
 
-// NewPATAuthenticatorWithBase creates a PAT authenticator with a custom base URL (for testing).
+// NewPATAuthenticatorWithBase creates a PAT authenticator against the given REST API root.
 func NewPATAuthenticatorWithBase(token, baseURL string) *PATAuthenticator {
 	return &PATAuthenticator{token: token, baseURL: baseURL}
 }
@@ -75,7 +75,7 @@ type AppAuthOptions struct {
 	PrivateKeyPEM    []byte
 	PrivateKeyPath   string
 	PrivateKeyBase64 string // base64-encoded PEM (from env var)
-	BaseURL          string // optional override for testing
+	BaseURL          string // REST API root; defaults to https://api.github.com
 }
 
 // AppAuthenticator authenticates as a GitHub App using JWT + installation token.
