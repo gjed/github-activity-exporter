@@ -346,6 +346,7 @@ func emitConformingMetrics(t *testing.T, p *exporter.Provider) {
 		t.Fatalf("NewSelfMetrics: %v", err)
 	}
 	self.RecordAPIError(context.Background(), "test-org/test-repo", sc.AttrGitHubApiEndpointGraphQL)
+	self.RecordRateLimit(context.Background(), "test-org/test-repo", 4999, time.Now().Add(time.Hour))
 }
 
 // emitViolatingMetrics records github.pr.count with github.org set to an
