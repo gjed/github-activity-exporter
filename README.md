@@ -84,6 +84,7 @@ export:
     listen_address: ":9090"
 targets:
   - name: my-org                  # unique per target
+    base_url: https://api.github.com  # REST API root; GHES: https://<host>/api/v3
     auth:                         # exactly one of token, token_env, or app; empty or omitted uses GITHUB_TOKEN
       token_env: MY_GITHUB_TOKEN  # env var holding a PAT with repo read access
       # app:
@@ -122,6 +123,8 @@ A target's credential is resolved in this order:
 1. `GITHUB_TOKEN`, when the target's `auth` block is empty or omitted. Every such target shares it. If it is unset or empty, startup fails with an error naming the target.
 
 A partially filled `auth` block (for example `app` without `app_id`) is a startup error; it does not fall back to `GITHUB_TOKEN`.
+
+`base_url` drives every GitHub call for the target: REST, GraphQL, the GitHub App token exchange and the startup credential check. GraphQL goes to `https://api.github.com/graphql` by default and to `https://<host>/api/graphql` when `base_url` ends in `/api/v3`. Targets with different `base_url` values can run in one deployment.
 
 Scalar config keys can be overridden with `GITHUB_ACTIVITY_EXPORTER_` env vars, upper-cased with `.` replaced by `_` (for example `GITHUB_ACTIVITY_EXPORTER_EXPORT_OTLP_ENDPOINT`). Per-target settings, including `auth`, cannot be overridden this way.
 
