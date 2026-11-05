@@ -27,7 +27,7 @@ The registry SHALL define every metric emitted by the exporter: name, instrument
 #### Scenario: All metric names present in registry
 
 - **WHEN** the registry is resolved
-- **THEN** it contains definitions for: `github.pr.count`, `github.pr.age`, `github.pr.close.duration`, `github.pr.automerged`, `github.issue.count`, `github.issue.age`, `renovate.dashboard.queue`, `github_exporter.scrape.duration`, `github_exporter.api.errors`, `github_exporter.otlp.errors`
+- **THEN** it contains definitions for: `github.pr.count`, `github.pr.age`, `github.pr.close.duration`, `github.pr.automerged`, `github.issue.count`, `github.issue.age`, `renovate.dashboard.queue`, `github_exporter.scrape.duration`, `github_exporter.api.errors`, `github_exporter.otlp.errors`, `github_exporter.api.rate_limit.remaining`, `github_exporter.api.rate_limit.reset`
 
 #### Scenario: All attributes typed
 
@@ -43,6 +43,11 @@ The registry SHALL define every metric emitted by the exporter: name, instrument
 
 - **WHEN** the registry is resolved
 - **THEN** `github_exporter.api.errors` declares `exporter.target` and `github.api.endpoint` as required attributes
+
+#### Scenario: Rate limit gauges carry the target
+
+- **WHEN** the registry is resolved
+- **THEN** `github_exporter.api.rate_limit.remaining` and `github_exporter.api.rate_limit.reset` are gauges that declare `exporter.target` as a required attribute
 
 #### Scenario: Resource attributes declared
 
