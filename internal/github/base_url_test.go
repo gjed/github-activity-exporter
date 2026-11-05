@@ -23,6 +23,7 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 // guardLoopback makes http.DefaultTransport, used by both the client and the
 // authenticators, fail any request that is not to a loopback httptest server.
 // It must be installed before NewClient, which captures the transport.
+// The swap is process-global: tests in this package must not use t.Parallel().
 func guardLoopback(t *testing.T) {
 	t.Helper()
 	orig := http.DefaultTransport
