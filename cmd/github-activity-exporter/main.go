@@ -146,12 +146,12 @@ func buildTargetRunner(
 	logger *slog.Logger,
 	opts ...collector.RunnerOption,
 ) (*collector.Runner, error) {
-	auth, err := buildAuthenticator(t.Auth)
+	auth, err := buildAuthenticator(t.Auth, t.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("build authenticator: %w", err)
 	}
 
-	ghc, err := ghclient.NewClient(auth, ghclient.WithLogger(logger))
+	ghc, err := ghclient.NewClient(auth, ghclient.WithLogger(logger), ghclient.WithBaseURL(t.BaseURL))
 	if err != nil {
 		return nil, fmt.Errorf("build github client: %w", err)
 	}
@@ -203,16 +203,18 @@ func buildTargetRunner(
 	}, otelMeter, logger, opts...)
 }
 
-// buildAuthenticator creates an Authenticator from the target auth config.
-func buildAuthenticator(a config.Auth) (ghclient.Authenticator, error) {
+// buildAuthenticator creates an Authenticator from the target auth config,
+// talking to the target's REST API root.
+func buildAuthenticator(a config.Auth, baseURL string) (ghclient.Authenticator, error) {
 	if a.Token != "" {
-		return ghclient.NewPATAuthenticator(a.Token), nil
+		return ghclient.NewPATAuthenticatorWithBase(a.Token, baseURL), nil
 	}
 	opts := ghclient.AppAuthOptions{
 		AppID:            a.App.AppID,
 		InstallationID:   a.App.InstallationID,
 		PrivateKeyPath:   a.App.PrivateKeyPath,
 		PrivateKeyBase64: a.App.PrivateKeyValue,
+		BaseURL:          baseURL,
 	}
 	return ghclient.NewAppAuthenticator(opts)
 }
