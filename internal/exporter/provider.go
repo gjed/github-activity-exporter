@@ -202,9 +202,11 @@ func (p *Provider) newGRPCExporter(ctx context.Context, cfg Config) (metric.Expo
 
 func (p *Provider) startPrometheusServer(addr string, reg *prometheus.Registry) *http.Server {
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{
-		EnableOpenMetrics: true,
-	}))
+	// OpenMetrics stays off: it requires counter names to end in _total, so
+	// under NoTranslation it would type registry counters as unknown. Scrapers
+	// that ask for OpenMetrics first (Prometheus 3.x and Alloy defaults) fall
+	// back to Prometheus text 1.0.0, which keeps the counter type.
+	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

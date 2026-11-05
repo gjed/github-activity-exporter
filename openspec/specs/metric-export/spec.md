@@ -62,7 +62,7 @@ The system SHALL push metrics to an OTLP-compatible endpoint after each collecti
 
 ### Requirement: Prometheus bridge as optional secondary
 
-The system SHALL optionally expose a `/metrics` HTTP endpoint in Prometheus text exposition format, implemented via the OTel Prometheus bridge exporter (not a separate metric registry). The bridge SHALL expose metric names per the registry naming contract: each metric family name equals the registry metric name exactly, with no suffix and no escaping, and histogram samples add only `_bucket`, `_sum` and `_count`. When a scraper negotiates the OpenMetrics text format, counters are typed `unknown` because their names carry no `_total` suffix; Prometheus text and protobuf formats keep the `counter` type.
+The system SHALL optionally expose a `/metrics` HTTP endpoint in Prometheus text exposition format, implemented via the OTel Prometheus bridge exporter (not a separate metric registry). The bridge SHALL expose metric names per the registry naming contract: each metric family name equals the registry metric name exactly, with no suffix and no escaping, and histogram samples add only `_bucket`, `_sum` and `_count`. The endpoint SHALL NOT serve the OpenMetrics text format, which requires a `_total` suffix on counter names; a scraper that asks for OpenMetrics first SHALL receive Prometheus text format with counters typed `counter`.
 
 #### Scenario: Prometheus endpoint disabled by default
 
@@ -93,6 +93,11 @@ The system SHALL optionally expose a `/metrics` HTTP endpoint in Prometheus text
 
 - **WHEN** every registry metric is recorded and `/metrics` is scraped
 - **THEN** the set of metric family names equals the set of registry metric names, and every sample name is its family name, or for histograms the family name plus `_bucket`, `_sum` or `_count`
+
+#### Scenario: OpenMetrics scrape keeps counter types
+
+- **WHEN** `/metrics` is scraped with `Accept: application/openmetrics-text;version=1.0.0`
+- **THEN** the response uses the Prometheus text format, the family names equal the registry names, and registry counters are typed `counter`
 
 #### Scenario: No suffixes added
 
