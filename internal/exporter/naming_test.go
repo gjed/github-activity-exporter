@@ -11,7 +11,6 @@ import (
 
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/gjed/github-activity-exporter/internal/exporter"
@@ -39,7 +38,7 @@ func TestPrometheusBridge_NamesEqualRegistry(t *testing.T) {
 		_ = p.Shutdown(ctx)
 	})
 
-	recordAll(t, otel.GetMeterProvider().Meter("naming-test"))
+	recordAll(t, p.MeterProvider().Meter("naming-test"))
 
 	body := scrape(t, "http://"+addr+"/metrics")
 	parser := expfmt.NewTextParser(model.UTF8Validation)
