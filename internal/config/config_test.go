@@ -284,7 +284,13 @@ func TestLoad(t *testing.T) {
 			name:        "invalid base_url is error",
 			file:        "testdata/bad_base_url.yaml",
 			wantErr:     true,
-			errContains: `target "ghes": base_url must be an http(s) URL, got "ghes.example.com/api/v3"`,
+			errContains: `target "ghes": base_url must be an http(s) URL without query or fragment, got "ghes.example.com/api/v3"`,
+		},
+		{
+			name:        "base_url with query is error",
+			file:        "testdata/base_url_query.yaml",
+			wantErr:     true,
+			errContains: `target "ghes": base_url must be an http(s) URL without query or fragment, got "https://ghes.example.com/api/v3?x=1"`,
 		},
 		{
 			name: "multi-org config loads correctly",

@@ -257,8 +257,8 @@ func validate(cfg *Config) error {
 			return err
 		}
 
-		if u, err := url.Parse(t.BaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return fmt.Errorf("target %q: base_url must be an http(s) URL, got %q", t.Name, t.BaseURL)
+		if u, err := url.Parse(t.BaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("target %q: base_url must be an http(s) URL without query or fragment, got %q", t.Name, t.BaseURL)
 		}
 
 		if len(t.Orgs) == 0 && len(t.Repos) == 0 {
