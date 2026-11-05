@@ -117,5 +117,5 @@ The system SHALL let each target set `base_url`, the GitHub REST API root, defau
 
 #### Scenario: Invalid base URL is fatal
 
-- **WHEN** a target's `base_url` is not an `http` or `https` URL with a host
+- **WHEN** a target's `base_url` is not an `http` or `https` URL with a host, or carries a query string or fragment
 - **THEN** the exporter exits at startup with an error naming the target and the `base_url` value
