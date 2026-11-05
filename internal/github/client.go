@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,7 +50,7 @@ type Client struct {
 	rlPaused bool
 	rlHooks  []RateLimitHook
 
-	// baseURL allows tests to override the GitHub API URL.
+	// baseURL is the REST API root without a trailing slash.
 	baseURL string
 }
 
@@ -69,7 +71,8 @@ func WithLogger(logger *slog.Logger) ClientOption {
 	}
 }
 
-// WithBaseURL overrides the API base URL (for testing or GitHub Enterprise).
+// WithBaseURL sets the REST API root, e.g. https://ghes.example.com/api/v3.
+// It is used verbatim for REST; the GraphQL URL is derived from it.
 func WithBaseURL(url string) ClientOption {
 	return func(c *Client) {
 		c.baseURL = url
@@ -92,19 +95,27 @@ func NewClient(auth Authenticator, opts ...ClientOption) (*Client, error) {
 	oauthTransport := &oauth2.Transport{Source: tokenSource, Base: transport}
 	httpClient := &http.Client{Transport: oauthTransport}
 
-	if c.baseURL == defaultGitHubAPIURL {
-		c.rest = github.NewClient(httpClient)
-		c.graphql = githubv4.NewClient(httpClient)
-	} else {
-		var err error
-		c.rest, err = github.NewClient(httpClient).WithEnterpriseURLs(c.baseURL+"/", c.baseURL+"/")
-		if err != nil {
-			return nil, fmt.Errorf("creating REST client with custom URL: %w", err)
-		}
-		c.graphql = githubv4.NewEnterpriseClient(c.baseURL+"/graphql", httpClient)
+	// Set BaseURL directly: WithEnterpriseURLs would append api/v3/ to any
+	// URL not already ending in it.
+	restURL, err := url.Parse(c.baseURL + "/")
+	if err != nil {
+		return nil, fmt.Errorf("parsing base URL %q: %w", c.baseURL, err)
 	}
+	c.rest = github.NewClient(httpClient)
+	c.rest.BaseURL = restURL
+	c.graphql = githubv4.NewEnterpriseClient(graphqlURL(c.baseURL), httpClient)
 
 	return c, nil
+}
+
+// graphqlURL derives the GraphQL endpoint from the REST API root:
+// https://api.github.com -> https://api.github.com/graphql,
+// https://<host>/api/v3 -> https://<host>/api/graphql (GHES).
+func graphqlURL(base string) string {
+	if strings.HasSuffix(base, "/api/v3") {
+		return strings.TrimSuffix(base, "/api/v3") + "/api/graphql"
+	}
+	return base + "/graphql"
 }
 
 // REST returns the underlying go-github REST client.
