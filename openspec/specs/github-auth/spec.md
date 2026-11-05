@@ -91,6 +91,11 @@ The system SHALL monitor GitHub API rate limit consumption per target and pause 
 - **WHEN** metrics are collected
 - **THEN** `github_exporter.api.rate_limit.remaining` gauge and `github_exporter.api.rate_limit.reset` gauge are emitted per target (hooks into `observability-contract` self-metrics)
 
+#### Scenario: Rate limit gauges follow the client state
+
+- **WHEN** a GitHub API response for a target carries rate limit headers
+- **THEN** `github_exporter.api.rate_limit.remaining` reports the remaining requests and `github_exporter.api.rate_limit.reset` reports the window reset as Unix time in seconds, both with `exporter.target` set to the target name
+
 ### Requirement: Per-target API base URL
 
 The system SHALL let each target set `base_url`, the GitHub REST API root, defaulting to `https://api.github.com`. Every outbound GitHub call for that target, including REST, GraphQL, GitHub App token exchange and the startup credential check, SHALL go to the host and path derived from that target's `base_url`.
