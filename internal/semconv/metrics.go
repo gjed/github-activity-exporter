@@ -39,6 +39,14 @@ const (
 	// Number of GitHub API errors encountered during collection.
 	// Instrument: counter, Unit: {error}, Stability: development
 	MetricGitHubExporterApiErrors = "github_exporter.api.errors"
+// MetricGitHubExporterApiRateLimitRemaining is the metric name for github_exporter.api.rate_limit.remaining.
+	// Number of GitHub API requests remaining in the current rate limit window.
+	// Instrument: gauge, Unit: {request}, Stability: development
+	MetricGitHubExporterApiRateLimitRemaining = "github_exporter.api.rate_limit.remaining"
+// MetricGitHubExporterApiRateLimitReset is the metric name for github_exporter.api.rate_limit.reset.
+	// Unix time, in seconds, at which the current GitHub API rate limit window resets.
+	// Instrument: gauge, Unit: s, Stability: development
+	MetricGitHubExporterApiRateLimitReset = "github_exporter.api.rate_limit.reset"
 // MetricGitHubExporterOTLPErrors is the metric name for github_exporter.otlp.errors.
 	// Number of OTLP push failures.
 	// Instrument: counter, Unit: {error}, Stability: development
@@ -76,6 +84,8 @@ var Metrics = []MetricDef{
 	{Name: MetricGitHubPrCount, Instrument: "updowncounter", Unit: "{pr}"},
 	{Name: MetricGitHubPrReviewStatus, Instrument: "gauge", Unit: "{pr}"},
 	{Name: MetricGitHubExporterApiErrors, Instrument: "counter", Unit: "{error}"},
+	{Name: MetricGitHubExporterApiRateLimitRemaining, Instrument: "gauge", Unit: "{request}"},
+	{Name: MetricGitHubExporterApiRateLimitReset, Instrument: "gauge", Unit: "s"},
 	{Name: MetricGitHubExporterOTLPErrors, Instrument: "counter", Unit: "{error}"},
 	{Name: MetricGitHubExporterScrapeDuration, Instrument: "histogram", Unit: "s"},
 	{Name: MetricRenovateDashboardParseError, Instrument: "gauge", Unit: "{error}"},

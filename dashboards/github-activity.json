@@ -151,10 +151,34 @@
 
     ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Number of OTLP push failures.",
+      "description": "Number of GitHub API requests remaining in the current rate limit window.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 151 },
       "id": 302,
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "github_exporter.api.rate_limit.remaining{job=\"$job\"}", "legendFormat": "__auto", "refId": "A" }],
+      "title": "github_exporter.api.rate_limit.remaining",
+      "type": "timeseries"
+    }
+
+
+    ,{
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Unix time, in seconds, at which the current GitHub API rate limit window resets.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 159 },
+      "id": 303,
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "github_exporter.api.rate_limit.reset{job=\"$job\"}", "legendFormat": "__auto", "refId": "A" }],
+      "title": "github_exporter.api.rate_limit.reset",
+      "type": "timeseries"
+    }
+
+
+    ,{
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Number of OTLP push failures.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 159 },
+      "id": 304,
       "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "github_exporter.otlp.errors{job=\"$job\"}", "legendFormat": "__auto", "refId": "A" }],
       "title": "github_exporter.otlp.errors",
       "type": "timeseries"
@@ -165,8 +189,8 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "Duration of a complete collection cycle in seconds.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 159 },
-      "id": 303,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 167 },
+      "id": 305,
       "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "github_exporter.scrape.duration{job=\"$job\"}", "legendFormat": "__auto", "refId": "A" }],
       "title": "github_exporter.scrape.duration",
       "type": "timeseries"
