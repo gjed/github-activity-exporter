@@ -79,7 +79,7 @@ func main() {
 	}
 
 	// ── Build per-target runners ──────────────────────────────────────────────
-	runners, err := buildRunners(ctx, cfg, logger,
+	runners, err := buildRunners(ctx, cfg, logger, selfMetrics,
 		collector.WithInterval(exporterCfg.CollectionInterval),
 		collector.WithSelfMetrics(selfMetrics),
 		collector.WithFlush(provider.ForceFlush),
@@ -127,10 +127,16 @@ func main() {
 }
 
 // buildRunners creates one Runner per target with its own GitHub client and collectors.
-func buildRunners(ctx context.Context, cfg *config.Config, logger *slog.Logger, opts ...collector.RunnerOption) ([]*collector.Runner, error) {
+func buildRunners(
+	ctx context.Context,
+	cfg *config.Config,
+	logger *slog.Logger,
+	selfMetrics *exporter.SelfMetrics,
+	opts ...collector.RunnerOption,
+) ([]*collector.Runner, error) {
 	runners := make([]*collector.Runner, 0, len(cfg.Targets))
 	for _, t := range cfg.Targets {
-		r, err := buildTargetRunner(ctx, t, logger, opts...)
+		r, err := buildTargetRunner(ctx, t, logger, selfMetrics, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("target %q: %w", t.Name, err)
 		}
@@ -144,6 +150,7 @@ func buildTargetRunner(
 	ctx context.Context,
 	t config.Target,
 	logger *slog.Logger,
+	selfMetrics *exporter.SelfMetrics,
 	opts ...collector.RunnerOption,
 ) (*collector.Runner, error) {
 	auth, err := buildAuthenticator(t.Auth, t.BaseURL)
@@ -151,7 +158,14 @@ func buildTargetRunner(
 		return nil, fmt.Errorf("build authenticator: %w", err)
 	}
 
-	ghc, err := ghclient.NewClient(auth, ghclient.WithLogger(logger), ghclient.WithBaseURL(t.BaseURL))
+	ghc, err := ghclient.NewClient(auth,
+		ghclient.WithLogger(logger),
+		ghclient.WithBaseURL(t.BaseURL),
+		// The hook runs in the client transport and has no context.
+		ghclient.WithRateLimitHook(func(s ghclient.RateLimitState) {
+			selfMetrics.RecordRateLimit(context.Background(), t.Name, s.Remaining, s.ResetAt)
+		}),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("build github client: %w", err)
 	}
