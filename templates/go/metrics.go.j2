@@ -13,6 +13,7 @@ const (
               | replace("Otlp", "OTLP")
               | replace("Reviewstatus", "ReviewStatus")
               | replace("Parseerror", "ParseError")
+              | replace("Ratelimit", "RateLimit")
               | replace("Github", "GitHub") -%}
 	// Metric{{ id }} is the metric name for {{ group.metric_name }}.
 	// {{ group.brief }}
@@ -37,6 +38,7 @@ var Metrics = []MetricDef{
               | replace("Otlp", "OTLP")
               | replace("Reviewstatus", "ReviewStatus")
               | replace("Parseerror", "ParseError")
+              | replace("Ratelimit", "RateLimit")
               | replace("Github", "GitHub") %}
 	{Name: Metric{{ id }}, Instrument: "{{ group.instrument }}", Unit: "{{ group.unit }}"},
 {%- endfor %}
