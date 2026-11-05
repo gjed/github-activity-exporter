@@ -56,7 +56,7 @@ const DefaultBaseURL = "https://api.github.com"
 type Target struct {
 	Name string `mapstructure:"name"`
 	// BaseURL is the GitHub REST API root (e.g. https://ghes.example.com/api/v3).
-	// Load defaults it to DefaultBaseURL and trims a trailing slash.
+	// Load defaults it to DefaultBaseURL and trims trailing slashes.
 	BaseURL   string      `mapstructure:"base_url"`
 	Auth      Auth        `mapstructure:"auth"`
 	Orgs      []OrgConfig `mapstructure:"orgs"`
@@ -167,7 +167,7 @@ func Load(path string) (*Config, error) {
 		if t.BaseURL == "" {
 			t.BaseURL = DefaultBaseURL
 		}
-		t.BaseURL = strings.TrimSuffix(t.BaseURL, "/")
+		t.BaseURL = strings.TrimRight(t.BaseURL, "/")
 	}
 
 	if err := validate(&cfg); err != nil {
