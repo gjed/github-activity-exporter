@@ -49,9 +49,15 @@ type Prometheus struct {
 	ListenAddress string `mapstructure:"listen_address"`
 }
 
+// DefaultBaseURL is the GitHub REST API root used when a target sets no base_url.
+const DefaultBaseURL = "https://api.github.com"
+
 // Target represents a single monitored GitHub target (set of orgs/repos with shared auth).
 type Target struct {
-	Name      string      `mapstructure:"name"`
+	Name string `mapstructure:"name"`
+	// BaseURL is the GitHub REST API root (e.g. https://ghes.example.com/api/v3).
+	// Load defaults it to DefaultBaseURL and trims a trailing slash.
+	BaseURL   string      `mapstructure:"base_url"`
 	Auth      Auth        `mapstructure:"auth"`
 	Orgs      []OrgConfig `mapstructure:"orgs"`
 	Repos     []string    `mapstructure:"repos"`
@@ -156,6 +162,14 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	for i := range cfg.Targets {
+		t := &cfg.Targets[i]
+		if t.BaseURL == "" {
+			t.BaseURL = DefaultBaseURL
+		}
+		t.BaseURL = strings.TrimSuffix(t.BaseURL, "/")
+	}
+
 	if err := validate(&cfg); err != nil {
 		return nil, err
 	}
@@ -241,6 +255,10 @@ func validate(cfg *Config) error {
 
 		if err := validateAuth(t.Name, t.Auth); err != nil {
 			return err
+		}
+
+		if u, err := url.Parse(t.BaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("target %q: base_url must be an http(s) URL, got %q", t.Name, t.BaseURL)
 		}
 
 		if len(t.Orgs) == 0 && len(t.Repos) == 0 {

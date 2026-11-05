@@ -255,6 +255,38 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name: "base_url defaults to api.github.com",
+			file: "testdata/pat_token.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if got := cfg.Targets[0].BaseURL; got != "https://api.github.com" {
+					t.Errorf("expected default base_url, got %q", got)
+				}
+			},
+		},
+		{
+			name: "base_url per target",
+			file: "testdata/base_url.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				want := map[string]string{
+					"dotcom": "https://api.github.com",
+					"ghes":   "https://ghes.example.com/api/v3",
+				}
+				for _, tg := range cfg.Targets {
+					if tg.BaseURL != want[tg.Name] {
+						t.Errorf("target %q: expected base_url %q, got %q", tg.Name, want[tg.Name], tg.BaseURL)
+					}
+				}
+			},
+		},
+		{
+			name:        "invalid base_url is error",
+			file:        "testdata/bad_base_url.yaml",
+			wantErr:     true,
+			errContains: `target "ghes": base_url must be an http(s) URL, got "ghes.example.com/api/v3"`,
+		},
+		{
 			name: "multi-org config loads correctly",
 			file: "testdata/multi_org.yaml",
 			check: func(t *testing.T, cfg *config.Config) {

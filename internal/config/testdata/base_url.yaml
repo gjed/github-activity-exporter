@@ -1,0 +1,15 @@
+export:
+  otlp:
+    endpoint: http://localhost:4318
+targets:
+  - name: dotcom
+    auth:
+      token: ghp_dotcom
+    orgs:
+      - org: dotcom-org
+  - name: ghes
+    base_url: https://ghes.example.com/api/v3/
+    auth:
+      token: ghp_ghes
+    orgs:
+      - org: ghes-org
