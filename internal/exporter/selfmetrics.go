@@ -17,6 +17,8 @@ type SelfMetrics struct {
 	scrapeDuration metric.Float64Histogram
 	apiErrors      metric.Int64Counter
 	otlpErrors     metric.Int64Counter
+	rlRemaining    metric.Int64Gauge
+	rlReset        metric.Int64Gauge
 }
 
 // NewSelfMetrics creates and registers all exporter self-metric instruments
@@ -54,10 +56,30 @@ func NewSelfMetrics() (*SelfMetrics, error) {
 		return nil, err
 	}
 
+	rlRemaining, err := meter.Int64Gauge(
+		sc.MetricGitHubExporterApiRateLimitRemaining,
+		metric.WithDescription("Number of GitHub API requests remaining in the current rate limit window."),
+		metric.WithUnit("{request}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rlReset, err := meter.Int64Gauge(
+		sc.MetricGitHubExporterApiRateLimitReset,
+		metric.WithDescription("Unix time, in seconds, at which the current GitHub API rate limit window resets."),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &SelfMetrics{
 		scrapeDuration: scrapeDuration,
 		apiErrors:      apiErrors,
 		otlpErrors:     otlpErrors,
+		rlRemaining:    rlRemaining,
+		rlReset:        rlReset,
 	}, nil
 }
 
@@ -91,4 +113,16 @@ func (s *SelfMetrics) RecordOTLPError(ctx context.Context, target string) {
 			attribute.String(sc.AttrExporterTarget, target),
 		),
 	)
+}
+
+// RecordRateLimit records the target's GitHub API rate limit state: the
+// requests remaining in the current window and the window reset as Unix time
+// in seconds. A zero resetAt (no X-RateLimit-Reset header) leaves the reset
+// gauge unchanged.
+func (s *SelfMetrics) RecordRateLimit(ctx context.Context, target string, remaining int, resetAt time.Time) {
+	attrs := metric.WithAttributes(attribute.String(sc.AttrExporterTarget, target))
+	s.rlRemaining.Record(ctx, int64(remaining), attrs)
+	if !resetAt.IsZero() {
+		s.rlReset.Record(ctx, resetAt.Unix(), attrs)
+	}
 }
