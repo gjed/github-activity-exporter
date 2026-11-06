@@ -284,5 +284,8 @@ jobs:
             pnpm exec semantic-release --dry-run | tee "$RUNNER_TEMP/semantic-release.log"
 
           # The early exits above also return 0, so require generateNotes.
-          grep -q 'Completed step "generateNotes" of plugin "@semantic-release/release-notes-generator"' \
-            "$RUNNER_TEMP/semantic-release.log"
+          if ! grep -q 'Completed step "generateNotes" of plugin "@semantic-release/release-notes-generator"' \
+            "$RUNNER_TEMP/semantic-release.log"; then
+            echo "::error::semantic-release exited without running generateNotes of @semantic-release/release-notes-generator; see the log above for the early exit."
+            exit 1
+          fi
