@@ -254,9 +254,12 @@ metrics:
     brief: Number of GitHub API requests remaining in the current rate limit window.
     note: >
       Recorded from the rate limit headers of each GitHub API response for the
-      target. No value is recorded before the target's first API response.
+      target, one series per rate limit pool. No value is recorded for a pool
+      before the target's first API response counted against it.
     attributes:
       - ref: exporter.target
+        requirement_level: required
+      - ref: github.api.rate_limit.resource
         requirement_level: required
 
   - name: github_exporter.api.rate_limit.reset
@@ -271,9 +274,12 @@ metrics:
     brief: Unix time, in seconds, at which the current GitHub API rate limit window resets.
     note: >
       Recorded from the rate limit headers of each GitHub API response for the
-      target. No value is recorded before the target's first API response.
+      target, one series per rate limit pool. No value is recorded for a pool
+      before the target's first API response counted against it.
     attributes:
       - ref: exporter.target
+        requirement_level: required
+      - ref: github.api.rate_limit.resource
         requirement_level: required
 
   - name: github_exporter.otlp.errors

@@ -11,6 +11,7 @@ const (
 {% for attr in group.attributes %}
 {%- set id = attr.name | pascal_case_const
              | replace("Reviewstatus", "ReviewStatus")
+             | replace("Ratelimit", "RateLimit")
              | replace("Github", "GitHub")
              | replace("Renovate", "Renovate") -%}
 	// Attr{{ id }} is the key for the {{ attr.name }} attribute.
@@ -28,6 +29,7 @@ const (
 {% if attr.type is mapping and attr.type.members is defined %}
 {%- set attr_id = attr.name | pascal_case_const
                   | replace("Reviewstatus", "ReviewStatus")
+                  | replace("Ratelimit", "RateLimit")
                   | replace("Github", "GitHub") -%}
 	// Values for {{ attr.name }}
 {% for member in attr.type.members %}
@@ -38,7 +40,16 @@ const (
                     | replace("Changesrequested", "ChangesRequested")
                     | replace("Restissues", "RestIssues")
                     | replace("Restrepos", "RestRepos")
-                    | replace("Graphql", "GraphQL") -%}
+                    | replace("Graphql", "GraphQL")
+                    | replace("Codesearch", "CodeSearch")
+                    | replace("Integrationmanifest", "IntegrationManifest")
+                    | replace("Sourceimport", "SourceImport")
+                    | replace("Actionsrunnerregistration", "ActionsRunnerRegistration")
+                    | replace("Scim", "SCIM")
+                    | replace("Dependencysnapshots", "DependencySnapshots")
+                    | replace("Dependencysbom", "DependencySBOM")
+                    | replace("Codescanningupload", "CodeScanningUpload")
+                    | replace("Codescanningautofix", "CodeScanningAutofix") -%}
 	Attr{{ attr_id }}{{ member_id }} = "{{ member.value }}"
 {% endfor %}
 {% endif %}

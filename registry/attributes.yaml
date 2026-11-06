@@ -139,6 +139,71 @@ attributes:
     brief: GitHub API endpoint whose call failed.
     examples: ["graphql", "rest.issues", "rest.repos"]
 
+  - key: github.api.rate_limit.resource
+    type:
+      allow_custom_values: false
+      members:
+        - id: core
+          value: "core"
+          stability: development
+          brief: REST API endpoints outside the other pools.
+        - id: search
+          value: "search"
+          stability: development
+          brief: REST search endpoints, except code search.
+        - id: code_search
+          value: "code_search"
+          stability: development
+          brief: REST code search endpoint.
+        - id: graphql
+          value: "graphql"
+          stability: development
+          brief: GraphQL API.
+        - id: integration_manifest
+          value: "integration_manifest"
+          stability: development
+          brief: GitHub App manifest conversion endpoint.
+        - id: source_import
+          value: "source_import"
+          stability: development
+          brief: Source import endpoints.
+        - id: actions_runner_registration
+          value: "actions_runner_registration"
+          stability: development
+          brief: Self-hosted runner registration endpoints.
+        - id: scim
+          value: "scim"
+          stability: development
+          brief: SCIM endpoints.
+        - id: dependency_snapshots
+          value: "dependency_snapshots"
+          stability: development
+          brief: Dependency graph snapshot submission.
+        - id: dependency_sbom
+          value: "dependency_sbom"
+          stability: development
+          brief: Dependency graph SBOM export.
+        - id: code_scanning_upload
+          value: "code_scanning_upload"
+          stability: development
+          brief: Code scanning SARIF upload.
+        - id: code_scanning_autofix
+          value: "code_scanning_autofix"
+          stability: development
+          brief: Code scanning autofix endpoints.
+        - id: other
+          value: "other"
+          stability: development
+          brief: An X-RateLimit-Resource value not in the pools GitHub documents.
+    stability: development
+    brief: GitHub API rate limit pool, as named by the X-RateLimit-Resource response header.
+    note: >
+      Pools are listed in GitHub's GET /rate_limit documentation. A header value
+      outside them is reported as `other`; a response without the header is
+      attributed to the pool the request URL maps to (graphql, code_search,
+      search or core).
+    examples: ["core", "graphql", "search"]
+
 attribute_groups:
   - id: github_activity_exporter.resource
     visibility: public

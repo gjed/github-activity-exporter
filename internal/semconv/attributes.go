@@ -16,6 +16,10 @@ const (
 	// GitHub API endpoint whose call failed.
 	// Stability: development
 	AttrGitHubApiEndpoint = "github.api.endpoint"
+// AttrGitHubApiRateLimitResource is the key for the github.api.rate_limit.resource attribute.
+	// GitHub API rate limit pool, as named by the X-RateLimit-Resource response header.
+	// Stability: development
+	AttrGitHubApiRateLimitResource = "github.api.rate_limit.resource"
 // AttrGitHubIssueLabel is the key for the github.issue.label attribute.
 	// A label applied to the GitHub issue.
 	// Stability: development
@@ -62,6 +66,23 @@ const (
 AttrGitHubApiEndpointGraphQL = "graphql"
 AttrGitHubApiEndpointRestIssues = "rest.issues"
 AttrGitHubApiEndpointRestRepos = "rest.repos"
+
+
+
+// Values for github.api.rate_limit.resource
+AttrGitHubApiRateLimitResourceCore = "core"
+AttrGitHubApiRateLimitResourceSearch = "search"
+AttrGitHubApiRateLimitResourceCodeSearch = "code_search"
+AttrGitHubApiRateLimitResourceGraphQL = "graphql"
+AttrGitHubApiRateLimitResourceIntegrationManifest = "integration_manifest"
+AttrGitHubApiRateLimitResourceSourceImport = "source_import"
+AttrGitHubApiRateLimitResourceActionsRunnerRegistration = "actions_runner_registration"
+AttrGitHubApiRateLimitResourceSCIM = "scim"
+AttrGitHubApiRateLimitResourceDependencySnapshots = "dependency_snapshots"
+AttrGitHubApiRateLimitResourceDependencySBOM = "dependency_sbom"
+AttrGitHubApiRateLimitResourceCodeScanningUpload = "code_scanning_upload"
+AttrGitHubApiRateLimitResourceCodeScanningAutofix = "code_scanning_autofix"
+AttrGitHubApiRateLimitResourceOther = "other"
 
 
 
