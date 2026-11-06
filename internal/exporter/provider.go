@@ -89,7 +89,8 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Provider, error
 		// NoTranslation exposes the registry metric names verbatim (e.g.
 		// github.pr.count): no _total or unit suffix, no underscore escaping.
 		// Histograms add only _bucket/_sum/_count. This is the naming contract
-		// in registry/manifest.yaml; scrapers need UTF-8 metric names.
+		// declared as annotations.prometheus in registry/signals.yaml; scrapers
+		// need UTF-8 metric names.
 		promExp, err := promexporter.New(
 			promexporter.WithRegisterer(promReg),
 			promexporter.WithTranslationStrategy(otlptranslator.NoTranslation),
