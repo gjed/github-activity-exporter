@@ -77,6 +77,14 @@ type Target struct {
 	Repos     []string    `mapstructure:"repos"`
 	Discovery Discovery   `mapstructure:"discovery"`
 	Filters   Filters     `mapstructure:"filters"`
+	// RenovateDashboard configures the Renovate Dependency Dashboard collector.
+	RenovateDashboard RenovateDashboard `mapstructure:"renovate_dashboard"`
+}
+
+// RenovateDashboard holds the Renovate Dependency Dashboard collector settings.
+type RenovateDashboard struct {
+	// Enabled turns the collector on for the target. Defaults to false.
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // Filters holds per-target filtering rules for PRs and issues.

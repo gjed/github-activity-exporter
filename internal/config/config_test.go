@@ -81,6 +81,26 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name: "renovate dashboard disabled by default",
+			file: "testdata/pat_token.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Targets[0].RenovateDashboard.Enabled {
+					t.Error("expected renovate_dashboard disabled by default")
+				}
+			},
+		},
+		{
+			name: "renovate dashboard enabled",
+			file: "testdata/renovate_dashboard.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if !cfg.Targets[0].RenovateDashboard.Enabled {
+					t.Error("expected renovate_dashboard enabled")
+				}
+			},
+		},
+		{
 			name: "full export section",
 			file: "testdata/export_full.yaml",
 			check: func(t *testing.T, cfg *config.Config) {
