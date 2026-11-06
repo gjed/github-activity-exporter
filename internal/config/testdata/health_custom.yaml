@@ -1,0 +1,16 @@
+collection_interval: 10m
+export:
+  otlp:
+    endpoint: http://localhost:4318
+  prometheus:
+    enabled: true
+health:
+  listen_address: ":8081"
+  stall_timeout: 30m
+  unauthorized_cycles: 1
+targets:
+  - name: myorg
+    auth:
+      token: ghp_testtoken123
+    orgs:
+      - org: myorg

@@ -17,6 +17,7 @@ type Config struct {
 	// CollectionInterval is how often metrics are collected and pushed. Defaults to 5m.
 	CollectionInterval time.Duration `mapstructure:"collection_interval"`
 	Export             Export        `mapstructure:"export"`
+	Health             Health        `mapstructure:"health"`
 	Targets            []Target      `mapstructure:"targets"`
 }
 
@@ -47,6 +48,19 @@ type Prometheus struct {
 	Enabled bool `mapstructure:"enabled"`
 	// ListenAddress defaults to ":9090".
 	ListenAddress string `mapstructure:"listen_address"`
+}
+
+// Health holds the /healthz and /readyz server settings.
+type Health struct {
+	// ListenAddress defaults to ":10062".
+	ListenAddress string `mapstructure:"listen_address"`
+	// StallTimeout is how long a target may go without completing a
+	// collection cycle before /healthz fails. Load resolves 0 to
+	// 2 × CollectionInterval + 1h.
+	StallTimeout time.Duration `mapstructure:"stall_timeout"`
+	// UnauthorizedCycles is how many consecutive cycles answered only with
+	// HTTP 401 fail /healthz. Defaults to 3.
+	UnauthorizedCycles int `mapstructure:"unauthorized_cycles"`
 }
 
 // DefaultBaseURL is the GitHub REST API root used when a target sets no base_url.
@@ -144,6 +158,8 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("collection_interval", "5m")
 	v.SetDefault("export.otlp.protocol", "http")
 	v.SetDefault("export.prometheus.listen_address", ":9090")
+	v.SetDefault("health.listen_address", ":10062")
+	v.SetDefault("health.unauthorized_cycles", 3)
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("reading config %q: %w", path, err)
@@ -172,6 +188,10 @@ func Load(path string) (*Config, error) {
 
 	if err := validate(&cfg); err != nil {
 		return nil, err
+	}
+
+	if cfg.Health.StallTimeout == 0 {
+		cfg.Health.StallTimeout = 2*cfg.CollectionInterval + time.Hour
 	}
 
 	return &cfg, nil
@@ -242,6 +262,9 @@ func validate(cfg *Config) error {
 	if err := validateExport(cfg); err != nil {
 		return err
 	}
+	if err := validateHealth(cfg); err != nil {
+		return err
+	}
 
 	names := make(map[string]bool)
 	for _, t := range cfg.Targets {
@@ -289,6 +312,24 @@ func validateExport(cfg *Config) error {
 	}
 	if cfg.CollectionInterval <= 0 {
 		return fmt.Errorf("collection_interval must be positive, got %s", cfg.CollectionInterval)
+	}
+	return nil
+}
+
+// validateHealth checks the health server settings.
+func validateHealth(cfg *Config) error {
+	h := cfg.Health
+	if h.ListenAddress == "" {
+		return fmt.Errorf("health.listen_address must not be empty")
+	}
+	if cfg.Export.Prometheus.Enabled && h.ListenAddress == cfg.Export.Prometheus.ListenAddress {
+		return fmt.Errorf("health.listen_address and export.prometheus.listen_address must differ, both are %q", h.ListenAddress)
+	}
+	if h.StallTimeout < 0 {
+		return fmt.Errorf("health.stall_timeout must not be negative, got %s", h.StallTimeout)
+	}
+	if h.UnauthorizedCycles < 1 {
+		return fmt.Errorf("health.unauthorized_cycles must be at least 1, got %d", h.UnauthorizedCycles)
 	}
 	return nil
 }

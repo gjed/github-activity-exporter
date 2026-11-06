@@ -1,0 +1,11 @@
+export:
+  otlp:
+    endpoint: http://localhost:4318
+health:
+  unauthorized_cycles: 0
+targets:
+  - name: myorg
+    auth:
+      token: ghp_testtoken123
+    orgs:
+      - org: myorg
