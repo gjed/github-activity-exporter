@@ -56,6 +56,31 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name: "pr author and branch filters off by default",
+			file: "testdata/pat_token.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				prs := cfg.Targets[0].Filters.PRs
+				if len(prs.Authors) != 0 || prs.HeadBranchPrefix != "" {
+					t.Errorf("expected no author/branch filters, got %+v", prs)
+				}
+			},
+		},
+		{
+			name: "pr author and branch filters",
+			file: "testdata/pr_filters.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				prs := cfg.Targets[0].Filters.PRs
+				if len(prs.Authors) != 2 || prs.Authors[0] != "renovate[bot]" || prs.Authors[1] != "renovate-bot" {
+					t.Errorf("authors = %v, want [renovate[bot] renovate-bot]", prs.Authors)
+				}
+				if prs.HeadBranchPrefix != "renovate/" {
+					t.Errorf("head_branch_prefix = %q, want renovate/", prs.HeadBranchPrefix)
+				}
+			},
+		},
+		{
 			name: "full export section",
 			file: "testdata/export_full.yaml",
 			check: func(t *testing.T, cfg *config.Config) {

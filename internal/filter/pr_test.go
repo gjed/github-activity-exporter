@@ -118,6 +118,64 @@ func TestPRFilter_Match(t *testing.T) {
 			pr:     filter.PR{State: "open", Labels: nil},
 			wantOK: false,
 		},
+		{
+			name:   "author match passes case-insensitively",
+			cfg:    config.PRFilters{Authors: []string{"renovate[bot]"}},
+			pr:     filter.PR{State: "open", Author: "Renovate[bot]"},
+			wantOK: true,
+		},
+		{
+			name:   "author mismatch fails",
+			cfg:    config.PRFilters{Authors: []string{"renovate[bot]"}},
+			pr:     filter.PR{State: "open", Author: "alice"},
+			wantOK: false,
+		},
+		{
+			name:   "self-hosted user author passes",
+			cfg:    config.PRFilters{Authors: []string{"renovate[bot]", "renovate-bot"}},
+			pr:     filter.PR{State: "open", Author: "renovate-bot"},
+			wantOK: true,
+		},
+		{
+			name:   "head branch prefix match passes",
+			cfg:    config.PRFilters{HeadBranchPrefix: "renovate/"},
+			pr:     filter.PR{State: "open", HeadRef: "renovate/go-1.x"},
+			wantOK: true,
+		},
+		{
+			name:   "head branch prefix mismatch fails",
+			cfg:    config.PRFilters{HeadBranchPrefix: "renovate/"},
+			pr:     filter.PR{State: "open", HeadRef: "feature/login"},
+			wantOK: false,
+		},
+		{
+			name:   "head branch prefix is case-sensitive",
+			cfg:    config.PRFilters{HeadBranchPrefix: "renovate/"},
+			pr:     filter.PR{State: "open", HeadRef: "Renovate/go-1.x"},
+			wantOK: false,
+		},
+		{
+			name: "author, branch and labels combined: passes",
+			cfg: config.PRFilters{
+				Authors:          []string{"renovate[bot]"},
+				HeadBranchPrefix: "renovate/",
+				IncludeLabels:    []string{"dependencies"},
+				ExcludeLabels:    []string{"wip"},
+			},
+			pr:     filter.PR{State: "open", Author: "renovate[bot]", HeadRef: "renovate/x", Labels: []string{"dependencies"}},
+			wantOK: true,
+		},
+		{
+			name: "author, branch and labels combined: exclude label wins",
+			cfg: config.PRFilters{
+				Authors:          []string{"renovate[bot]"},
+				HeadBranchPrefix: "renovate/",
+				IncludeLabels:    []string{"dependencies"},
+				ExcludeLabels:    []string{"wip"},
+			},
+			pr:     filter.PR{State: "open", Author: "renovate[bot]", HeadRef: "renovate/x", Labels: []string{"dependencies", "wip"}},
+			wantOK: false,
+		},
 	}
 
 	for _, tc := range tests {
