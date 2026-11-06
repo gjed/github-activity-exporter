@@ -13,6 +13,7 @@ GitHub pull request and issue activity exporter — collects PR and issue metric
 
 - Pushes PR and issue metrics via **OTLP** (HTTP or gRPC) as primary output
 - Optional Prometheus `/metrics` bridge for scrape-based setups (disabled by default)
+- Always-on `/healthz` and `/readyz` endpoints for liveness and readiness probes
 - Metrics conform to the [OTel semantic convention registry](registry/) and are validated by [Weaver](https://github.com/open-telemetry/weaver) in CI
 - Multi-arch Docker image published to [GHCR](https://ghcr.io/gjed/github-activity-exporter)
 - Fully automated releases via [semantic-release](https://semantic-release.gitbook.io/) — no manual tagging
@@ -82,6 +83,10 @@ export:
   prometheus:
     enabled: false                # optional /metrics bridge
     listen_address: ":9090"
+health:                           # /healthz and /readyz, always on
+  listen_address: ":10062"        # must differ from export.prometheus.listen_address when the bridge is enabled
+  stall_timeout: 0s               # 0 means 2 × collection_interval + 1h
+  unauthorized_cycles: 3          # consecutive cycles answered only with 401 before /healthz fails
 targets:
   - name: my-org                  # unique per target
     base_url: https://api.github.com  # REST API root; GHES: https://<host>/api/v3
@@ -127,6 +132,22 @@ A partially filled `auth` block (for example `app` without `app_id`) is a startu
 `base_url` drives every GitHub call for the target: REST, GraphQL, the GitHub App token exchange and the startup credential check. GraphQL goes to `https://api.github.com/graphql` by default and to `https://<host>/api/graphql` when `base_url` ends in `/api/v3`. Targets with different `base_url` values can run in one deployment.
 
 Scalar config keys can be overridden with `GITHUB_ACTIVITY_EXPORTER_` env vars, upper-cased with `.` replaced by `_` (for example `GITHUB_ACTIVITY_EXPORTER_EXPORT_OTLP_ENDPOINT`). Per-target settings, including `auth`, cannot be overridden this way.
+
+## Health endpoints
+
+The exporter always serves `/healthz` and `/readyz` on `health.listen_address` (default `:10062`), whether or not the Prometheus bridge is enabled. The server starts before the startup credential checks. Both endpoints answer `GET` and `HEAD` with `200 ok`, or `503` with one line per failing target and the reason.
+
+`/readyz` returns 200 once every target has passed its startup credential check and completed at least one collection cycle in which repo discovery succeeded. Failures of single repos do not block it. Once ready, the exporter stays ready.
+
+`/healthz` returns 503 when, for any target:
+
+- its collection loop exited before shutdown;
+- no collection cycle completed within `health.stall_timeout` of the previous one, or of the loop start. The default, `2 × collection_interval + 1h` (1h10m at 5m), leaves room for a full GitHub rate-limit pause;
+- its last `health.unauthorized_cycles` cycles (default 3) were all unauthorized. A cycle is unauthorized when GitHub answered at least one request, including the GitHub App token exchange, with 401 and none with any other status. A cycle with any non-401 response clears the count; a cycle with no GitHub response leaves it as is.
+
+A 401 never affects `/readyz`. A credential revoked while running fails `/healthz`; after a restart the startup credential check fails and the exporter exits.
+
+The Prometheus bridge serves only `/metrics`.
 
 ## Metrics
 

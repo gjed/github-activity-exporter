@@ -207,9 +207,6 @@ func (p *Provider) startPrometheusServer(addr string, reg *prometheus.Registry) 
 	// that ask for OpenMetrics first (Prometheus 3.x and Alloy defaults) fall
 	// back to Prometheus text 1.0.0, which keeps the counter type.
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
 
 	srv := &http.Server{
 		Addr:         addr,

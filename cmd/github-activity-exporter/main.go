@@ -4,9 +4,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -20,6 +23,7 @@ import (
 	"github.com/gjed/github-activity-exporter/internal/discovery"
 	"github.com/gjed/github-activity-exporter/internal/exporter"
 	ghclient "github.com/gjed/github-activity-exporter/internal/github"
+	"github.com/gjed/github-activity-exporter/internal/health"
 )
 
 // Set at build time via -ldflags (see Dockerfile).
@@ -53,6 +57,25 @@ func main() {
 		os.Exit(1)
 	}
 
+	// ── Start health server ───────────────────────────────────────────────────
+	// Started before the credential checks so /healthz answers during startup.
+	tracker := health.NewTracker(cfg.Health.StallTimeout, cfg.Health.UnauthorizedCycles)
+	for _, t := range cfg.Targets {
+		tracker.Register(t.Name)
+	}
+	healthSrv, err := startHealthServer(cfg.Health.ListenAddress, tracker.Handler(), logger)
+	if err != nil {
+		logger.Error("failed to start health server", "addr", cfg.Health.ListenAddress, "err", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := healthSrv.Shutdown(shutCtx); err != nil {
+			logger.Error("health server shutdown error", "err", err)
+		}
+	}()
+
 	// ── Build OTLP provider ───────────────────────────────────────────────────
 	exporterCfg := exporter.Config{
 		OTLPEndpoint:       cfg.Export.OTLP.Endpoint,
@@ -79,10 +102,11 @@ func main() {
 	}
 
 	// ── Build per-target runners ──────────────────────────────────────────────
-	runners, err := buildRunners(ctx, cfg, logger, selfMetrics,
+	runners, err := buildRunners(ctx, cfg, logger, selfMetrics, tracker,
 		collector.WithInterval(exporterCfg.CollectionInterval),
 		collector.WithSelfMetrics(selfMetrics),
 		collector.WithFlush(provider.ForceFlush),
+		collector.WithCycleObserver(tracker),
 	)
 	if err != nil {
 		logger.Error("failed to build runners", "err", err)
@@ -97,18 +121,24 @@ func main() {
 		"protocol", exporterCfg.Protocol,
 		"collection_interval", exporterCfg.CollectionInterval,
 		"prometheus_enabled", exporterCfg.PrometheusEnabled,
+		"health_listen_address", cfg.Health.ListenAddress,
 	)
 
 	// ── Start per-target goroutines ───────────────────────────────────────────
 	// Each Runner owns its own collection interval. main.go just waits for
 	// cancellation and coordinates shutdown.
 	var wg sync.WaitGroup
-	for _, r := range runners {
-		r := r
+	for i, r := range runners {
+		name := cfg.Targets[i].Name
+		tracker.LoopStarted(name)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			r.Run(ctx)
+			if ctx.Err() == nil {
+				logger.Error("collection loop exited before shutdown", "target", name)
+				tracker.LoopExited(name)
+			}
 		}()
 	}
 
@@ -132,11 +162,12 @@ func buildRunners(
 	cfg *config.Config,
 	logger *slog.Logger,
 	selfMetrics *exporter.SelfMetrics,
+	tracker *health.Tracker,
 	opts ...collector.RunnerOption,
 ) ([]*collector.Runner, error) {
 	runners := make([]*collector.Runner, 0, len(cfg.Targets))
 	for _, t := range cfg.Targets {
-		r, err := buildTargetRunner(ctx, t, logger, selfMetrics, opts...)
+		r, err := buildTargetRunner(ctx, t, logger, selfMetrics, tracker, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("target %q: %w", t.Name, err)
 		}
@@ -151,6 +182,7 @@ func buildTargetRunner(
 	t config.Target,
 	logger *slog.Logger,
 	selfMetrics *exporter.SelfMetrics,
+	tracker *health.Tracker,
 	opts ...collector.RunnerOption,
 ) (*collector.Runner, error) {
 	auth, err := buildAuthenticator(t.Auth, t.BaseURL)
@@ -165,6 +197,9 @@ func buildTargetRunner(
 		ghclient.WithRateLimitHook(func(s ghclient.RateLimitState) {
 			selfMetrics.RecordRateLimit(context.Background(), t.Name, s.Remaining, s.ResetAt)
 		}),
+		ghclient.WithAuthResultHook(func(unauthorized bool) {
+			tracker.AuthResult(t.Name, unauthorized)
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build github client: %w", err)
@@ -175,6 +210,7 @@ func buildTargetRunner(
 	if err := auth.Ping(pingCtx); err != nil {
 		return nil, fmt.Errorf("credential ping failed: %w", err)
 	}
+	tracker.CredentialChecked(t.Name)
 
 	disc := discovery.New(t, ghc.REST().Repositories, discovery.WithLogger(logger))
 
@@ -231,6 +267,27 @@ func buildAuthenticator(a config.Auth, baseURL string) (ghclient.Authenticator, 
 		BaseURL:          baseURL,
 	}
 	return ghclient.NewAppAuthenticator(opts)
+}
+
+// startHealthServer binds addr synchronously, so a bad address fails startup,
+// then serves h in the background.
+func startHealthServer(addr string, h http.Handler, logger *slog.Logger) (*http.Server, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	srv := &http.Server{
+		Handler:      h,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	go func() {
+		logger.Info("health server listening", "addr", ln.Addr().String())
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("health server error", "err", err)
+		}
+	}()
+	return srv, nil
 }
 
 func envOr(key, fallback string) string {
