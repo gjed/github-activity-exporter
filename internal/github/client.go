@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -32,6 +33,12 @@ type RateLimitState struct {
 // It is invoked from the response transport, so implementations must not block.
 type RateLimitHook func(state RateLimitState)
 
+// AuthResultHook is called once per GitHub HTTP response with whether GitHub
+// answered 401 Unauthorized, and with true when a GitHub App installation
+// token exchange is rejected with 401. It runs in the client transport, so
+// implementations must not block.
+type AuthResultHook func(unauthorized bool)
+
 // Client wraps the GitHub REST v3 and GraphQL v4 clients with authentication
 // and per-target rate limit tracking.
 type Client struct {
@@ -50,6 +57,8 @@ type Client struct {
 	rlPaused bool
 	rlHooks  []RateLimitHook
 
+	authHooks []AuthResultHook
+
 	// baseURL is the REST API root without a trailing slash.
 	baseURL string
 }
@@ -61,6 +70,13 @@ type ClientOption func(*Client)
 func WithRateLimitHook(hook RateLimitHook) ClientOption {
 	return func(c *Client) {
 		c.rlHooks = append(c.rlHooks, hook)
+	}
+}
+
+// WithAuthResultHook registers a callback invoked on every GitHub response.
+func WithAuthResultHook(hook AuthResultHook) ClientOption {
+	return func(c *Client) {
+		c.authHooks = append(c.authHooks, hook)
 	}
 }
 
@@ -91,7 +107,7 @@ func NewClient(auth Authenticator, opts ...ClientOption) (*Client, error) {
 	}
 
 	transport := &rateLimitTransport{client: c, inner: http.DefaultTransport}
-	tokenSource := &authenticatorTokenSource{auth: auth}
+	tokenSource := &authenticatorTokenSource{auth: auth, client: c}
 	oauthTransport := &oauth2.Transport{Source: tokenSource, Base: transport}
 	httpClient := &http.Client{Transport: oauthTransport}
 
@@ -180,6 +196,13 @@ func (c *Client) waitIfPaused(ctx context.Context) error {
 	}
 }
 
+// reportAuthResult invokes the auth result hooks.
+func (c *Client) reportAuthResult(unauthorized bool) {
+	for _, h := range c.authHooks {
+		h(unauthorized)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // rateLimitTransport: wraps an http.RoundTripper, reads rate limit headers.
 // ---------------------------------------------------------------------------
@@ -198,6 +221,8 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 	if err != nil {
 		return nil, err
 	}
+
+	t.client.reportAuthResult(resp.StatusCode == http.StatusUnauthorized)
 
 	// Parse REST rate limit headers.
 	if rem := resp.Header.Get("X-RateLimit-Remaining"); rem != "" {
@@ -238,7 +263,8 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 const tokenFetchTimeout = 30 * time.Second
 
 type authenticatorTokenSource struct {
-	auth Authenticator
+	auth   Authenticator
+	client *Client
 }
 
 func (s *authenticatorTokenSource) Token() (*oauth2.Token, error) {
@@ -246,6 +272,9 @@ func (s *authenticatorTokenSource) Token() (*oauth2.Token, error) {
 	defer cancel()
 	tok, err := s.auth.Token(ctx)
 	if err != nil {
+		if errors.Is(err, ErrUnauthorized) {
+			s.client.reportAuthResult(true)
+		}
 		return nil, err
 	}
 	return &oauth2.Token{AccessToken: tok}, nil

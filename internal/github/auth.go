@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,10 @@ import (
 // Used as the default in both authenticators and the client to avoid
 // repeated string literals that could silently diverge on a typo.
 const defaultGitHubAPIURL = "https://api.github.com"
+
+// ErrUnauthorized is wrapped by Authenticator.Token errors when GitHub
+// rejects the credential with HTTP 401.
+var ErrUnauthorized = errors.New("github: credential rejected with 401 Unauthorized")
 
 // Authenticator is implemented by any type that can produce a GitHub API token.
 type Authenticator interface {
@@ -171,7 +176,11 @@ func (a *AppAuthenticator) fetchInstallationToken(ctx context.Context) (string, 
 
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
-		return "", time.Time{}, fmt.Errorf("installation token request failed (%d): %s", resp.StatusCode, string(body))
+		err := fmt.Errorf("installation token request failed (%d): %s", resp.StatusCode, string(body))
+		if resp.StatusCode == http.StatusUnauthorized {
+			err = fmt.Errorf("%w: %w", ErrUnauthorized, err)
+		}
+		return "", time.Time{}, err
 	}
 
 	// Parse the JSON response manually to avoid pulling in encoding/json for just two fields.
