@@ -62,7 +62,7 @@ func TestCollectionLoop_MockData(t *testing.T) {
 	prColl, err := collector.NewPRCollector(
 		collector.NewFixturePRClient(prNodes),
 		config.PRFilters{},
-		collector.PRCollectorConfig{MaxPRsPerRepo: 500, LookbackDays: 30},
+		collector.PRCollectorConfig{LookbackDays: 30},
 		meter,
 		nil,
 	)

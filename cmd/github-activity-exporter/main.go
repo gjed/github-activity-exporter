@@ -216,10 +216,7 @@ func buildTargetRunner(
 
 	otelMeter := otel.GetMeterProvider().Meter("github.com/gjed/github-activity-exporter/" + t.Name)
 
-	prCfg := collector.PRCollectorConfig{
-		MaxPRsPerRepo: 500,
-		LookbackDays:  30,
-	}
+	prCfg := collector.PRCollectorConfig{LookbackDays: 30}
 	prColl, err := collector.NewPRCollector(ghc.GraphQL(), t.Filters.PRs, prCfg, otelMeter, logger)
 	if err != nil {
 		return nil, fmt.Errorf("build PR collector: %w", err)

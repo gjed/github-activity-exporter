@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/shurcooL/githubv4"
@@ -18,10 +19,7 @@ import (
 	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
-const (
-	defaultMaxPRsPerRepo = 500
-	defaultLookbackDays  = 30
-)
+const defaultLookbackDays = 30
 
 // GraphQLClient is the minimal interface used by PRCollector (satisfied by
 // *githubv4.Client).
@@ -31,13 +29,20 @@ type GraphQLClient interface {
 
 // prNode is the GraphQL response shape for a single PR node.
 type prNode struct {
-	Number    int
-	State     string // "OPEN", "CLOSED", "MERGED"
-	IsDraft   bool
-	CreatedAt time.Time
-	MergedAt  *time.Time
-	ClosedAt  *time.Time
-	Labels    struct {
+	Number      int
+	State       string // "OPEN", "CLOSED", "MERGED"
+	IsDraft     bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	MergedAt    *time.Time
+	ClosedAt    *time.Time
+	HeadRefName string
+	// Author is nil when the author account was deleted.
+	Author *struct {
+		Typename string `graphql:"__typename"`
+		Login    string
+	}
+	Labels struct {
 		Nodes []struct{ Name string }
 	} `graphql:"labels(first: 20)"`
 	Reviews struct {
@@ -46,7 +51,8 @@ type prNode struct {
 	ReviewDecision *string
 }
 
-// prQuery is the paginated GraphQL v4 query for pull requests.
+// prQuery is the paginated GraphQL v4 query for pull requests. $states and
+// $labels are nullable: nil means no server-side filter.
 type prQuery struct {
 	Repository struct {
 		PullRequests struct {
@@ -55,14 +61,14 @@ type prQuery struct {
 				HasNextPage bool
 				EndCursor   githubv4.String
 			}
-		} `graphql:"pullRequests(first: 100, states: [OPEN, CLOSED, MERGED], after: $cursor)"`
+		} `graphql:"pullRequests(first: 100, states: $states, labels: $labels, orderBy: $orderBy, after: $cursor)"`
 	} `graphql:"repository(owner: $owner, name: $name)"`
 }
 
 // PRCollectorConfig holds configurable limits for the PR collector.
 type PRCollectorConfig struct {
-	MaxPRsPerRepo int
-	LookbackDays  int
+	// LookbackDays caps how far back the event window reaches. Defaults to 30.
+	LookbackDays int
 }
 
 // PRCollector fetches PRs via GraphQL and records OTel metrics.
@@ -72,6 +78,13 @@ type PRCollector struct {
 	cfg    PRCollectorConfig
 	logger *slog.Logger
 
+	// Server-side filter arguments derived from the PR filters; nil means
+	// no server-side filter.
+	labels      *[]githubv4.String
+	eventStates *[]githubv4.PullRequestState
+	// skipOpen is true when the states filter excludes both open and draft.
+	skipOpen bool
+
 	// OTel instruments.
 	// pr.count and issue.count are updowncounters in the registry; the
 	// observable variant lets us report a full snapshot each cycle without
@@ -80,6 +93,9 @@ type PRCollector struct {
 	prAge        metric.Float64ObservableGauge
 	closeDur     metric.Float64Histogram
 	automerged   metric.Int64Counter
+	created      metric.Int64Counter
+	merged       metric.Int64Counter
+	closed       metric.Int64Counter
 	reviewStatus metric.Int64ObservableGauge
 }
 
@@ -91,9 +107,6 @@ func NewPRCollector(
 	meter metric.Meter,
 	logger *slog.Logger,
 ) (*PRCollector, error) {
-	if cfg.MaxPRsPerRepo <= 0 {
-		cfg.MaxPRsPerRepo = defaultMaxPRsPerRepo
-	}
 	if cfg.LookbackDays <= 0 {
 		cfg.LookbackDays = defaultLookbackDays
 	}
@@ -107,11 +120,12 @@ func NewPRCollector(
 		cfg:    cfg,
 		logger: logger,
 	}
+	c.labels, c.eventStates, c.skipOpen = serverSideFilters(filterCfg)
 
 	var err error
 
 	c.prCount, err = meter.Int64ObservableUpDownCounter(semconv.MetricGitHubPrCount,
-		metric.WithDescription("Number of pull requests grouped by state and label."),
+		metric.WithDescription("Number of open pull requests grouped by state and label."),
 		metric.WithUnit("{pr}"),
 	)
 	if err != nil {
@@ -146,6 +160,30 @@ func NewPRCollector(
 		return nil, fmt.Errorf("register %s: %w", semconv.MetricGitHubPrAutomerged, err)
 	}
 
+	c.created, err = meter.Int64Counter(semconv.MetricGitHubPrCreated,
+		metric.WithDescription("Number of pull requests created."),
+		metric.WithUnit("{pr}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("register %s: %w", semconv.MetricGitHubPrCreated, err)
+	}
+
+	c.merged, err = meter.Int64Counter(semconv.MetricGitHubPrMerged,
+		metric.WithDescription("Number of pull requests merged."),
+		metric.WithUnit("{pr}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("register %s: %w", semconv.MetricGitHubPrMerged, err)
+	}
+
+	c.closed, err = meter.Int64Counter(semconv.MetricGitHubPrClosed,
+		metric.WithDescription("Number of pull requests closed without being merged."),
+		metric.WithUnit("{pr}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("register %s: %w", semconv.MetricGitHubPrClosed, err)
+	}
+
 	c.reviewStatus, err = meter.Int64ObservableGauge(semconv.MetricGitHubPrReviewStatus,
 		metric.WithDescription("Open PRs grouped by review decision."),
 		metric.WithUnit("{pr}"),
@@ -157,10 +195,49 @@ func NewPRCollector(
 	return c, nil
 }
 
+// serverSideFilters maps the PR filters GraphQL can apply to query
+// arguments: include_labels to $labels (any-of, as the client-side rule) and
+// states to the event scan's $states. The client-side filter re-checks every
+// rule, so these only reduce traffic.
+func serverSideFilters(cfg config.PRFilters) (labels *[]githubv4.String, states *[]githubv4.PullRequestState, skipOpen bool) {
+	if len(cfg.IncludeLabels) > 0 {
+		l := make([]githubv4.String, 0, len(cfg.IncludeLabels))
+		for _, name := range cfg.IncludeLabels {
+			l = append(l, githubv4.String(name))
+		}
+		labels = &l
+	}
+	if len(cfg.States) == 0 {
+		return labels, nil, false
+	}
+	seen := make(map[githubv4.PullRequestState]bool)
+	var st []githubv4.PullRequestState
+	for _, s := range cfg.States {
+		var gs githubv4.PullRequestState
+		switch strings.ToLower(s) {
+		case semconv.AttrGitHubPrStateOpen, semconv.AttrGitHubPrStateDraft:
+			gs = githubv4.PullRequestStateOpen
+		case semconv.AttrGitHubPrStateClosed:
+			gs = githubv4.PullRequestStateClosed
+		case semconv.AttrGitHubPrStateMerged:
+			gs = githubv4.PullRequestStateMerged
+		default:
+			continue
+		}
+		if !seen[gs] {
+			seen[gs] = true
+			st = append(st, gs)
+		}
+	}
+	if len(st) > 0 {
+		states = &st
+	}
+	return labels, states, !seen[githubv4.PullRequestStateOpen] && len(st) > 0
+}
+
 // prStats aggregates per-repo PR data for observable instrument callbacks.
 type prStats struct {
 	// countByStateAndLabel: (state, label) → count for pr.count dimension.
-	// Key format: "state\x00label" (NUL separator; neither field contains NUL).
 	countByStateAndLabel map[stateLabel]int64
 	// reviewStatusCount: reviewStatus → count of open PRs
 	reviewStatusCount map[string]int64
@@ -169,6 +246,13 @@ type prStats struct {
 }
 
 type stateLabel struct{ state, label string }
+
+// prEvents holds the PR events of one repo in one event window. They are
+// recorded only once both scans of the repo succeed.
+type prEvents struct {
+	created, merged, closed, automerged int64
+	closeDurations                      []float64
+}
 
 // CollectResult holds the per-repo stats after a Collect call.
 type CollectResult struct {
@@ -190,17 +274,24 @@ type PRCollection struct {
 func (c *PRCollection) FailedRepos() []string { return c.failed }
 
 // Collect fetches PRs for all repos and returns a PRCollection.
-// lastCollectedAt maps repo FullName to the time of that repo's previous
-// successful collection; close.duration and automerged events are only
-// recorded for PRs that closed after it, preventing double-counting across
-// cycles. Repos missing from the map (first cycle, newly discovered) skip
-// event recording entirely.
-func (c *PRCollector) Collect(ctx context.Context, target string, repos []discovery.Repo, lastCollectedAt map[string]time.Time) (*PRCollection, error) {
-	lookbackCutoff := time.Now().AddDate(0, 0, -c.cfg.LookbackDays)
+//
+// until is the end of this cycle's event window (the cycle start, which the
+// caller stores as the repo's next lastCollectedAt). lastCollectedAt maps
+// repo FullName to the end of that repo's previous window. A repo's events
+// are those in (max(until − lookback, lastCollectedAt), until], so
+// consecutive windows never overlap. Repos missing from the map (first
+// cycle, newly discovered) record no events; their counters are created at
+// zero so that rate()/increase() see the first event.
+func (c *PRCollector) Collect(ctx context.Context, target string, repos []discovery.Repo, lastCollectedAt map[string]time.Time, until time.Time) (*PRCollection, error) {
+	lookbackCutoff := until.AddDate(0, 0, -c.cfg.LookbackDays)
 	coll := &PRCollection{}
 
 	for _, repo := range repos {
-		stats, err := c.collectRepo(ctx, target, repo, lookbackCutoff, lastCollectedAt[repo.FullName])
+		since, ok := lastCollectedAt[repo.FullName]
+		if ok && since.Before(lookbackCutoff) {
+			since = lookbackCutoff
+		}
+		stats, events, err := c.collectRepo(ctx, repo, ok, since, until)
 		if err != nil {
 			c.logger.Error("PR collection failed for repo",
 				"target", target,
@@ -210,6 +301,7 @@ func (c *PRCollector) Collect(ctx context.Context, target string, repos []discov
 			coll.failed = append(coll.failed, repo.FullName)
 			continue
 		}
+		c.recordEvents(ctx, target, repo, events)
 		coll.results = append(coll.results, CollectResult{
 			target: target,
 			org:    repo.Owner,
@@ -221,136 +313,194 @@ func (c *PRCollector) Collect(ctx context.Context, target string, repos []discov
 	return coll, nil
 }
 
-// collectRepo fetches PRs for a single repo and computes stats.
+// collectRepo runs the open scan and, when the repo has a previous window,
+// the event scan for (since, until].
 func (c *PRCollector) collectRepo(
 	ctx context.Context,
-	target string,
 	repo discovery.Repo,
-	lookbackCutoff time.Time,
-	lastCollectedAt time.Time,
-) (prStats, error) {
-	prs, err := c.fetchPRs(ctx, repo)
+	scanEvents bool,
+	since, until time.Time,
+) (prStats, prEvents, error) {
+	stats, err := c.scanOpen(ctx, repo)
 	if err != nil {
-		return prStats{}, err
+		return prStats{}, prEvents{}, err
 	}
+	if !scanEvents {
+		return stats, prEvents{}, nil
+	}
+	events, err := c.scanEvents(ctx, repo, since, until)
+	if err != nil {
+		return prStats{}, prEvents{}, err
+	}
+	return stats, events, nil
+}
 
+// scanOpen reads every open PR (drafts included) with no cap and computes
+// the open-state gauges.
+func (c *PRCollector) scanOpen(ctx context.Context, repo discovery.Repo) (prStats, error) {
 	stats := prStats{
 		countByStateAndLabel: make(map[stateLabel]int64),
 		reviewStatusCount:    make(map[string]int64),
 	}
+	if c.skipOpen {
+		return stats, nil
+	}
 
 	var oldestOpenCreatedAt time.Time
-	// recordEvents is false on the first cycle (lastCollectedAt.IsZero()) to
-	// avoid replaying the entire lookback window into counters/histograms.
-	recordEvents := !lastCollectedAt.IsZero()
+	states := []githubv4.PullRequestState{githubv4.PullRequestStateOpen}
+	order := githubv4.IssueOrder{Field: githubv4.IssueOrderFieldCreatedAt, Direction: githubv4.OrderDirectionAsc}
 
-	for i := range prs {
-		pr := &prs[i]
-
-		labels := make([]string, 0, len(pr.Labels.Nodes))
-		for _, l := range pr.Labels.Nodes {
-			labels = append(labels, l.Name)
+	err := c.paginate(ctx, repo, &states, order, func(pr *prNode) bool {
+		state, labels, ok := c.match(pr)
+		if !ok {
+			return true
 		}
 
-		state := normaliseState(pr.State, pr.IsDraft)
-
-		fp := filter.PR{State: state, Labels: labels}
-		if !c.filter.Match(fp) {
-			continue
-		}
-
-		// ── pr.count: one point per (state, label) pair ───────────────────────
-		// Always emit the state dimension (empty label = state-only bucket).
-		stats.countByStateAndLabel[stateLabel{state: state, label: ""}]++
-		// Also emit one point per label, carrying the state, so consumers can
-		// answer "open renovate PRs" and "merged renovate PRs" independently.
+		// pr.count: one point per (state, label) pair, plus the state-only
+		// bucket (empty label).
+		stats.countByStateAndLabel[stateLabel{state: state}]++
 		for _, l := range labels {
 			stats.countByStateAndLabel[stateLabel{state: state, label: l}]++
 		}
 
-		// ── oldest open PR age ────────────────────────────────────────────────
 		if state == semconv.AttrGitHubPrStateOpen {
 			if oldestOpenCreatedAt.IsZero() || pr.CreatedAt.Before(oldestOpenCreatedAt) {
 				oldestOpenCreatedAt = pr.CreatedAt
 			}
-			rs := reviewDecisionToStatus(pr.ReviewDecision)
-			stats.reviewStatusCount[rs]++
+			stats.reviewStatusCount[reviewDecisionToStatus(pr.ReviewDecision)]++
 		}
-
-		if !recordEvents {
-			continue
-		}
-
-		// ── close duration histogram — only new events since last cycle ────────
-		if state == semconv.AttrGitHubPrStateClosed || state == semconv.AttrGitHubPrStateMerged {
-			closedAt := closedAtFor(pr)
-			if closedAt != nil && closedAt.After(lastCollectedAt) && closedAt.After(lookbackCutoff) {
-				dur := closedAt.Sub(pr.CreatedAt).Seconds()
-				attrs := metric.WithAttributes(
-					attribute.String(semconv.AttrExporterTarget, target),
-					attribute.String(semconv.AttrGitHubOrg, repo.Owner),
-					attribute.String(semconv.AttrGitHubRepo, repo.Name),
-				)
-				c.closeDur.Record(ctx, dur, attrs)
-			}
-		}
-
-		// ── automerge counter — only new events since last cycle ──────────────
-		if state == semconv.AttrGitHubPrStateMerged && pr.MergedAt != nil &&
-			pr.MergedAt.After(lastCollectedAt) && pr.MergedAt.After(lookbackCutoff) {
-			if !hasApprovedReview(pr.Reviews.Nodes) {
-				attrs := metric.WithAttributes(
-					attribute.String(semconv.AttrExporterTarget, target),
-					attribute.String(semconv.AttrGitHubOrg, repo.Owner),
-					attribute.String(semconv.AttrGitHubRepo, repo.Name),
-				)
-				c.automerged.Add(ctx, 1, attrs)
-			}
-		}
+		return true
+	})
+	if err != nil {
+		return prStats{}, err
 	}
 
 	if !oldestOpenCreatedAt.IsZero() {
 		stats.oldestOpenAge = time.Since(oldestOpenCreatedAt).Seconds()
 	}
-
 	return stats, nil
 }
 
-// fetchPRs paginates the GraphQL PR query for a repo, stopping at MaxPRsPerRepo.
-func (c *PRCollector) fetchPRs(ctx context.Context, repo discovery.Repo) ([]prNode, error) {
-	var all []prNode
-	var cursor *githubv4.String
+// scanEvents reads PRs by last update, newest first, and stops after the
+// first page whose last PR was updated at or before since: every PR with an
+// event in (since, until] was updated after since and sits before that point.
+func (c *PRCollector) scanEvents(ctx context.Context, repo discovery.Repo, since, until time.Time) (prEvents, error) {
+	var ev prEvents
+	inWindow := func(t *time.Time) bool {
+		return t != nil && t.After(since) && !t.After(until)
+	}
+	// A PR updated while the scan pages can show up twice.
+	seen := make(map[int]bool)
+	order := githubv4.IssueOrder{Field: githubv4.IssueOrderFieldUpdatedAt, Direction: githubv4.OrderDirectionDesc}
 
+	err := c.paginate(ctx, repo, c.eventStates, order, func(pr *prNode) bool {
+		cont := pr.UpdatedAt.After(since)
+		if seen[pr.Number] {
+			return cont
+		}
+		seen[pr.Number] = true
+
+		state, _, ok := c.match(pr)
+		if !ok {
+			return cont
+		}
+
+		if inWindow(&pr.CreatedAt) {
+			ev.created++
+		}
+		switch {
+		case state == semconv.AttrGitHubPrStateMerged && inWindow(pr.MergedAt):
+			ev.merged++
+			ev.closeDurations = append(ev.closeDurations, pr.MergedAt.Sub(pr.CreatedAt).Seconds())
+			if !hasApprovedReview(pr.Reviews.Nodes) {
+				ev.automerged++
+			}
+		case state == semconv.AttrGitHubPrStateClosed && inWindow(pr.ClosedAt):
+			ev.closed++
+			ev.closeDurations = append(ev.closeDurations, pr.ClosedAt.Sub(pr.CreatedAt).Seconds())
+		}
+		return cont
+	})
+	if err != nil {
+		return prEvents{}, err
+	}
+	return ev, nil
+}
+
+// paginate runs the PR query with the given states and order, calling visit
+// for each node. It stops after the last page, or after a page in which
+// visit returned false for the last node.
+func (c *PRCollector) paginate(
+	ctx context.Context,
+	repo discovery.Repo,
+	states *[]githubv4.PullRequestState,
+	order githubv4.IssueOrder,
+	visit func(*prNode) bool,
+) error {
+	var cursor *githubv4.String
 	for {
 		vars := map[string]interface{}{
-			"owner":  githubv4.String(repo.Owner),
-			"name":   githubv4.String(repo.Name),
-			"cursor": cursor,
+			"owner":   githubv4.String(repo.Owner),
+			"name":    githubv4.String(repo.Name),
+			"states":  states,
+			"labels":  c.labels,
+			"orderBy": order,
+			"cursor":  cursor,
 		}
 
 		var q prQuery
 		if err := c.gql.Query(ctx, &q, vars); err != nil {
-			return nil, fmt.Errorf("graphql PR query for %s: %w", repo.FullName, err)
+			return fmt.Errorf("graphql PR query for %s: %w", repo.FullName, err)
 		}
 
-		all = append(all, q.Repository.PullRequests.Nodes...)
-
-		if !q.Repository.PullRequests.PageInfo.HasNextPage {
-			break
-		}
-		if len(all) >= c.cfg.MaxPRsPerRepo {
-			c.logger.Warn("max PRs per repo reached; truncating",
-				"repo", repo.FullName,
-				"limit", c.cfg.MaxPRsPerRepo,
-			)
-			break
+		cont := true
+		nodes := q.Repository.PullRequests.Nodes
+		for i := range nodes {
+			cont = visit(&nodes[i])
 		}
 
+		if !q.Repository.PullRequests.PageInfo.HasNextPage || !cont {
+			return nil
+		}
 		endCursor := q.Repository.PullRequests.PageInfo.EndCursor
 		cursor = &endCursor
 	}
+}
 
-	return all, nil
+// match applies the PR filters and returns the normalised state and labels.
+func (c *PRCollector) match(pr *prNode) (state string, labels []string, ok bool) {
+	labels = make([]string, 0, len(pr.Labels.Nodes))
+	for _, l := range pr.Labels.Nodes {
+		labels = append(labels, l.Name)
+	}
+	state = normaliseState(pr.State, pr.IsDraft)
+	ok = c.filter.Match(filter.PR{
+		State:   state,
+		Labels:  labels,
+		Author:  authorLogin(pr),
+		HeadRef: pr.HeadRefName,
+	})
+	return state, labels, ok
+}
+
+// recordEvents adds a repo's window events to the counters and histogram.
+// The counters are always added to, even with zero, so their series exist
+// from a repo's first cycle.
+func (c *PRCollector) recordEvents(ctx context.Context, target string, repo discovery.Repo, ev prEvents) {
+	attrs := metric.WithAttributes(
+		attribute.String(semconv.AttrExporterTarget, target),
+		attribute.String(semconv.AttrGitHubOrg, repo.Owner),
+		attribute.String(semconv.AttrGitHubRepo, repo.Name),
+	)
+	c.created.Add(ctx, ev.created, attrs)
+	c.merged.Add(ctx, ev.merged, attrs)
+	c.closed.Add(ctx, ev.closed, attrs)
+	if ev.automerged > 0 {
+		c.automerged.Add(ctx, ev.automerged, attrs)
+	}
+	for _, d := range ev.closeDurations {
+		c.closeDur.Record(ctx, d, attrs)
+	}
 }
 
 // ObservableRegistration returns a metric.Callback for the observable instruments.
@@ -447,10 +597,14 @@ func hasApprovedReview(reviews []struct{ State string }) bool {
 	return false
 }
 
-// closedAtFor returns the effective close time for a PR.
-func closedAtFor(pr *prNode) *time.Time {
-	if pr.MergedAt != nil {
-		return pr.MergedAt
+// authorLogin returns the PR author's REST login. GraphQL returns a GitHub
+// App bot's login without the "[bot]" suffix that REST and config use.
+func authorLogin(pr *prNode) string {
+	if pr.Author == nil {
+		return ""
 	}
-	return pr.ClosedAt
+	if pr.Author.Typename == "Bot" && !strings.HasSuffix(pr.Author.Login, "[bot]") {
+		return pr.Author.Login + "[bot]"
+	}
+	return pr.Author.Login
 }

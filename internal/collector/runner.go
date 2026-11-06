@@ -46,9 +46,10 @@ type Runner struct {
 	latestDash  *DashboardCollection
 
 	// lastCollectedAt maps repo FullName to the start of the last cycle in
-	// which that repo's PRs were collected successfully. Used to gate
-	// event-based instruments (close.duration, automerged) so each event is
-	// recorded once. A repo whose collection fails keeps its previous value,
+	// which that repo's PRs were collected successfully. It is the start of
+	// the repo's next event window, which ends at the current cycle start, so
+	// each event-based instrument (created, merged, closed, close.duration,
+	// automerged) records an event once. A repo whose collection fails keeps its previous value,
 	// so its events are picked up on the next successful cycle. In-memory
 	// only: events that happen while the exporter is down are not recorded.
 	lastCollectedAt map[string]time.Time
@@ -285,7 +286,7 @@ func (r *Runner) collect(ctx context.Context) bool {
 	)
 
 	if r.collectors.PR != nil {
-		prColl, err = r.collectors.PR.Collect(ctx, r.target, repos, lastCollectedAt)
+		prColl, err = r.collectors.PR.Collect(ctx, r.target, repos, lastCollectedAt, start)
 		if err != nil {
 			r.logger.Error("PR collection failed", "target", r.target, "err", err)
 		}
