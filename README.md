@@ -85,7 +85,7 @@ export:
     listen_address: ":9090"
 health:                           # /healthz and /readyz, always on
   listen_address: ":10062"        # must differ from export.prometheus.listen_address when the bridge is enabled
-  stall_timeout: 0s               # 0 means 2 × collection_interval + 1h
+  stall_timeout: 0s               # 0 means 2 × collection_interval + 1h; otherwise must exceed collection_interval
   unauthorized_cycles: 3          # consecutive cycles answered only with 401 before /healthz fails
 targets:
   - name: my-org                  # unique per target

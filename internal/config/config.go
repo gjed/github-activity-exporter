@@ -329,6 +329,9 @@ func validateHealth(cfg *Config) error {
 	if h.StallTimeout < 0 {
 		return fmt.Errorf("health.stall_timeout must not be negative, got %s", h.StallTimeout)
 	}
+	if h.StallTimeout > 0 && h.StallTimeout <= cfg.CollectionInterval {
+		return fmt.Errorf("health.stall_timeout must be longer than collection_interval (%s), got %s", cfg.CollectionInterval, h.StallTimeout)
+	}
 	if h.UnauthorizedCycles < 1 {
 		return fmt.Errorf("health.unauthorized_cycles must be at least 1, got %d", h.UnauthorizedCycles)
 	}
