@@ -52,11 +52,11 @@ The registry SHALL define every metric emitted by the exporter: name, instrument
 #### Scenario: Resource attributes declared
 
 - **WHEN** the registry is resolved
-- **THEN** the attribute group `github_activity_exporter.resource` declares `service.name` as required, plus the host, os, process and container attributes set by the SDK resource detectors in `internal/exporter/provider.go`
+- **THEN** the attribute group `github_activity_exporter.resource` declares `service.name`, `service.version` and `service.instance.id` as required, plus the host, os, process and container attributes set by the SDK resource detectors
 
 #### Scenario: Resource identifies the exporter
 
-- **WHEN** the exporter exports metrics
+- **WHEN** the exporter exports metrics with no `OTEL_SERVICE_NAME` or `service.name` in `OTEL_RESOURCE_ATTRIBUTES`
 - **THEN** the resource carries `service.name` = `github-activity-exporter`
 
 ### Requirement: Go constants generated from schema
