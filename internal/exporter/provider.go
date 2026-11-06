@@ -29,21 +29,24 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	promexporter "go.opentelemetry.io/otel/exporters/prometheus"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"google.golang.org/grpc/credentials"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/gjed/github-activity-exporter/internal/telemetry"
 )
 
 // Provider bundles the MeterProvider with its shutdown function and optional
 // Prometheus HTTP server.
 type Provider struct {
 	mp         *metric.MeterProvider
+	promReg    *prometheus.Registry
 	promServer *http.Server
 	logger     *slog.Logger
+	version    string
 }
 
 // New builds and starts the MeterProvider. It returns a Provider whose
@@ -59,12 +62,15 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Provider, error
 		logger = slog.Default()
 	}
 
-	res, err := buildResource(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("exporter: build resource: %w", err)
+	res := cfg.Resource
+	if res == nil {
+		var err error
+		if res, err = telemetry.NewResource(ctx, cfg.Version); err != nil {
+			return nil, fmt.Errorf("exporter: build resource: %w", err)
+		}
 	}
 
-	p := &Provider{logger: logger}
+	p := &Provider{logger: logger, version: cfg.Version}
 
 	// ── Primary: OTLP exporter + PeriodicReader ──────────────────────────────
 	otlpExp, err := p.newOTLPExporter(ctx, cfg)
@@ -102,6 +108,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Provider, error
 	}
 
 	p.mp = metric.NewMeterProvider(opts...)
+	p.promReg = promReg
 	otel.SetMeterProvider(p.mp)
 
 	if cfg.PrometheusEnabled && promReg != nil {
@@ -115,6 +122,21 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Provider, error
 // Callers use otel.GetMeterProvider() in production; this accessor is for tests.
 func (p *Provider) MeterProvider() *metric.MeterProvider {
 	return p.mp
+}
+
+// Meter returns the product meter: scope telemetry.ScopeName, versioned with
+// the build version. Every product instrument is created from it.
+func (p *Provider) Meter() otelmetric.Meter {
+	return p.mp.Meter(telemetry.ScopeName, otelmetric.WithInstrumentationVersion(p.version))
+}
+
+// PrometheusRegisterer returns the registry behind /metrics, or nil when the
+// bridge is disabled. Self-telemetry registers its own reader on it.
+func (p *Provider) PrometheusRegisterer() prometheus.Registerer {
+	if p.promReg == nil {
+		return nil
+	}
+	return p.promReg
 }
 
 // ForceFlush triggers an immediate export of all pending metrics. Each Runner
@@ -173,7 +195,7 @@ func (p *Provider) newHTTPExporter(ctx context.Context, cfg Config) (metric.Expo
 	if err != nil {
 		return nil, err
 	}
-	return &errorCountingExporter{inner: exp, logger: p.logger, target: cfg.Target}, nil
+	return &errorCountingExporter{inner: exp, logger: p.logger, target: cfg.Target, version: cfg.Version}, nil
 }
 
 func (p *Provider) newGRPCExporter(ctx context.Context, cfg Config) (metric.Exporter, error) {
@@ -198,7 +220,7 @@ func (p *Provider) newGRPCExporter(ctx context.Context, cfg Config) (metric.Expo
 	if err != nil {
 		return nil, err
 	}
-	return &errorCountingExporter{inner: exp, logger: p.logger, target: cfg.Target}, nil
+	return &errorCountingExporter{inner: exp, logger: p.logger, target: cfg.Target, version: cfg.Version}, nil
 }
 
 func (p *Provider) startPrometheusServer(addr string, reg *prometheus.Registry) *http.Server {
@@ -224,17 +246,4 @@ func (p *Provider) startPrometheusServer(addr string, reg *prometheus.Registry) 
 	}()
 
 	return srv
-}
-
-func buildResource(ctx context.Context) (*resource.Resource, error) {
-	return resource.New(ctx,
-		resource.WithFromEnv(),
-		resource.WithProcess(),
-		resource.WithOS(),
-		resource.WithContainer(),
-		resource.WithHost(),
-		resource.WithAttributes(
-			semconv.ServiceName("github-activity-exporter"),
-		),
-	)
 }

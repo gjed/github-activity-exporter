@@ -130,7 +130,7 @@ func TestSelfMetrics_RecordScrapeDuration(t *testing.T) {
 		_ = p.Shutdown(ctx)
 	})
 
-	sm, err := exporter.NewSelfMetrics()
+	sm, err := exporter.NewSelfMetrics(p.Meter())
 	if err != nil {
 		t.Fatalf("NewSelfMetrics: %v", err)
 	}

@@ -20,7 +20,7 @@ func TestSelfMetrics_RecordAPIError_Endpoint(t *testing.T) {
 	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
 	t.Cleanup(func() { otel.SetMeterProvider(prev) })
 
-	sm, err := exporter.NewSelfMetrics()
+	sm, err := exporter.NewSelfMetrics(otel.GetMeterProvider().Meter("test"))
 	if err != nil {
 		t.Fatalf("NewSelfMetrics: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestSelfMetrics_RecordRateLimit_ZeroResetKeepsLast(t *testing.T) {
 	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
 	t.Cleanup(func() { otel.SetMeterProvider(prev) })
 
-	sm, err := exporter.NewSelfMetrics()
+	sm, err := exporter.NewSelfMetrics(otel.GetMeterProvider().Meter("test"))
 	if err != nil {
 		t.Fatalf("NewSelfMetrics: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestSelfMetrics_RecordRateLimit_SeriesPerPool(t *testing.T) {
 	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
 	t.Cleanup(func() { otel.SetMeterProvider(prev) })
 
-	sm, err := exporter.NewSelfMetrics()
+	sm, err := exporter.NewSelfMetrics(otel.GetMeterProvider().Meter("test"))
 	if err != nil {
 		t.Fatalf("NewSelfMetrics: %v", err)
 	}

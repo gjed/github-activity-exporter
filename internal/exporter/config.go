@@ -1,6 +1,10 @@
 package exporter
 
-import "time"
+import (
+	"time"
+
+	"go.opentelemetry.io/otel/sdk/resource"
+)
 
 // Protocol selects the OTLP transport.
 type Protocol string
@@ -39,6 +43,14 @@ type Config struct {
 	// Defaults to ":9090".
 	PrometheusAddr string
 
+	// Resource is the resource shared with the self-telemetry providers.
+	// When nil, New builds one with telemetry.NewResource(Version).
+	Resource *resource.Resource
+
+	// Version is the build version: service.version on the default resource
+	// and the instrumentation scope version. Defaults to "dev".
+	Version string
+
 	// Target is the exporter.target attribute value used in self-metrics
 	// (e.g. "my-org/my-repo"). Defaults to "default".
 	Target string
@@ -53,6 +65,9 @@ func (c *Config) defaults() {
 	}
 	if c.PrometheusAddr == "" {
 		c.PrometheusAddr = ":9090"
+	}
+	if c.Version == "" {
+		c.Version = "dev"
 	}
 	if c.Target == "" {
 		c.Target = "default"

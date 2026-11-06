@@ -16,7 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/gjed/github-activity-exporter/internal/collector"
@@ -25,6 +24,7 @@ import (
 	"github.com/gjed/github-activity-exporter/internal/exporter"
 	ghclient "github.com/gjed/github-activity-exporter/internal/github"
 	"github.com/gjed/github-activity-exporter/internal/health"
+	"github.com/gjed/github-activity-exporter/internal/telemetry"
 )
 
 // Set at build time via -ldflags (see Dockerfile).
@@ -78,6 +78,13 @@ func main() {
 	}()
 
 	// ── Build OTLP provider ───────────────────────────────────────────────────
+	// One resource for the product MeterProvider and every self-telemetry provider.
+	res, err := telemetry.NewResource(ctx, version)
+	if err != nil {
+		logger.Error("failed to build resource", "err", err)
+		os.Exit(1)
+	}
+
 	exporterCfg := exporter.Config{
 		OTLPEndpoint:       cfg.Export.OTLP.Endpoint,
 		Protocol:           exporter.Protocol(cfg.Export.OTLP.Protocol),
@@ -86,6 +93,8 @@ func main() {
 		CollectionInterval: cfg.CollectionInterval,
 		PrometheusEnabled:  cfg.Export.Prometheus.Enabled,
 		PrometheusAddr:     cfg.Export.Prometheus.ListenAddress,
+		Resource:           res,
+		Version:            version,
 	}
 
 	provider, err := exporter.New(ctx, exporterCfg, logger)
@@ -94,16 +103,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	// SelfMetrics are registered on the global MeterProvider; each Runner
-	// records scrape duration and API errors into them every collection cycle.
-	selfMetrics, err := exporter.NewSelfMetrics()
+	// Every product instrument, self-metrics included, comes from one meter
+	// with the exporter's instrumentation scope. Each Runner records scrape
+	// duration and API errors into the self-metrics every collection cycle.
+	meter := provider.Meter()
+	selfMetrics, err := exporter.NewSelfMetrics(meter)
 	if err != nil {
 		logger.Error("failed to register self-metrics", "err", err)
 		os.Exit(1)
 	}
 
 	// ── Build per-target runners ──────────────────────────────────────────────
-	runners, err := buildRunners(ctx, cfg, logger, selfMetrics, tracker,
+	runners, err := buildRunners(ctx, cfg, logger, meter, selfMetrics, tracker,
 		collector.WithInterval(exporterCfg.CollectionInterval),
 		collector.WithSelfMetrics(selfMetrics),
 		collector.WithFlush(provider.ForceFlush),
@@ -162,13 +173,14 @@ func buildRunners(
 	ctx context.Context,
 	cfg *config.Config,
 	logger *slog.Logger,
+	meter metric.Meter,
 	selfMetrics *exporter.SelfMetrics,
 	tracker *health.Tracker,
 	opts ...collector.RunnerOption,
 ) ([]*collector.Runner, error) {
 	runners := make([]*collector.Runner, 0, len(cfg.Targets))
 	for _, t := range cfg.Targets {
-		r, err := buildTargetRunner(ctx, t, logger, selfMetrics, tracker, opts...)
+		r, err := buildTargetRunner(ctx, t, logger, meter, selfMetrics, tracker, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("target %q: %w", t.Name, err)
 		}
@@ -182,6 +194,7 @@ func buildTargetRunner(
 	ctx context.Context,
 	t config.Target,
 	logger *slog.Logger,
+	otelMeter metric.Meter,
 	selfMetrics *exporter.SelfMetrics,
 	tracker *health.Tracker,
 	opts ...collector.RunnerOption,
@@ -214,8 +227,6 @@ func buildTargetRunner(
 	tracker.CredentialChecked(t.Name)
 
 	disc := discovery.New(t, ghc.REST().Repositories, discovery.WithLogger(logger))
-
-	otelMeter := otel.GetMeterProvider().Meter("github.com/gjed/github-activity-exporter/" + t.Name)
 
 	prCfg := collector.PRCollectorConfig{LookbackDays: 30}
 	prColl, err := collector.NewPRCollector(ghc.GraphQL(), t.Filters.PRs, prCfg, otelMeter, logger)

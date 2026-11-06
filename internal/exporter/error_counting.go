@@ -12,15 +12,17 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	sc "github.com/gjed/github-activity-exporter/internal/semconv"
+	"github.com/gjed/github-activity-exporter/internal/telemetry"
 )
 
 // errorCountingExporter wraps an OTLP metric.Exporter. When Export returns an
 // error it logs a warning and increments the github_exporter.otlp.errors
 // counter, then returns nil so the SDK never disables the reader (non-fatal).
 type errorCountingExporter struct {
-	inner  sdkmetric.Exporter
-	logger *slog.Logger
-	target string // exporter.target label value
+	inner   sdkmetric.Exporter
+	logger  *slog.Logger
+	target  string // exporter.target label value
+	version string // instrumentation scope version
 
 	once       sync.Once
 	otlpErrors metric.Int64Counter // initialised lazily on first export
@@ -30,7 +32,7 @@ var _ sdkmetric.Exporter = (*errorCountingExporter)(nil)
 
 func (e *errorCountingExporter) initCounter() {
 	e.once.Do(func() {
-		meter := otel.GetMeterProvider().Meter("github.com/gjed/github-activity-exporter")
+		meter := otel.GetMeterProvider().Meter(telemetry.ScopeName, metric.WithInstrumentationVersion(e.version))
 		ctr, err := meter.Int64Counter(
 			sc.MetricGitHubExporterOTLPErrors,
 			metric.WithDescription("Number of OTLP push failures."),
