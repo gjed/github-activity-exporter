@@ -66,8 +66,9 @@ func TestSelfMetrics_RecordRateLimit_ZeroResetKeepsLast(t *testing.T) {
 		t.Fatalf("NewSelfMetrics: %v", err)
 	}
 	resetAt := time.Unix(1_800_000_000, 0)
-	sm.RecordRateLimit(context.Background(), "org/repo", 4999, resetAt)
-	sm.RecordRateLimit(context.Background(), "org/repo", 4998, time.Time{})
+	core := sc.AttrGitHubApiRateLimitResourceCore
+	sm.RecordRateLimit(context.Background(), "org/repo", core, 4999, resetAt)
+	sm.RecordRateLimit(context.Background(), "org/repo", core, 4998, time.Time{})
 
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(context.Background(), &rm); err != nil {
@@ -94,6 +95,63 @@ func TestSelfMetrics_RecordRateLimit_ZeroResetKeepsLast(t *testing.T) {
 			}
 			if v, _ := dp.Attributes.Value(attribute.Key(sc.AttrExporterTarget)); v.AsString() != "org/repo" {
 				t.Errorf("%s: %s = %q, want org/repo", m.Name, sc.AttrExporterTarget, v.AsString())
+			}
+		}
+	}
+	for name := range want {
+		t.Errorf("metric %s not collected", name)
+	}
+}
+
+// TestSelfMetrics_RecordRateLimit_SeriesPerPool records core and graphql
+// states interleaved and asserts each gauge keeps one series per pool with
+// that pool's last value: an update to one pool never overwrites another.
+func TestSelfMetrics_RecordRateLimit_SeriesPerPool(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+
+	sm, err := exporter.NewSelfMetrics()
+	if err != nil {
+		t.Fatalf("NewSelfMetrics: %v", err)
+	}
+	core, gql := sc.AttrGitHubApiRateLimitResourceCore, sc.AttrGitHubApiRateLimitResourceGraphQL
+	coreReset, gqlReset := time.Unix(1_800_000_000, 0), time.Unix(1_800_000_600, 0)
+	ctx := context.Background()
+	sm.RecordRateLimit(ctx, "org/repo", core, 4999, coreReset)
+	sm.RecordRateLimit(ctx, "org/repo", gql, 4500, gqlReset)
+	sm.RecordRateLimit(ctx, "org/repo", core, 4998, time.Time{})
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(ctx, &rm); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	want := map[string]map[string]int64{
+		sc.MetricGitHubExporterApiRateLimitRemaining: {core: 4998, gql: 4500},
+		sc.MetricGitHubExporterApiRateLimitReset:     {core: coreReset.Unix(), gql: gqlReset.Unix()},
+	}
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			w, ok := want[m.Name]
+			if !ok {
+				continue
+			}
+			delete(want, m.Name)
+			g, ok := m.Data.(metricdata.Gauge[int64])
+			if !ok {
+				t.Fatalf("%s: unexpected data %#v", m.Name, m.Data)
+			}
+			got := map[string]int64{}
+			for _, dp := range g.DataPoints {
+				if v, _ := dp.Attributes.Value(attribute.Key(sc.AttrExporterTarget)); v.AsString() != "org/repo" {
+					t.Errorf("%s: %s = %q, want org/repo", m.Name, sc.AttrExporterTarget, v.AsString())
+				}
+				pool, _ := dp.Attributes.Value(attribute.Key(sc.AttrGitHubApiRateLimitResource))
+				got[pool.AsString()] = dp.Value
+			}
+			if len(got) != len(w) || got[core] != w[core] || got[gql] != w[gql] {
+				t.Errorf("%s series = %v, want %v", m.Name, got, w)
 			}
 		}
 	}

@@ -115,12 +115,17 @@ func (s *SelfMetrics) RecordOTLPError(ctx context.Context, target string) {
 	)
 }
 
-// RecordRateLimit records the target's GitHub API rate limit state: the
-// requests remaining in the current window and the window reset as Unix time
-// in seconds. A zero resetAt (no X-RateLimit-Reset header) leaves the reset
-// gauge unchanged.
-func (s *SelfMetrics) RecordRateLimit(ctx context.Context, target string, remaining int, resetAt time.Time) {
-	attrs := metric.WithAttributes(attribute.String(sc.AttrExporterTarget, target))
+// RecordRateLimit records the GitHub API rate limit state of one pool for the
+// target: the requests remaining in the current window and the window reset as
+// Unix time in seconds. resource is a github.api.rate_limit.resource value
+// (e.g. sc.AttrGitHubApiRateLimitResourceCore); each pool is its own series. A
+// zero resetAt (no X-RateLimit-Reset header) leaves the pool's reset gauge
+// unchanged.
+func (s *SelfMetrics) RecordRateLimit(ctx context.Context, target, resource string, remaining int, resetAt time.Time) {
+	attrs := metric.WithAttributes(
+		attribute.String(sc.AttrExporterTarget, target),
+		attribute.String(sc.AttrGitHubApiRateLimitResource, resource),
+	)
 	s.rlRemaining.Record(ctx, int64(remaining), attrs)
 	if !resetAt.IsZero() {
 		s.rlReset.Record(ctx, resetAt.Unix(), attrs)
