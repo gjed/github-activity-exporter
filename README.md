@@ -55,6 +55,17 @@ To also expose a Prometheus scrape endpoint, set `export.prometheus.enabled: tru
 docker pull ghcr.io/gjed/github-activity-exporter:latest
 ```
 
+### Kubernetes
+
+The Helm chart is published to GHCR with each release; the chart version equals the exporter version:
+
+```bash
+helm install github-activity-exporter oci://ghcr.io/gjed/charts/github-activity-exporter \
+  --version X.Y.Z --namespace github-activity-exporter --create-namespace -f values.yaml
+```
+
+`values.yaml` holds the exporter config file verbatim under `config`, and Secret wiring for the GitHub credentials and OTLP headers under `secret`. See the [chart README](charts/github-activity-exporter/README.md) for the values, the probe settings and why the chart runs a single replica, and the [examples](charts/github-activity-exporter/examples/).
+
 ### From source
 
 ```bash
@@ -278,6 +289,8 @@ make generate
 | `integration-test`  | PRs targeting `main`      | Starts exporter + mock GitHub API, runs Weaver live-check |
 | `release`           | push to `main`            | semantic-release → version tag + GitHub Release           |
 | `image`             | release published         | Multi-arch image → GHCR (`X.Y.Z`, `X.Y`, `X`, `latest`)   |
+| `chart check`       | PRs touching the chart    | `helm lint`, `helm template`, `kubeconform -strict`       |
+| `chart publish`     | release published         | Helm chart `X.Y.Z` → `oci://ghcr.io/gjed/charts`          |
 
 ## Release
 

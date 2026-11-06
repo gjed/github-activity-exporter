@@ -15,7 +15,7 @@
 
 ## 3. Docs
 
-- [ ] 3.1 Add the README "Kubernetes" section and the chart rows of the CI table; verify markdown lint passes
+- [x] 3.1 Add the README "Kubernetes" section and the chart rows of the CI table; verify markdown lint passes
 
 ## 4. Integration
 
