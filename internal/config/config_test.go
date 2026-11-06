@@ -402,6 +402,63 @@ func TestLoad(t *testing.T) {
 			errContains: `target "ghes": base_url must be an http(s) URL without query or fragment, got "https://ghes.example.com/api/v3?x=1"`,
 		},
 		{
+			name: "telemetry defaults",
+			file: "testdata/pat_token.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				want := config.Telemetry{
+					Metrics:  config.Signal{Enabled: true},
+					Traces:   config.Signal{Enabled: true},
+					Logs:     config.Signal{Enabled: true},
+					Profiles: config.Signal{Enabled: true},
+				}
+				if cfg.Telemetry != want {
+					t.Errorf("telemetry = %+v, want %+v", cfg.Telemetry, want)
+				}
+			},
+		},
+		{
+			name: "telemetry from file",
+			file: "testdata/telemetry.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				tel := cfg.Telemetry
+				if !tel.Enabled || tel.Traces.Enabled || !tel.Metrics.Enabled || !tel.Logs.Enabled || !tel.Profiles.Enabled {
+					t.Errorf("telemetry = %+v, want enabled with traces off", tel)
+				}
+			},
+		},
+		{
+			name: "telemetry env overrides",
+			file: "testdata/telemetry.yaml",
+			envVars: map[string]string{
+				"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_ENABLED":          "false",
+				"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_TRACES_ENABLED":   "true",
+				"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_LOGS_ENABLED":     "false",
+				"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_PROFILES_ENABLED": "false",
+			},
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				tel := cfg.Telemetry
+				if tel.Enabled || !tel.Traces.Enabled || tel.Logs.Enabled || tel.Profiles.Enabled || !tel.Metrics.Enabled {
+					t.Errorf("telemetry = %+v, want env values", tel)
+				}
+			},
+		},
+		{
+			name:        "telemetry non-boolean in file is error",
+			file:        "testdata/telemetry_bad.yaml",
+			wantErr:     true,
+			errContains: "telemetry.metrics.enabled",
+		},
+		{
+			name:        "telemetry non-boolean in env is error",
+			file:        "testdata/pat_token.yaml",
+			envVars:     map[string]string{"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_ENABLED": "yes"},
+			wantErr:     true,
+			errContains: "telemetry.enabled",
+		},
+		{
 			name: "multi-org config loads correctly",
 			file: "testdata/multi_org.yaml",
 			check: func(t *testing.T, cfg *config.Config) {

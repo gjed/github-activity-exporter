@@ -1,0 +1,12 @@
+export:
+  otlp:
+    endpoint: http://localhost:4318
+telemetry:
+  metrics:
+    enabled: maybe
+targets:
+  - name: myorg
+    auth:
+      token: ghp_testtoken123
+    orgs:
+      - org: myorg

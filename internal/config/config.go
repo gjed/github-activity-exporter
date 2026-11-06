@@ -18,7 +18,26 @@ type Config struct {
 	CollectionInterval time.Duration `mapstructure:"collection_interval"`
 	Export             Export        `mapstructure:"export"`
 	Health             Health        `mapstructure:"health"`
+	Telemetry          Telemetry     `mapstructure:"telemetry"`
 	Targets            []Target      `mapstructure:"targets"`
+}
+
+// Telemetry holds the self-telemetry toggles: telemetry about the exporter
+// itself, separate from the GitHub metrics it exports. A signal is active only
+// when Enabled and the signal's own Enabled are both true.
+type Telemetry struct {
+	// Enabled is the global toggle. Defaults to false.
+	Enabled  bool   `mapstructure:"enabled"`
+	Metrics  Signal `mapstructure:"metrics"`
+	Traces   Signal `mapstructure:"traces"`
+	Logs     Signal `mapstructure:"logs"`
+	Profiles Signal `mapstructure:"profiles"`
+}
+
+// Signal holds the toggle of one self-telemetry signal.
+type Signal struct {
+	// Enabled defaults to true; the signal still needs Telemetry.Enabled.
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // Export holds the metric export settings.
@@ -176,6 +195,11 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("health.listen_address", ":10062")
 	v.SetDefault("health.unauthorized_cycles", 3)
 	v.SetDefault("health.stall_timeout", "0s")
+	// Every telemetry key needs a default: viper maps env vars only onto known keys.
+	v.SetDefault("telemetry.enabled", false)
+	for _, s := range []string{"metrics", "traces", "logs", "profiles"} {
+		v.SetDefault("telemetry."+s+".enabled", true)
+	}
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("reading config %q: %w", path, err)
