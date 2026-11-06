@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-github/v62/github"
+	"github.com/google/go-github/v93/github"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/gjed/github-activity-exporter/internal/collector"
@@ -27,8 +27,7 @@ func (f *fakeIssueClient) ListByRepo(_ context.Context, _, _ string, _ *github.I
 func githubIssue(number int, state, title string, createdAt time.Time, labels ...string) *github.Issue {
 	ls := make([]*github.Label, 0, len(labels))
 	for _, l := range labels {
-		name := l
-		ls = append(ls, &github.Label{Name: &name})
+		ls = append(ls, &github.Label{Name: l})
 	}
 	ts := github.Timestamp{Time: createdAt}
 	n := number

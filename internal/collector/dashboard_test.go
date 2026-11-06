@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-github/v62/github"
+	"github.com/google/go-github/v93/github"
 
 	"github.com/gjed/github-activity-exporter/internal/collector"
 	"github.com/gjed/github-activity-exporter/internal/discovery"
