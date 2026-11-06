@@ -27,7 +27,7 @@ The registry SHALL define every metric emitted by the exporter: name, instrument
 #### Scenario: Rate limit gauges carry the target
 
 - **WHEN** the registry is resolved
-- **THEN** `github_exporter.api.rate_limit.remaining` and `github_exporter.api.rate_limit.reset` are gauges that declare `exporter.target` and `github.api.rate_limit.resource` as required attributes, and `github.api.rate_limit.resource` is an enum closed to the pools GitHub documents (`core`, `search`, `code_search`, `graphql`, `integration_manifest`, `source_import`, `actions_runner_registration`, `scim`, `dependency_snapshots`, `dependency_sbom`, `code_scanning_upload`, `code_scanning_autofix`) plus `other`
+- **THEN** `github_exporter.api.rate_limit.remaining` and `github_exporter.api.rate_limit.reset` are gauges that declare `exporter.target` and `github.api.rate_limit.resource` as required attributes, and `github.api.rate_limit.resource` is an enum closed to the pools GitHub documents (`core`, `search`, `code_search`, `graphql`, `integration_manifest`, `source_import`, `actions_runner_registration`, `scim`, `dependency_snapshots`, `dependency_sbom`, `code_scanning_upload`, `code_scanning_autofix`, `audit_log`) plus `other`
 
 #### Scenario: Resource attributes declared
 

@@ -47,6 +47,7 @@ var documentedPools = map[string]bool{
 	sc.AttrGitHubApiRateLimitResourceDependencySBOM:            true,
 	sc.AttrGitHubApiRateLimitResourceCodeScanningUpload:        true,
 	sc.AttrGitHubApiRateLimitResourceCodeScanningAutofix:       true,
+	sc.AttrGitHubApiRateLimitResourceAuditLog:                  true,
 }
 
 // RateLimitState holds the current rate limit snapshot of one pool for a target.
