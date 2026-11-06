@@ -116,10 +116,19 @@ func requireOnlyMissingRequiredAttributes(t *testing.T, report string) {
 	if err != nil {
 		t.Fatalf("live-check report: %v", err)
 	}
+	missing := 0
 	for _, f := range findings {
-		if f.Level == "violation" && f.ID != "required_attribute_not_present" {
+		switch {
+		case f.ID == "required_attribute_not_present":
+			missing++
+		case f.Level == "violation":
 			t.Errorf("unexpected violation %s on %s: %s", f.ID, f.SignalName, f.Message)
 		}
+	}
+	// Metrics are recorded without attributes: no missing-attribute finding
+	// means the report shape changed and liveCheckFindings read nothing.
+	if missing == 0 {
+		t.Fatal("no required_attribute_not_present finding in the live-check report")
 	}
 }
 
