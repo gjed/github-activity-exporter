@@ -78,6 +78,10 @@ type PRCollector struct {
 	cfg    PRCollectorConfig
 	logger *slog.Logger
 
+	// windows holds each repo's event scan state, keyed by FullName. Only
+	// the Runner goroutine of the collector's target calls Collect.
+	windows map[string]*eventWindow
+
 	// Server-side filter arguments derived from the PR filters; nil means
 	// no server-side filter.
 	labels      *[]githubv4.String
@@ -119,6 +123,8 @@ func NewPRCollector(
 		filter: filter.NewPRFilter(filterCfg),
 		cfg:    cfg,
 		logger: logger,
+
+		windows: make(map[string]*eventWindow),
 	}
 	c.labels, c.eventStates, c.skipOpen = serverSideFilters(filterCfg)
 
@@ -252,6 +258,33 @@ type stateLabel struct{ state, label string }
 type prEvents struct {
 	created, merged, closed, automerged int64
 	closeDurations                      []float64
+	// counted maps each event counted in this scan to its time.
+	counted map[eventKey]time.Time
+}
+
+type eventKind uint8
+
+const (
+	eventCreated eventKind = iota
+	eventMerged
+	eventClosed
+)
+
+// eventKey identifies one PR event across cycles.
+type eventKey struct {
+	number int
+	kind   eventKind
+}
+
+// eventWindow is a repo's event scan state after its last successful cycle.
+type eventWindow struct {
+	// scanFrom is the start of that cycle's window: the next scan starts
+	// there, one cycle before its own window, to catch PRs the previous scan
+	// skipped because they were updated while it paged.
+	scanFrom time.Time
+	// counted holds the events already counted that the next scan can see
+	// again, with their time.
+	counted map[eventKey]time.Time
 }
 
 // CollectResult holds the per-repo stats after a Collect call.
@@ -278,20 +311,33 @@ func (c *PRCollection) FailedRepos() []string { return c.failed }
 // until is the end of this cycle's event window (the cycle start, which the
 // caller stores as the repo's next lastCollectedAt). lastCollectedAt maps
 // repo FullName to the end of that repo's previous window. A repo's events
-// are those in (max(until − lookback, lastCollectedAt), until], so
-// consecutive windows never overlap. Repos missing from the map (first
+// are those in (max(until − lookback, lastCollectedAt), until]. The event
+// scan reaches one window further back and skips events already counted, so
+// a PR the previous scan missed because it was updated mid-scan is counted
+// now, and no event is counted twice. Repos missing from the map (first
 // cycle, newly discovered) record no events; their counters are created at
 // zero so that rate()/increase() see the first event.
 func (c *PRCollector) Collect(ctx context.Context, target string, repos []discovery.Repo, lastCollectedAt map[string]time.Time, until time.Time) (*PRCollection, error) {
 	lookbackCutoff := until.AddDate(0, 0, -c.cfg.LookbackDays)
 	coll := &PRCollection{}
+	current := make(map[string]bool, len(repos))
 
 	for _, repo := range repos {
+		current[repo.FullName] = true
 		since, ok := lastCollectedAt[repo.FullName]
-		if ok && since.Before(lookbackCutoff) {
-			since = lookbackCutoff
+		scanFrom := since
+		var counted map[eventKey]time.Time
+		if w := c.windows[repo.FullName]; w != nil {
+			counted = w.counted
+			if w.scanFrom.Before(scanFrom) {
+				scanFrom = w.scanFrom
+			}
 		}
-		stats, events, err := c.collectRepo(ctx, repo, ok, since, until)
+		if scanFrom.Before(lookbackCutoff) {
+			scanFrom = lookbackCutoff
+		}
+
+		stats, events, err := c.collectRepo(ctx, repo, ok, scanFrom, until, counted)
 		if err != nil {
 			c.logger.Error("PR collection failed for repo",
 				"target", target,
@@ -302,6 +348,9 @@ func (c *PRCollector) Collect(ctx context.Context, target string, repos []discov
 			continue
 		}
 		c.recordEvents(ctx, target, repo, events)
+		if ok {
+			c.windows[repo.FullName] = nextWindow(since, counted, events.counted)
+		}
 		coll.results = append(coll.results, CollectResult{
 			target: target,
 			org:    repo.Owner,
@@ -310,16 +359,36 @@ func (c *PRCollector) Collect(ctx context.Context, target string, repos []discov
 		})
 	}
 
+	for name := range c.windows {
+		if !current[name] {
+			delete(c.windows, name)
+		}
+	}
 	return coll, nil
 }
 
+// nextWindow keeps the counted events the next scan, which starts at since,
+// can see again.
+func nextWindow(since time.Time, sets ...map[eventKey]time.Time) *eventWindow {
+	w := &eventWindow{scanFrom: since, counted: make(map[eventKey]time.Time)}
+	for _, set := range sets {
+		for k, t := range set {
+			if t.After(since) {
+				w.counted[k] = t
+			}
+		}
+	}
+	return w
+}
+
 // collectRepo runs the open scan and, when the repo has a previous window,
-// the event scan for (since, until].
+// the event scan for (scanFrom, until].
 func (c *PRCollector) collectRepo(
 	ctx context.Context,
 	repo discovery.Repo,
 	scanEvents bool,
-	since, until time.Time,
+	scanFrom, until time.Time,
+	counted map[eventKey]time.Time,
 ) (prStats, prEvents, error) {
 	stats, err := c.scanOpen(ctx, repo)
 	if err != nil {
@@ -328,7 +397,7 @@ func (c *PRCollector) collectRepo(
 	if !scanEvents {
 		return stats, prEvents{}, nil
 	}
-	events, err := c.scanEvents(ctx, repo, since, until)
+	events, err := c.scanEvents(ctx, repo, scanFrom, until, counted)
 	if err != nil {
 		return prStats{}, prEvents{}, err
 	}
@@ -384,38 +453,48 @@ func (c *PRCollector) scanOpen(ctx context.Context, repo discovery.Repo) (prStat
 // scanEvents reads PRs by last update, newest first, and stops after the
 // first page whose last PR was updated at or before since: every PR with an
 // event in (since, until] was updated after since and sits before that point.
-func (c *PRCollector) scanEvents(ctx context.Context, repo discovery.Repo, since, until time.Time) (prEvents, error) {
-	var ev prEvents
-	inWindow := func(t *time.Time) bool {
-		return t != nil && t.After(since) && !t.After(until)
+// Events in counted were recorded by an earlier cycle and are skipped.
+//
+// A PR updated while the scan pages jumps to the front, behind the cursor,
+// and is missed; the next scan starts at this one's since and counts it.
+func (c *PRCollector) scanEvents(ctx context.Context, repo discovery.Repo, since, until time.Time, counted map[eventKey]time.Time) (prEvents, error) {
+	ev := prEvents{counted: make(map[eventKey]time.Time)}
+	// count reports whether the event at t is in the window and not yet
+	// counted, and marks it counted.
+	count := func(number int, kind eventKind, t *time.Time) bool {
+		if t == nil || !t.After(since) || t.After(until) {
+			return false
+		}
+		k := eventKey{number: number, kind: kind}
+		if _, done := counted[k]; done {
+			return false
+		}
+		if _, done := ev.counted[k]; done {
+			return false
+		}
+		ev.counted[k] = *t
+		return true
 	}
-	// A PR updated while the scan pages can show up twice.
-	seen := make(map[int]bool)
 	order := githubv4.IssueOrder{Field: githubv4.IssueOrderFieldUpdatedAt, Direction: githubv4.OrderDirectionDesc}
 
 	err := c.paginate(ctx, repo, c.eventStates, order, func(pr *prNode) bool {
 		cont := pr.UpdatedAt.After(since)
-		if seen[pr.Number] {
-			return cont
-		}
-		seen[pr.Number] = true
-
 		state, _, ok := c.match(pr)
 		if !ok {
 			return cont
 		}
 
-		if inWindow(&pr.CreatedAt) {
+		if count(pr.Number, eventCreated, &pr.CreatedAt) {
 			ev.created++
 		}
 		switch {
-		case state == semconv.AttrGitHubPrStateMerged && inWindow(pr.MergedAt):
+		case state == semconv.AttrGitHubPrStateMerged && count(pr.Number, eventMerged, pr.MergedAt):
 			ev.merged++
 			ev.closeDurations = append(ev.closeDurations, pr.MergedAt.Sub(pr.CreatedAt).Seconds())
 			if !hasApprovedReview(pr.Reviews.Nodes) {
 				ev.automerged++
 			}
-		case state == semconv.AttrGitHubPrStateClosed && inWindow(pr.ClosedAt):
+		case state == semconv.AttrGitHubPrStateClosed && count(pr.Number, eventClosed, pr.ClosedAt):
 			ev.closed++
 			ev.closeDurations = append(ev.closeDurations, pr.ClosedAt.Sub(pr.CreatedAt).Seconds())
 		}

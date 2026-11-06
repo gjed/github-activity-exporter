@@ -29,7 +29,7 @@ GraphQL `Repository.pullRequests` accepts `states`, `labels` (any-of), `headRefN
 One GraphQL query type with variables `$states`, `$labels`, `$orderBy`, `$cursor`:
 
 - **Open scan**: `states: [OPEN]`, `orderBy: {CREATED_AT, ASC}`, paginated to the end. Feeds `github.pr.count` (open, draft), `github.pr.age`, `github.pr.review_status`.
-- **Event scan**: `states` from the filter (all when empty), `orderBy: {UPDATED_AT, DESC}`. Stops after the first page whose last node has `updatedAt` before the window start. Skipped on a repo's first cycle. Feeds `github.pr.created`, `github.pr.merged`, `github.pr.closed`, `github.pr.close.duration`, `github.pr.automerged`.
+- **Event scan**: `states` from the filter (all when empty), `orderBy: {UPDATED_AT, DESC}`. Starts at the previous cycle's window start and stops after the first page whose last node has `updatedAt` before it. Skipped on a repo's first cycle. Feeds `github.pr.created`, `github.pr.merged`, `github.pr.closed`, `github.pr.close.duration`, `github.pr.automerged`.
 
 Any event changes `updatedAt` to at least the event time, so every PR with an event in the window has `updatedAt` past the window start and sits before the stop point.
 
@@ -41,7 +41,7 @@ Alternative: GraphQL `totalCount` per state for totals (#26 proposal). Rejected:
 
 Events are gathered in memory and recorded only after both scans of a repo succeed. A failed scan records nothing and keeps the old `lastCollectedAt`, so the next cycle covers the whole gap once. Today a failure after partial recording would double count on retry.
 
-Within one event scan, PRs are deduplicated by number: a PR updated mid-scan can reappear on a later page.
+With `UPDATED_AT` ordering, a PR updated while the scan pages jumps to the front, behind the cursor, and is missed. Its event time is at most `end`, so the next window `(end, …]` would exclude it. The scan therefore reaches one window further back, from the previous cycle's `start`, and the collector keeps, per repo, the events (PR number and kind: created, merged, closed) it already counted whose time is after the next scan start. Events found again are skipped; the missed PR is counted once by the next cycle. The same key also drops a PR seen twice within one scan. Memory is bounded by one window's events per repo.
 
 Event definitions: created = `createdAt` in window; merged = `mergedAt` in window; closed = state `CLOSED` and `closedAt` in window (merged PRs are not closed, matching the disjoint `github.pr.state` values). `close.duration` and `automerged` keep their current definitions on the same window.
 
@@ -75,7 +75,7 @@ New target block `renovate_dashboard: { enabled: false }`. When false, `main.go`
 
 ## Risks / Trade-offs
 
-- [A PR updated again while the event scan pages past it moves to page 1 and can be skipped, losing its event] → Rare (needs an update between two page fetches of a short scan); accepted. Dedup handles the opposite case (seen twice).
+- [A PR updated while the event scan pages is skipped by that scan] → The next scan reaches back one window and counts it once (Decision 2). It is lost only if it is skipped in two consecutive scans, or if the exporter restarts in between. Each scan reads about two cycles of updates.
 - [Clock skew between exporter and GitHub shifts window edges] → Both edges move together; an event is still counted once. A skew larger than the cycle can delay an event by one cycle.
 - [A repo with thousands of open PRs costs many pages each cycle] → Exact by requirement; cost is linear in open PRs. Renovate repos stay small via `prConcurrentLimit`.
 - \[`github.pr.count` closed/merged series disappear\] → Documented in README; queries move to the counters.

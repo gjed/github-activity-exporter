@@ -93,11 +93,11 @@ The exporter SHALL increment counter `github.pr.created` once per selected PR cr
 
 ### Requirement: Event window
 
-For a repo, the event window of a cycle SHALL be the half-open interval from `max(lookback cutoff, start of the repo's previous successful cycle)` (exclusive) to the start of the current cycle (inclusive). The lookback cutoff is 30 days before the current cycle start. The exporter SHALL read PRs ordered by last update, newest first, and SHALL stop paginating once the PRs are older than the window start. On a repo's first successful cycle no events SHALL be recorded.
+For a repo, a cycle's event window SHALL be `(max(lookback cutoff, start of the repo's previous successful cycle), start of the current cycle]`, with the lookback cutoff 30 days before the current cycle start. PRs SHALL be read by last update, newest first, back to the previous cycle's window start, and pagination SHALL stop there. A repo's first successful cycle SHALL record no events.
 
 #### Scenario: Pagination stops at window start
 
-- **WHEN** the window starts at T and a page ends with a PR last updated before T
+- **WHEN** the previous cycle's window started at T and a page ends with a PR last updated before T
 - **THEN** no further page is requested for that repo
 
 #### Scenario: Lookback caps the window
@@ -112,12 +112,17 @@ For a repo, the event window of a cycle SHALL be the half-open interval from `ma
 
 ### Requirement: No double counting across cycles
 
-Each PR event SHALL be recorded at most once across consecutive cycles. Events of a cycle whose repo collection fails SHALL NOT be recorded, and the repo's window SHALL NOT advance, so they are recorded on the next successful cycle.
+Each PR event SHALL be recorded at most once across consecutive cycles, including events the previous cycle's scan already saw. An event missed because its PR was updated while the previous scan paged SHALL be recorded by the next cycle. Events of a cycle whose repo collection fails SHALL NOT be recorded, and the repo's window SHALL NOT advance, so they are recorded on the next successful cycle.
 
 #### Scenario: Consecutive cycles
 
 - **WHEN** a PR merged at time M is visible in two consecutive successful cycles
 - **THEN** `github.pr.merged`, `github.pr.close.duration` and `github.pr.automerged` record it exactly once
+
+#### Scenario: PR updated mid-scan
+
+- **WHEN** a PR merged inside a cycle's window is updated while that cycle's scan pages and the scan does not reach it
+- **THEN** the next successful cycle records its merge once
 
 #### Scenario: Failed cycle retried
 
