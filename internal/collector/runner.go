@@ -62,6 +62,18 @@ type Runner struct {
 	// flush pushes the collected metrics at the end of each cycle; nil
 	// disables it.
 	flush func(context.Context) error
+
+	// observer is told when each collection cycle starts and finishes; nil
+	// disables it.
+	observer CycleObserver
+}
+
+// CycleObserver is told when each collection cycle of a target starts and
+// finishes. Satisfied by *health.Tracker.
+type CycleObserver interface {
+	CycleStarted(target string)
+	// CycleFinished reports whether repo discovery succeeded in the cycle.
+	CycleFinished(target string, discoveryOK bool)
 }
 
 // SelfMetricsRecorder records exporter self-metrics for a collection cycle.
@@ -98,6 +110,11 @@ func WithSelfMetrics(sm SelfMetricsRecorder) RunnerOption {
 // the loop.
 func WithFlush(flush func(context.Context) error) RunnerOption {
 	return func(r *Runner) { r.flush = flush }
+}
+
+// WithCycleObserver reports the start and end of every collection cycle.
+func WithCycleObserver(o CycleObserver) RunnerOption {
+	return func(r *Runner) { r.observer = o }
 }
 
 // NewRunner creates a Runner for the given target. The collection interval
@@ -209,8 +226,14 @@ func (r *Runner) RunOnce(ctx context.Context) {
 
 // runOnce performs one collection cycle, then flushes its metrics.
 func (r *Runner) runOnce(ctx context.Context) {
-	r.collect(ctx)
+	if r.observer != nil {
+		r.observer.CycleStarted(r.target)
+	}
+	discoveryOK := r.collect(ctx)
 	r.flushMetrics(ctx)
+	if r.observer != nil {
+		r.observer.CycleFinished(r.target, discoveryOK)
+	}
 }
 
 // flushMetrics pushes the collected metrics. Skipped once ctx is cancelled:
@@ -236,8 +259,8 @@ func (r *Runner) flushMetrics(ctx context.Context) {
 }
 
 // collect discovers repos, runs all collectors, updates snapshots and
-// advances lastCollectedAt.
-func (r *Runner) collect(ctx context.Context) {
+// advances lastCollectedAt. It reports whether repo discovery succeeded.
+func (r *Runner) collect(ctx context.Context) bool {
 	start := time.Now()
 	r.logger.Debug("collection cycle started", "target", r.target)
 
@@ -252,7 +275,7 @@ func (r *Runner) collect(ctx context.Context) {
 	if err != nil {
 		r.logger.Error("repo discovery failed", "target", r.target, "err", err)
 		r.recordAPIErrors(ctx, 1, semconv.AttrGitHubApiEndpointRestRepos)
-		return
+		return false
 	}
 
 	var (
@@ -327,6 +350,7 @@ func (r *Runner) collect(ctx context.Context) {
 		"repos", len(repos),
 		"duration", time.Since(start),
 	)
+	return true
 }
 
 // recordAPIErrors adds n to github_exporter.api.errors for this target and
