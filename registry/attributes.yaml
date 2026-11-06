@@ -212,12 +212,20 @@ attribute_groups:
   - id: github_activity_exporter.resource
     visibility: public
     stability: development
-    brief: Resource attributes set by the exporter's MeterProvider.
+    brief: Resource attributes shared by every OTel provider of the exporter.
     note: >
-      Populated in internal/exporter/provider.go (buildResource) by the Go SDK
-      resource detectors. Backends derive `job` and `instance` from them.
+      Built once in internal/telemetry/resource.go (NewResource) and shared by
+      the product MeterProvider and the self-telemetry providers. service.name,
+      service.version and service.instance.id have defaults that
+      OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES override; the rest come
+      from the Go SDK resource detectors. Backends derive `job` and `instance`
+      from them.
     attributes:
       - ref: service.name
+        requirement_level: required
+      - ref: service.version
+        requirement_level: required
+      - ref: service.instance.id
         requirement_level: required
       - ref: host.name
         requirement_level: recommended
