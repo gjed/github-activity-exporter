@@ -183,8 +183,11 @@ func TestRunner_FlushErrorIsLoggedCountedAndNonFatal(t *testing.T) {
 	done := make(chan struct{})
 	go func() { r.Run(ctx); close(done) }()
 
-	// A second flush proves the loop survived the first failed one.
-	for i := 0; i < 2; i++ {
+	// A second flush proves the loop survived the first failed one. Wait for
+	// a third: cycles are sequential, so its start guarantees the first two
+	// errors were recorded before cancel (an error returned after cancel is
+	// dropped as shutdown).
+	for i := 0; i < 3; i++ {
 		select {
 		case <-flushed:
 		case <-done:
