@@ -1,0 +1,106 @@
+image:
+  repository: ghcr.io/gjed/github-activity-exporter
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Exporter config file, rendered verbatim into a ConfigMap mounted at
+# /etc/github-activity-exporter/config.yaml. The chart does not model its keys:
+# see https://github.com/gjed/github-activity-exporter#config-file.
+# Keep credentials out of it; reference them through `secret` instead.
+config: {}
+
+# Secret material, from one Secret: an existing one, or one created by the chart.
+secret:
+  # Name of an existing Secret. Mutually exclusive with `create`.
+  existingSecret: ""
+  # Create a Secret from `data`. The values are stored in the Helm release.
+  create: false
+  # Keys and plain-text values of the chart-managed Secret.
+  data: {}
+  # Env vars read from Secret keys, as ENV_VAR: secret-key. For example:
+  #   GITHUB_TOKEN: github-token                # targets without an auth block
+  #   ACME_GITHUB_TOKEN: acme-token             # auth.token_env: ACME_GITHUB_TOKEN
+  #   GITHUB_APP_KEY: app-key-b64               # auth.app.private_key_env: GITHUB_APP_KEY
+  #   OTEL_EXPORTER_OTLP_HEADERS: otlp-headers  # "authorization=Bearer ...,x-scope-orgid=..."
+  env: {}
+  # Secret keys mounted read-only at /etc/github-activity-exporter/secrets/<key>,
+  # for example app-key.pem for auth.app.private_key_path.
+  files: []
+
+# Extra container env vars, e.g. the standard OTEL_* variables.
+env: []
+envFrom: []
+extraVolumes: []
+extraVolumeMounts: []
+
+health:
+  # Port of /healthz and /readyz. Must match config.health.listen_address when set.
+  port: 10062
+
+# Timings of the probes on /healthz and /readyz. The exporter already waits
+# health.stall_timeout before failing /healthz; see the chart README.
+livenessProbe:
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+readinessProbe:
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+metrics:
+  # Port of the Prometheus bridge. Must match config.export.prometheus.listen_address when set.
+  port: 9090
+  # Service for the bridge; needs config.export.prometheus.enabled: true.
+  service:
+    enabled: false
+    type: ClusterIP
+    annotations: {}
+  # Prometheus Operator ServiceMonitor scraping /metrics; needs metrics.service.enabled.
+  serviceMonitor:
+    enabled: false
+    labels: {}
+    interval: ""
+    scrapeTimeout: ""
+
+# ConfigMap carrying dashboards/github-activity.json for the Grafana dashboard sidecar.
+dashboard:
+  enabled: false
+  labels:
+    grafana_dashboard: "1"
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

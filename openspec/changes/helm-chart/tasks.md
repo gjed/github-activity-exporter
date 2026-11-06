@@ -2,11 +2,11 @@
 
 ## 1. Chart
 
-- [ ] 1.1 Scaffold `charts/github-activity-exporter` (Chart.yaml, values.yaml, `_helpers.tpl`, `.helmignore`) and the dashboard symlink; verify `helm lint` passes
-- [ ] 1.2 Add the ConfigMap, Deployment (Recreate, one replica, hardened, probes, checksums), Secret and ServiceAccount templates with the validation errors; verify `helm template` renders defaults and fails for each conflicting combination in the spec
-- [ ] 1.3 Add the bridge Service, ServiceMonitor and dashboard ConfigMap templates; verify the rendered dashboard equals `dashboards/github-activity.json`
-- [ ] 1.4 Add `examples/renovate-values.yaml` (PAT) and `examples/github-app-values.yaml` (GitHub App, bridge, ServiceMonitor, dashboard); verify `helm lint --strict` and `helm template | kubeconform -strict` pass for defaults and both examples
-- [ ] 1.5 Write the chart README (config passthrough, secrets, probes vs `stall_timeout`/`collection_interval`, single replica, dashboard); verify markdown lint passes
+- [x] 1.1 Scaffold `charts/github-activity-exporter` (Chart.yaml, values.yaml, `_helpers.tpl`, `.helmignore`) and the dashboard symlink; verify `helm lint` passes
+- [x] 1.2 Add the ConfigMap, Deployment (Recreate, one replica, hardened, probes, checksums), and Secret templates with the validation errors; verify `helm template` renders defaults and fails for each conflicting combination in the spec
+- [x] 1.3 Add the bridge Service, ServiceMonitor and dashboard ConfigMap templates; verify the rendered dashboard equals `dashboards/github-activity.json`
+- [x] 1.4 Add `examples/renovate-values.yaml` (PAT) and `examples/github-app-values.yaml` (GitHub App, bridge, ServiceMonitor, dashboard); verify `helm lint --strict` and `helm template | kubeconform -strict` pass for defaults and both examples
+- [x] 1.5 Write the chart README (config passthrough, secrets, probes vs `stall_timeout`/`collection_interval`, single replica, dashboard); verify markdown lint passes
 
 ## 2. CI and publishing
 
