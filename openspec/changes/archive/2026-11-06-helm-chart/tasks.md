@@ -19,7 +19,7 @@
 
 ## 4. Integration
 
-- [ ] 4.1 Install on a kind cluster in a namespace enforcing the `restricted` Pod Security Standard with the Renovate example and a `gh auth token` Secret; verify the pod is Ready, `/healthz` and `/readyz` answer 200, and the first cycle's logs; delete the cluster
+- [x] 4.1 Install on a kind cluster in a namespace enforcing the `restricted` Pod Security Standard with the Renovate example and a `gh auth token` Secret; verify the pod is Ready, `/healthz` and `/readyz` answer 200, and the first cycle's logs; delete the cluster
 
 ## Workflow follow-up
 
