@@ -203,16 +203,16 @@ func liveCheckStatistics(report string) (liveCheckStats, error) {
 	}
 }
 
-// requireViolation asserts that live-check exited non-zero and that its report
+// requireViolation asserts that weaver exited non-zero and that its report
 // contains the expected violation message, so an unrelated weaver failure
 // cannot make a negative test pass.
 func requireViolation(t *testing.T, out string, err error, msg string) {
 	t.Helper()
 	if err == nil {
-		t.Fatal("expected weaver live-check to return non-zero, but it exited 0")
+		t.Fatal("expected weaver to return non-zero, but it exited 0")
 	}
 	if !strings.Contains(out, msg) {
-		t.Fatalf("weaver live-check exited with %v but its report lacks %q", err, msg)
+		t.Fatalf("weaver exited with %v but its report lacks %q", err, msg)
 	}
 }
 
