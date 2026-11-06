@@ -2,8 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": ["Renovate is the sole dependency manager for this repo. Dependabot is NOT used — Renovate covers Go modules, GitHub Actions, and Node.js (semantic-release plugins)."],
   "extends": [
-    "config:recommended",
-    ":semanticCommits",
+    "github>gjed/renovate-config:default",
     ":dependencyDashboard"
   ],
   "labels": ["dependencies"],
