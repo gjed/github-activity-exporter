@@ -27,7 +27,7 @@ The system SHALL always serve `/healthz` and `/readyz` over HTTP on `health.list
 
 #### Scenario: Invalid thresholds
 
-- **WHEN** `health.stall_timeout` is negative or `health.unauthorized_cycles` is less than 1
+- **WHEN** `health.stall_timeout` is negative, or is set and not longer than `collection_interval`, or `health.unauthorized_cycles` is less than 1
 - **THEN** the exporter fails to start with a config error naming the key
 
 #### Scenario: Address clash with the bridge

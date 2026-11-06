@@ -136,6 +136,12 @@ func TestLoad(t *testing.T) {
 			errContains: "health.stall_timeout",
 		},
 		{
+			name:        "health stall timeout not longer than collection interval is fatal",
+			file:        "testdata/health_short_stall.yaml",
+			wantErr:     true,
+			errContains: "health.stall_timeout must be longer than collection_interval",
+		},
+		{
 			name:        "health unauthorized cycles below 1 is fatal",
 			file:        "testdata/health_bad_cycles.yaml",
 			wantErr:     true,
