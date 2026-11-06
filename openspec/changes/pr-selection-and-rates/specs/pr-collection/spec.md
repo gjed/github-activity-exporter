@@ -1,0 +1,139 @@
+# Spec Delta
+
+## Purpose
+
+Defines which pull requests a target selects and how the exporter turns them into open-state gauges and created/merged/closed event counters without truncation or double counting.
+
+## ADDED Requirements
+
+### Requirement: PR author filter
+
+A target SHALL accept `filters.prs.authors`, a list of logins. When non-empty, only PRs whose author login matches one entry, case-insensitively, SHALL be selected. GitHub App bot authors SHALL be matched by their REST login with the `[bot]` suffix (for example `renovate[bot]`).
+
+#### Scenario: Bot author selected
+
+- **WHEN** `authors` is `[renovate[bot]]` and a PR is authored by the Renovate GitHub App
+- **THEN** the PR is selected
+
+#### Scenario: Other author dropped
+
+- **WHEN** `authors` is `[renovate[bot]]` and a PR is authored by user `alice`
+- **THEN** the PR is not selected
+
+#### Scenario: Self-hosted user author selected
+
+- **WHEN** `authors` is `[renovate-bot]` and a PR is authored by user `renovate-bot`
+- **THEN** the PR is selected
+
+### Requirement: PR head branch prefix filter
+
+A target SHALL accept `filters.prs.head_branch_prefix`, a string. When non-empty, only PRs whose head branch name starts with it (case-sensitive) SHALL be selected.
+
+#### Scenario: Matching branch selected
+
+- **WHEN** `head_branch_prefix` is `renovate/` and a PR's head branch is `renovate/go-1.x`
+- **THEN** the PR is selected
+
+#### Scenario: Non-matching branch dropped
+
+- **WHEN** `head_branch_prefix` is `renovate/` and a PR's head branch is `feature/login`
+- **THEN** the PR is not selected
+
+### Requirement: Combined PR filters
+
+All configured PR filters (`authors`, `head_branch_prefix`, `include_labels`, `exclude_labels`, `states`) SHALL be applied together: a PR is selected only if it passes every non-empty filter. The selection SHALL apply to every PR metric, including event counters. `states` SHALL be evaluated against the PR's current state.
+
+#### Scenario: Label filter selects
+
+- **WHEN** `include_labels` is `[renovate]` and a PR carries label `Renovate`
+- **THEN** the PR is selected
+
+#### Scenario: Exclude label wins
+
+- **WHEN** `include_labels` is `[renovate]`, `exclude_labels` is `[wip]` and a PR carries both labels
+- **THEN** the PR is not selected
+
+#### Scenario: Filter applies to event counters
+
+- **WHEN** `authors` is `[renovate[bot]]` and a PR by `alice` is merged within the event window
+- **THEN** `github.pr.merged` is not incremented for it
+
+### Requirement: Open PR state gauges without cap
+
+Each cycle SHALL read every open PR of a repo (drafts included), with no per-repo limit, and export `github.pr.count` for states `open` and `draft` only, `github.pr.age` and `github.pr.review_status` from the selected PRs. `github.pr.count` SHALL NOT report `closed` or `merged`.
+
+#### Scenario: Repo with more than 500 open PRs
+
+- **WHEN** a repo has 1200 open selected PRs
+- **THEN** `github.pr.count{github.pr.state="open"}` is 1200
+
+#### Scenario: No closed or merged totals
+
+- **WHEN** a repo has closed and merged PRs
+- **THEN** no `github.pr.count` data point carries `github.pr.state` `closed` or `merged`
+
+### Requirement: PR event counters
+
+The exporter SHALL increment counter `github.pr.created` once per selected PR created in the event window, `github.pr.merged` once per selected PR merged in it, and `github.pr.closed` once per selected PR closed without merge in it, each with attributes `exporter.target`, `github.org` and `github.repo`. Counters SHALL reset only on restart.
+
+#### Scenario: Merge counted
+
+- **WHEN** a selected PR is merged inside the event window
+- **THEN** `github.pr.merged` for its repo increases by 1 and `github.pr.closed` does not change
+
+#### Scenario: Close without merge counted
+
+- **WHEN** a selected PR is closed without merge inside the event window
+- **THEN** `github.pr.closed` for its repo increases by 1
+
+#### Scenario: Created counted
+
+- **WHEN** a selected PR is created inside the event window
+- **THEN** `github.pr.created` for its repo increases by 1
+
+### Requirement: Event window
+
+For a repo, the event window of a cycle SHALL be the half-open interval from `max(lookback cutoff, start of the repo's previous successful cycle)` (exclusive) to the start of the current cycle (inclusive). The lookback cutoff is 30 days before the current cycle start. The exporter SHALL read PRs ordered by last update, newest first, and SHALL stop paginating once the PRs are older than the window start. On a repo's first successful cycle no events SHALL be recorded.
+
+#### Scenario: Pagination stops at window start
+
+- **WHEN** the window starts at T and a page ends with a PR last updated before T
+- **THEN** no further page is requested for that repo
+
+#### Scenario: Lookback caps the window
+
+- **WHEN** the repo's previous successful cycle was 40 days ago
+- **THEN** only events within the last 30 days are recorded
+
+#### Scenario: First cycle records no events
+
+- **WHEN** a repo is collected for the first time
+- **THEN** `github.pr.created`, `github.pr.merged`, `github.pr.closed`, `github.pr.close.duration` and `github.pr.automerged` record no events for it
+
+### Requirement: No double counting across cycles
+
+Each PR event SHALL be recorded at most once across consecutive cycles. Events of a cycle whose repo collection fails SHALL NOT be recorded, and the repo's window SHALL NOT advance, so they are recorded on the next successful cycle.
+
+#### Scenario: Consecutive cycles
+
+- **WHEN** a PR merged at time M is visible in two consecutive successful cycles
+- **THEN** `github.pr.merged`, `github.pr.close.duration` and `github.pr.automerged` record it exactly once
+
+#### Scenario: Failed cycle retried
+
+- **WHEN** a repo's collection fails partway through a cycle
+- **THEN** no event from that cycle is recorded and the next successful cycle records them
+
+### Requirement: Optional Renovate dashboard collector
+
+A target SHALL accept `renovate_dashboard.enabled`, default `false`. The Renovate Dependency Dashboard collector SHALL run for a target only when it is `true`. `renovate.*` attributes SHALL appear only on dashboard metrics.
+
+#### Scenario: Disabled by default
+
+- **WHEN** a target does not set `renovate_dashboard`
+- **THEN** no dashboard issue is requested and no `renovate.dashboard.*` metric is emitted for it
+
+#### Scenario: Enabled
+
+- **WHEN** a target sets `renovate_dashboard.enabled: true`
+- **THEN** `renovate.dashboard.queue` is emitted for its repos with a dashboard issue
