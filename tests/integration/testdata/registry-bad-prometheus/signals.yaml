@@ -1,0 +1,27 @@
+file_format: definition/2
+metrics:
+  - name: test.missing
+    instrument: gauge
+    unit: "1"
+    stability: development
+    brief: Declares no annotations.prometheus.
+
+  - name: test.renamed
+    instrument: counter
+    unit: "1"
+    stability: development
+    brief: Declares a suffixed annotations.prometheus.name.
+    annotations:
+      prometheus:
+        name: test.renamed_total
+        type: counter
+
+  - name: test.retyped
+    instrument: updowncounter
+    unit: "1"
+    stability: development
+    brief: Declares annotations.prometheus.type counter for an updowncounter.
+    annotations:
+      prometheus:
+        name: test.retyped
+        type: counter

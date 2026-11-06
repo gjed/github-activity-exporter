@@ -1,0 +1,6 @@
+# Fixture for TestRegistryPolicy_PrometheusContractViolations: one metric per
+# rule in policies/registry/prometheus.rego, each breaking it.
+file_format: definition_manifest/2.0
+name: registry-bad-prometheus
+description: Registry that violates the annotations.prometheus contract.
+schema_url: https://github.com/gjed/github-activity-exporter/schemas/test/0.1.0
