@@ -98,6 +98,8 @@ health:                           # /healthz and /readyz, always on
   listen_address: ":10062"        # must differ from export.prometheus.listen_address when the bridge is enabled
   stall_timeout: 0s               # 0 means 2 × collection_interval + 1h; otherwise must exceed collection_interval
   unauthorized_cycles: 3          # consecutive cycles answered only with 401 before /healthz fails
+telemetry:                        # self-telemetry, see "Self-telemetry"
+  enabled: false
 targets:
   - name: my-org                  # unique per target
     base_url: https://api.github.com  # REST API root; GHES: https://<host>/api/v3
@@ -184,6 +186,51 @@ The exporter always serves `/healthz` and `/readyz` on `health.listen_address` (
 A 401 never affects `/readyz`. A credential revoked while running fails `/healthz`; after a restart the startup credential check fails and the exporter exits.
 
 The Prometheus bridge serves only `/metrics`.
+
+## Self-telemetry
+
+Self-telemetry is telemetry about the exporter itself: metrics, traces, logs and profiles. It is separate from the GitHub metrics the exporter exports, and it is off by default.
+
+```yaml
+telemetry:
+  enabled: false        # global toggle; false turns every signal below off
+  metrics:
+    enabled: true
+  traces:
+    enabled: true
+  logs:
+    enabled: true
+  profiles:
+    enabled: true
+```
+
+A signal is active only when `telemetry.enabled` and its own `enabled` are both true, `OTEL_SDK_DISABLED` is not `true`, and, for traces, metrics and logs, `OTEL_<SIGNAL>_EXPORTER` is not `none`. Environment variables can turn a signal off, never on. Every key can be overridden with `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_ENABLED` and `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_<SIGNAL>_ENABLED`; a value that is not a boolean is a startup error. The startup log lists the active signals under `self_telemetry`.
+
+This release adds the configuration, the providers and the resource. The signals themselves come in [#74](https://github.com/gjed/github-activity-exporter/issues/74) (runtime and HTTP client metrics), [#75](https://github.com/gjed/github-activity-exporter/issues/75) (traces), [#76](https://github.com/gjed/github-activity-exporter/issues/76) (OTLP logs) and [#77](https://github.com/gjed/github-activity-exporter/issues/77) (profiles).
+
+Self-telemetry runs on its own OTel SDK providers. No `telemetry` key and no `OTEL_*` variable in the table below changes what the GitHub metrics export, where or when. The `github_exporter.*` metrics (`scrape.duration`, `api.errors`, `otlp.errors`, `api.rate_limit.*`) belong to the GitHub metrics and are always on; the dashboard needs them. When the Prometheus bridge is enabled, self-telemetry metrics are also served on `/metrics`.
+
+Traces, metrics and logs go over OTLP. With no OTLP endpoint in the environment, each signal uses `export.otlp`: same endpoint, protocol, headers and TLS. For `protocol: http` the endpoint is a base URL, and a trailing `/v1/metrics` is dropped, so `https://gw.example.com/otlp` and `https://gw.example.com/otlp/v1/metrics` both send traces to `https://gw.example.com/otlp/v1/traces`. Once `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` is set, that signal is configured from the `OTEL_EXPORTER_OTLP_*` variables only, and `export.otlp` headers are never sent to it.
+
+The standard [OTel SDK variables](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/) apply, signal-specific before generic:
+
+| Env                                                                                | Effect                                                                                                           |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `OTEL_SDK_DISABLED`                                                                | `true` turns all self-telemetry off. The GitHub metrics keep exporting                                           |
+| `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER`              | `none` turns the signal off; `otlp` is the default. Other values log a warning and mean `otlp`                   |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_ENDPOINT` | Destination; replaces `export.otlp` for the signal                                                               |
+| `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_PROTOCOL` | `grpc` or `http/protobuf` (default) when an endpoint variable is set. Ignored when the signal uses `export.otlp` |
+| `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_HEADERS`   | Request headers; replace `export.otlp.headers`                                                                   |
+| `OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_TIMEOUT`   | Export timeout in milliseconds                                                                                   |
+| `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`                                   | Trace sampler; default `parentbased_always_on`                                                                   |
+| `OTEL_METRIC_EXPORT_INTERVAL`                                                      | Self-telemetry metric push interval in milliseconds; default 60000                                               |
+| `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`                                    | Resource attributes, for the GitHub metrics too                                                                  |
+
+The OTLP metric exporter of the GitHub metrics also reads `OTEL_EXPORTER_OTLP_{,METRICS_}HEADERS` and `_TIMEOUT` when `export.otlp` does not set them. Leave `export.otlp.headers` set when you point self-telemetry metrics at another backend with its own headers.
+
+Every provider, the GitHub metrics included, shares one resource: `service.name` (default `github-activity-exporter`), `service.version` (the build version), `service.instance.id` (a random UUID per process) and the host, OS, process and container attributes. `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` override them. The instance ID changes on every restart; set a stable one, such as the pod name, with `OTEL_RESOURCE_ATTRIBUTES=service.instance.id=<id>` if your backend derives `instance` from it. Every meter, tracer and logger uses the instrumentation scope `github.com/gjed/github-activity-exporter` with the build version.
+
+On SIGTERM or SIGINT the exporter flushes and shuts down every self-telemetry provider after the GitHub metrics, within the same 30 s deadline.
 
 ## Metrics
 
