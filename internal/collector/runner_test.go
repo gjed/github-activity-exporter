@@ -40,19 +40,6 @@ func (f *fakeSelfMetrics) RecordOTLPError(_ context.Context, target string) {
 	f.otlpErrors = append(f.otlpErrors, target)
 }
 
-// flakyPRClient returns nodes, or an error while fail is set.
-type flakyPRClient struct {
-	fail  bool
-	nodes []collector.ExportedPRNode
-}
-
-func (f *flakyPRClient) Query(_ context.Context, q interface{}, _ map[string]interface{}) error {
-	if f.fail {
-		return errors.New("graphql: 502 bad gateway")
-	}
-	return collector.InjectPRQueryResult(q, f.nodes, false)
-}
-
 func TestRunner_RecordsScrapeDurationPerCycle(t *testing.T) {
 	self := &fakeSelfMetrics{}
 	meter := metric.NewMeterProvider().Meter("test")
@@ -78,10 +65,10 @@ func TestRunner_FailedRepoKeepsEventWindow(t *testing.T) {
 	mp, reader := newTestMeterProvider()
 	meter := mp.Meter("test")
 	self := &fakeSelfMetrics{}
-	gql := &flakyPRClient{}
+	gql := collector.NewFixturePRClient(nil)
 
 	prColl, err := collector.NewPRCollector(gql, config.PRFilters{},
-		collector.PRCollectorConfig{MaxPRsPerRepo: 500, LookbackDays: 30}, meter, nil)
+		collector.PRCollectorConfig{LookbackDays: 30}, meter, nil)
 	if err != nil {
 		t.Fatalf("NewPRCollector: %v", err)
 	}
@@ -98,11 +85,11 @@ func TestRunner_FailedRepoKeepsEventWindow(t *testing.T) {
 	mergedAt := time.Now()
 	time.Sleep(5 * time.Millisecond)
 
-	gql.fail = true
+	gql.Err = errors.New("graphql: 502 bad gateway")
 	r.RunOnce(ctx) // cycle 2: repo fails
 
-	gql.fail = false
-	gql.nodes = []collector.ExportedPRNode{{
+	gql.Err = nil
+	gql.Nodes = []collector.ExportedPRNode{{
 		Number: 1, State: "MERGED", CreatedAt: mergedAt.Add(-time.Hour), MergedAt: &mergedAt,
 	}}
 	r.RunOnce(ctx) // cycle 3: repo recovers, PR merged before cycle 2 started
@@ -117,6 +104,58 @@ func TestRunner_FailedRepoKeepsEventWindow(t *testing.T) {
 	}
 	if len(self.apiErrors) != 1 || self.apiErrors[0] != semconv.AttrGitHubApiEndpointGraphQL {
 		t.Errorf("api errors = %v, want [%s]", self.apiErrors, semconv.AttrGitHubApiEndpointGraphQL)
+	}
+}
+
+// Consecutive cycles over the same PRs record each event once.
+func TestRunner_ConsecutiveCyclesCountEventsOnce(t *testing.T) {
+	ctx := context.Background()
+	mp, reader := newTestMeterProvider()
+	meter := mp.Meter("test")
+	gql := collector.NewFixturePRClient(nil)
+
+	prColl, err := collector.NewPRCollector(gql, config.PRFilters{},
+		collector.PRCollectorConfig{LookbackDays: 30}, meter, nil)
+	if err != nil {
+		t.Fatalf("NewPRCollector: %v", err)
+	}
+	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
+	r, err := collector.NewRunner(config.Target{Name: "tgt"}, staticRepoSource{repos: repos},
+		collector.RunnerCollectors{PR: prColl}, meter, nil)
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+
+	r.RunOnce(ctx) // cycle 1: establishes the window
+
+	time.Sleep(5 * time.Millisecond)
+	at := time.Now()
+	time.Sleep(5 * time.Millisecond)
+	gql.Nodes = []collector.ExportedPRNode{
+		{Number: 1, State: "MERGED", CreatedAt: at, MergedAt: &at},
+		{Number: 2, State: "CLOSED", CreatedAt: at.Add(-time.Hour), ClosedAt: &at},
+	}
+
+	r.RunOnce(ctx) // cycle 2: records the events
+	r.RunOnce(ctx) // cycle 3: same PRs, nothing new
+
+	rm := collectMetrics(t, reader)
+	for name, want := range map[string]int64{
+		semconv.MetricGitHubPrCreated:    1,
+		semconv.MetricGitHubPrMerged:     1,
+		semconv.MetricGitHubPrClosed:     1,
+		semconv.MetricGitHubPrAutomerged: 1,
+	} {
+		var got int64
+		for _, dp := range findGaugeInt(t, rm, name) {
+			got += dp.Value
+		}
+		if got != want {
+			t.Errorf("%s = %d, want %d", name, got, want)
+		}
+	}
+	if h := findHistogram(t, rm, semconv.MetricGitHubPrCloseDuration); len(h) != 1 || h[0].Count != 2 {
+		t.Errorf("close.duration = %+v, want count 2", h)
 	}
 }
 
