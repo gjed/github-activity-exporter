@@ -4,7 +4,7 @@
 
 `rateLimitTransport.RoundTrip` (`internal/github/client.go`) calls `waitIfPaused` before every request and `updateRateLimit` after every response that carries `X-RateLimit-Remaining`. Both read and write a single `rlState`/`rlPaused` pair. The same transport serves the go-github REST client and the githubv4 GraphQL client. The exporter calls REST `core` endpoints (issues, repos) and the GraphQL API; it makes no search calls today.
 
-GitHub documents these pools in `GET /rate_limit` and [Rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api): `core`, `search`, `code_search`, `graphql`, `integration_manifest`, `source_import`, `actions_runner_registration`, `scim`, `dependency_snapshots`, `dependency_sbom`, `code_scanning_upload`, `code_scanning_autofix`. `X-RateLimit-Resource` names the pool a response counted against.
+GitHub documents these pools in `GET /rate_limit` and [Rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api): `core`, `search`, `code_search`, `graphql`, `integration_manifest`, `source_import`, `actions_runner_registration`, `scim`, `dependency_snapshots`, `dependency_sbom`, `code_scanning_upload`, `code_scanning_autofix`, `audit_log`. `X-RateLimit-Resource` names the pool a response counted against.
 
 ## Goals / Non-Goals
 

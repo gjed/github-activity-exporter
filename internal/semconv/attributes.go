@@ -82,6 +82,7 @@ AttrGitHubApiRateLimitResourceDependencySnapshots = "dependency_snapshots"
 AttrGitHubApiRateLimitResourceDependencySBOM = "dependency_sbom"
 AttrGitHubApiRateLimitResourceCodeScanningUpload = "code_scanning_upload"
 AttrGitHubApiRateLimitResourceCodeScanningAutofix = "code_scanning_autofix"
+AttrGitHubApiRateLimitResourceAuditLog = "audit_log"
 AttrGitHubApiRateLimitResourceOther = "other"
 
 

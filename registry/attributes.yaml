@@ -191,6 +191,10 @@ attributes:
           value: "code_scanning_autofix"
           stability: development
           brief: Code scanning autofix endpoints.
+        - id: audit_log
+          value: "audit_log"
+          stability: development
+          brief: Organization audit log endpoint.
         - id: other
           value: "other"
           stability: development
