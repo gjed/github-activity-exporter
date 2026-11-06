@@ -42,6 +42,10 @@ type FixturePRClient struct {
 	Err error
 	// FailEventScan fails queries ordered by UPDATED_AT.
 	FailEventScan bool
+	// BeforeQuery, when set, runs before each query is served with the
+	// query's FixtureRequest and may change Nodes, e.g. to update a PR
+	// between two pages.
+	BeforeQuery func(req FixtureRequest)
 
 	mu       sync.Mutex
 	requests []FixtureRequest
@@ -52,6 +56,8 @@ type FixtureRequest struct {
 	States  []string
 	Labels  []string
 	OrderBy string // "CREATED_AT" or "UPDATED_AT"
+	// Cursor is the query's $cursor, empty for the first page.
+	Cursor string
 }
 
 // NewFixturePRClient creates a FixturePRClient serving the given nodes.
@@ -97,10 +103,17 @@ func (f *FixturePRClient) Query(_ context.Context, q interface{}, vars map[strin
 	}
 	order, _ := vars["orderBy"].(githubv4.IssueOrder)
 	req.OrderBy = string(order.Field)
+	if c, _ := vars["cursor"].(*githubv4.String); c != nil {
+		req.Cursor = string(*c)
+	}
 
 	f.mu.Lock()
 	f.requests = append(f.requests, req)
 	f.mu.Unlock()
+
+	if f.BeforeQuery != nil {
+		f.BeforeQuery(req)
+	}
 
 	if f.Err != nil {
 		return f.Err

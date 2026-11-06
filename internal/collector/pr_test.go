@@ -758,3 +758,43 @@ func TestPRCollector_FailedEventScanRecordsNothing(t *testing.T) {
 		}
 	}
 }
+
+// A PR updated while the event scan pages jumps behind the cursor and is
+// missed; the next cycle's scan reaches back one window and counts it once.
+func TestPRCollector_PRUpdatedMidScanCountedNextCycle(t *testing.T) {
+	t0 := time.Now().Add(-time.Hour)
+	t1 := t0.Add(20 * time.Minute)
+	t2 := t1.Add(20 * time.Minute)
+	var nodes []collector.ExportedPRNode
+	for i := range 6 {
+		m := t1.Add(-time.Duration(i+1) * time.Minute) // newest first: #1 … #6
+		nodes = append(nodes, collector.ExportedPRNode{Number: i + 1, State: "MERGED", CreatedAt: t0.Add(-time.Hour), MergedAt: &m})
+	}
+	gql := collector.NewFixturePRClient(nodes)
+	gql.PageSize = 2
+	// Before page 2 of the first event scan, PR #5 (on page 3) is commented
+	// on and moves to the front, behind the cursor.
+	gql.BeforeQuery = func(req collector.FixtureRequest) {
+		if req.OrderBy == "UPDATED_AT" && req.Cursor == "2" && gql.Nodes[4].UpdatedAt.IsZero() {
+			gql.Nodes[4].UpdatedAt = t1.Add(time.Second)
+		}
+	}
+	coll, reader, _ := newCollector(t, gql, config.PRFilters{})
+
+	if _, err := coll.Collect(context.Background(), "tgt", oneRepo, sinceAll(oneRepo, t0), t1); err != nil {
+		t.Fatalf("Collect cycle 1: %v", err)
+	}
+	if got := readEventTotals(t, reader).merged; got != 5 {
+		t.Fatalf("merged after cycle 1 = %d, want 5 (PR #5 skipped mid-scan)", got)
+	}
+
+	if _, err := coll.Collect(context.Background(), "tgt", oneRepo, sinceAll(oneRepo, t1), t2); err != nil {
+		t.Fatalf("Collect cycle 2: %v", err)
+	}
+	if got := readEventTotals(t, reader); got.merged != 6 || got.automerged != 6 {
+		t.Errorf("after cycle 2 merged = %d, automerged = %d, want 6 and 6", got.merged, got.automerged)
+	}
+	if h := findHistogram(t, collectMetrics(t, reader), semconv.MetricGitHubPrCloseDuration); len(h) != 1 || h[0].Count != 6 {
+		t.Errorf("close.duration = %+v, want count 6", h)
+	}
+}

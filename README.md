@@ -197,10 +197,10 @@ All metric names and attributes are defined in the OTel registry at [`registry/`
 
 ### PR events
 
-Each cycle the exporter reads every open PR of a repo, with no limit, for `github.pr.count`, `github.pr.age` and `github.pr.review_status`. It then reads PRs by last update, newest first, until it passes the start of the repo's event window, and counts the events of the selected PRs:
+Each cycle the exporter reads every open PR of a repo, with no limit, for `github.pr.count`, `github.pr.age` and `github.pr.review_status`. It then reads PRs by last update, newest first, back to the start of the previous cycle's window, and counts the events of the selected PRs that it has not counted yet:
 
 - `github.pr.created`, `github.pr.merged`, `github.pr.closed` (closed without merge; merged PRs count only in `github.pr.merged`), `github.pr.close.duration` and `github.pr.automerged`.
-- The window runs from the start of the repo's previous successful cycle, capped at 30 days back, to the start of the current cycle. Each event is counted once.
+- The window runs from the start of the repo's previous successful cycle, capped at 30 days back, to the start of the current cycle. Each event is counted once; a PR updated while the scan pages, and so missed, is counted by the next cycle.
 - A repo's first cycle records no events. A failed cycle records none and the next successful cycle covers the gap.
 - Counters reset when the exporter restarts. Events that happen while it is down are not counted.
 
