@@ -4,6 +4,10 @@ metrics:
 
   - name: github.pr.count
     instrument: updowncounter
+    annotations:
+      prometheus:
+        name: github.pr.count
+        type: gauge
     unit: "{pr}"
     stability: development
     requirement_level: recommended
@@ -26,6 +30,10 @@ metrics:
 
   - name: github.pr.age
     instrument: gauge
+    annotations:
+      prometheus:
+        name: github.pr.age
+        type: gauge
     unit: s
     stability: development
     requirement_level: recommended
@@ -43,6 +51,10 @@ metrics:
 
   - name: github.pr.close.duration
     instrument: histogram
+    annotations:
+      prometheus:
+        name: github.pr.close.duration
+        type: histogram
     unit: s
     stability: development
     requirement_level: recommended
@@ -60,6 +72,10 @@ metrics:
 
   - name: github.pr.automerged
     instrument: counter
+    annotations:
+      prometheus:
+        name: github.pr.automerged
+        type: counter
     unit: "{pr}"
     stability: development
     requirement_level: recommended
@@ -77,6 +93,10 @@ metrics:
 
   - name: github.pr.review_status
     instrument: gauge
+    annotations:
+      prometheus:
+        name: github.pr.review_status
+        type: gauge
     unit: "{pr}"
     stability: development
     requirement_level: recommended
@@ -98,6 +118,10 @@ metrics:
 
   - name: github.issue.count
     instrument: updowncounter
+    annotations:
+      prometheus:
+        name: github.issue.count
+        type: gauge
     unit: "{issue}"
     stability: development
     requirement_level: recommended
@@ -122,6 +146,10 @@ metrics:
 
   - name: github.issue.age
     instrument: gauge
+    annotations:
+      prometheus:
+        name: github.issue.age
+        type: gauge
     unit: s
     stability: development
     requirement_level: recommended
@@ -138,6 +166,10 @@ metrics:
 
   - name: renovate.dashboard.queue
     instrument: gauge
+    annotations:
+      prometheus:
+        name: renovate.dashboard.queue
+        type: gauge
     unit: "{pr}"
     stability: development
     requirement_level: recommended
@@ -157,6 +189,10 @@ metrics:
 
   - name: renovate.dashboard.parse_error
     instrument: gauge
+    annotations:
+      prometheus:
+        name: renovate.dashboard.parse_error
+        type: gauge
     unit: "{error}"
     stability: development
     requirement_level: recommended
@@ -177,6 +213,10 @@ metrics:
 
   - name: github_exporter.scrape.duration
     instrument: histogram
+    annotations:
+      prometheus:
+        name: github_exporter.scrape.duration
+        type: histogram
     unit: s
     stability: development
     requirement_level: recommended
@@ -188,6 +228,10 @@ metrics:
 
   - name: github_exporter.api.errors
     instrument: counter
+    annotations:
+      prometheus:
+        name: github_exporter.api.errors
+        type: counter
     unit: "{error}"
     stability: development
     requirement_level: recommended
@@ -200,6 +244,10 @@ metrics:
 
   - name: github_exporter.api.rate_limit.remaining
     instrument: gauge
+    annotations:
+      prometheus:
+        name: github_exporter.api.rate_limit.remaining
+        type: gauge
     unit: "{request}"
     stability: development
     requirement_level: recommended
@@ -213,6 +261,10 @@ metrics:
 
   - name: github_exporter.api.rate_limit.reset
     instrument: gauge
+    annotations:
+      prometheus:
+        name: github_exporter.api.rate_limit.reset
+        type: gauge
     unit: s
     stability: development
     requirement_level: recommended
@@ -226,6 +278,10 @@ metrics:
 
   - name: github_exporter.otlp.errors
     instrument: counter
+    annotations:
+      prometheus:
+        name: github_exporter.otlp.errors
+        type: counter
     unit: "{error}"
     stability: development
     requirement_level: recommended
