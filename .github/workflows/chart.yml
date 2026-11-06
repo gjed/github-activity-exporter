@@ -7,6 +7,13 @@ on:
       # Embedded in the chart through a symlink.
       - dashboards/github-activity.json
       - .github/workflows/chart.yml
+  # Fires because release.yml creates the release with the gjed-release app
+  # token; releases created with GITHUB_TOKEN do not trigger workflows.
+  release:
+    types:
+      - published
+  # Run from a vX.Y.Z tag ref to republish that version.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,6 +24,7 @@ env:
 jobs:
   check:
     name: Check chart
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -49,3 +57,45 @@ jobs:
             echo "::endgroup::"
           done
 
+  publish:
+    name: Publish chart
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Resolve version
+        id: version
+        env:
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$TAG is not a vX.Y.Z release tag; run this workflow from a release tag ref."
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v${{ steps.version.outputs.version }}
+          persist-credentials: false
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          # renovate: datasource=github-releases depName=helm/helm
+          version: v4.3.1
+
+      - name: Package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: helm package "$CHART_DIR" --version "$VERSION" --app-version "$VERSION" --destination dist
+
+      - name: Push to GHCR
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GHCR_TOKEN" | helm registry login ghcr.io --username "$GHCR_USER" --password-stdin
+          helm push "dist/github-activity-exporter-$VERSION.tgz" oci://ghcr.io/gjed/charts

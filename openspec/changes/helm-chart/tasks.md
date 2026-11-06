@@ -11,7 +11,7 @@
 ## 2. CI and publishing
 
 - [x] 2.1 Add the `check` job of `.github/workflows/chart.yml` on PRs touching the chart; verify its commands pass locally
-- [ ] 2.2 Add the `publish` job on release published / tag dispatch; verify `helm package --version 0.0.1 --app-version 0.0.1` produces a chart with the dashboard contents
+- [x] 2.2 Add the `publish` job on release published / tag dispatch; verify `helm package --version 0.0.1 --app-version 0.0.1` produces a chart with the dashboard contents
 
 ## 3. Docs
 
