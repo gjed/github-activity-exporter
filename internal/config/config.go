@@ -85,8 +85,15 @@ type Filters struct {
 	Issues IssueFilters `mapstructure:"issues"`
 }
 
-// PRFilters defines label and state filters for pull requests.
+// PRFilters defines author, head branch, label and state filters for pull requests.
 type PRFilters struct {
+	// Authors restricts collection to PRs opened by one of these logins
+	// (case-insensitive). GitHub App bots use their REST login, e.g. "renovate[bot]".
+	// When empty, all authors are included.
+	Authors []string `mapstructure:"authors"`
+	// HeadBranchPrefix restricts collection to PRs whose head branch starts with
+	// this prefix (case-sensitive). When empty, all branches are included.
+	HeadBranchPrefix string `mapstructure:"head_branch_prefix"`
 	// IncludeLabels restricts collection to PRs carrying at least one of these labels.
 	// When empty, all labels are included.
 	IncludeLabels []string `mapstructure:"include_labels"`

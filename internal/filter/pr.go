@@ -12,6 +12,8 @@ import (
 // PRFilter decides whether a pull request should be collected.
 //
 // Rules (all must pass):
+//   - If Authors is non-empty, the PR author login must match one of them.
+//   - If HeadBranchPrefix is non-empty, the PR head branch must start with it.
 //   - If IncludeLabels is non-empty, the PR must have at least one matching label.
 //   - If ExcludeLabels is non-empty, the PR must not carry any of those labels.
 //   - If States is non-empty, the PR state must match one of the registry values
@@ -27,9 +29,13 @@ func NewPRFilter(cfg config.PRFilters) *PRFilter {
 
 // PR is the minimal PR representation needed by the filter.
 type PR struct {
-	// State is one of "open", "closed", "merged".
+	// State is one of "open", "draft", "closed", "merged".
 	State  string
 	Labels []string
+	// Author is the author login; GitHub App bots carry the "[bot]" suffix.
+	Author string
+	// HeadRef is the head branch name.
+	HeadRef string
 }
 
 // Match returns true if the PR passes all configured filter rules.
@@ -39,6 +45,16 @@ func (f *PRFilter) Match(pr PR) bool {
 		if !containsCI(f.cfg.States, pr.State) {
 			return false
 		}
+	}
+
+	// ── Author filter ────────────────────────────────────────────────────────
+	if len(f.cfg.Authors) > 0 && !containsCI(f.cfg.Authors, pr.Author) {
+		return false
+	}
+
+	// ── Head branch prefix filter ────────────────────────────────────────────
+	if !strings.HasPrefix(pr.HeadRef, f.cfg.HeadBranchPrefix) {
+		return false
 	}
 
 	// ── Include-label filter ─────────────────────────────────────────────────
