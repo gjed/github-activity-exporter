@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,21 +15,49 @@ import (
 	"github.com/google/go-github/v93/github"
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/oauth2"
+
+	sc "github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
 const (
-	// rateLimitPauseThreshold is the number of remaining REST API requests below
-	// which new requests are paused until the window resets.
+	// rateLimitPauseThreshold is the number of remaining requests in a pool
+	// below which new requests to that pool are paused until its window resets.
+	//
+	// SIMPLIFIED: one fixed threshold for every pool. It fits core and graphql
+	// (5,000+ per hour) but search (30/min) and code_search (10/min) are always
+	// below it, so every search request after the first would wait for the
+	// window reset. The exporter makes no search calls. Upgrade path: derive
+	// the threshold per pool from X-RateLimit-Limit.
 	rateLimitPauseThreshold = 200
 )
 
-// RateLimitState holds the current rate limit snapshot for a target.
+// documentedPools are the X-RateLimit-Resource values GitHub documents
+// (GET /rate_limit). Any other value is recorded as "other" so the pool
+// attribute on the rate limit gauges stays bounded.
+var documentedPools = map[string]bool{
+	sc.AttrGitHubApiRateLimitResourceCore:                      true,
+	sc.AttrGitHubApiRateLimitResourceSearch:                    true,
+	sc.AttrGitHubApiRateLimitResourceCodeSearch:                true,
+	sc.AttrGitHubApiRateLimitResourceGraphQL:                   true,
+	sc.AttrGitHubApiRateLimitResourceIntegrationManifest:       true,
+	sc.AttrGitHubApiRateLimitResourceSourceImport:              true,
+	sc.AttrGitHubApiRateLimitResourceActionsRunnerRegistration: true,
+	sc.AttrGitHubApiRateLimitResourceSCIM:                      true,
+	sc.AttrGitHubApiRateLimitResourceDependencySnapshots:       true,
+	sc.AttrGitHubApiRateLimitResourceDependencySBOM:            true,
+	sc.AttrGitHubApiRateLimitResourceCodeScanningUpload:        true,
+	sc.AttrGitHubApiRateLimitResourceCodeScanningAutofix:       true,
+}
+
+// RateLimitState holds the current rate limit snapshot of one pool for a target.
 type RateLimitState struct {
+	// Resource is the rate limit pool (X-RateLimit-Resource), e.g. "core" or "graphql".
+	Resource  string
 	Remaining int
 	ResetAt   time.Time
 }
 
-// RateLimitHook is called whenever the rate limit state changes.
+// RateLimitHook is called whenever the rate limit state of a pool changes.
 // It is invoked from the response transport, so implementations must not block.
 type RateLimitHook func(state RateLimitState)
 
@@ -50,16 +79,26 @@ type Client struct {
 	// GraphQL client
 	graphql *githubv4.Client
 
-	// Rate limit state
-	mu       sync.Mutex
-	rlState  RateLimitState
-	rlPaused bool
-	rlHooks  []RateLimitHook
+	// Rate limit state, keyed by pool.
+	mu      sync.Mutex
+	rlPools map[string]*poolState
+	rlHooks []RateLimitHook
 
 	authHooks []AuthResultHook
 
 	// baseURL is the REST API root without a trailing slash.
 	baseURL string
+
+	// restPath and graphqlPath are the URL paths of the REST API root and the
+	// GraphQL endpoint, used to classify a request's rate limit pool.
+	restPath    string
+	graphqlPath string
+}
+
+// poolState is the rate limit state of one pool.
+type poolState struct {
+	state  RateLimitState
+	paused bool
 }
 
 // ClientOption is a functional option for Client.
@@ -100,6 +139,7 @@ func NewClient(auth Authenticator, opts ...ClientOption) (*Client, error) {
 		auth:    auth,
 		logger:  slog.Default(),
 		baseURL: defaultGitHubAPIURL,
+		rlPools: make(map[string]*poolState),
 	}
 	for _, o := range opts {
 		o(c)
@@ -117,7 +157,19 @@ func NewClient(auth Authenticator, opts ...ClientOption) (*Client, error) {
 		return nil, fmt.Errorf("creating REST client for %q: %w", c.baseURL, err)
 	}
 	c.rest = rest
-	c.graphql = githubv4.NewEnterpriseClient(graphqlURL(c.baseURL), httpClient)
+	gqlURL := graphqlURL(c.baseURL)
+	c.graphql = githubv4.NewEnterpriseClient(gqlURL, httpClient)
+
+	restU, err := url.Parse(c.baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parsing base URL %q: %w", c.baseURL, err)
+	}
+	gqlU, err := url.Parse(gqlURL)
+	if err != nil {
+		return nil, fmt.Errorf("parsing GraphQL URL %q: %w", gqlURL, err)
+	}
+	c.restPath = strings.TrimSuffix(restU.Path, "/")
+	c.graphqlPath = gqlU.Path
 
 	return c, nil
 }
@@ -138,31 +190,82 @@ func (c *Client) REST() *github.Client { return c.rest }
 // GraphQL returns the underlying githubv4 GraphQL client.
 func (c *Client) GraphQL() *githubv4.Client { return c.graphql }
 
-// RateLimitState returns a snapshot of the current rate limit state.
-func (c *Client) RateLimitState() RateLimitState {
+// RateLimitState returns a snapshot of the rate limit state of a pool
+// (e.g. "core", "graphql"). It is the zero value, with Resource set, until a
+// response for that pool has been seen.
+func (c *Client) RateLimitState(resource string) RateLimitState {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.rlState
+	if p, ok := c.rlPools[resource]; ok {
+		return p.state
+	}
+	return RateLimitState{Resource: resource}
 }
 
-// updateRateLimit records a new rate limit snapshot and invokes hooks.
-func (c *Client) updateRateLimit(remaining int, resetAt time.Time) {
+// classifyPool returns the rate limit pool a request will count against,
+// derived from its URL before it is sent: the GraphQL endpoint is graphql,
+// REST code search is code_search, other REST search is search, and every
+// other REST endpoint is core. The remaining documented pools are single
+// endpoints the exporter does not call; they classify as core.
+func (c *Client) classifyPool(u *url.URL) string {
+	if u.Path == c.graphqlPath {
+		return sc.AttrGitHubApiRateLimitResourceGraphQL
+	}
+	rel := strings.TrimPrefix(u.Path, c.restPath)
+	switch {
+	case rel == "/search/code":
+		return sc.AttrGitHubApiRateLimitResourceCodeSearch
+	case strings.HasPrefix(rel, "/search/"):
+		return sc.AttrGitHubApiRateLimitResourceSearch
+	default:
+		return sc.AttrGitHubApiRateLimitResourceCore
+	}
+}
+
+// responsePool returns the pool a response's rate limit headers belong to.
+// X-RateLimit-Resource is authoritative. A value GitHub does not document is
+// recorded as "other": keeping it raw would make the gauge attribute
+// unbounded, and folding it into a known pool would pause that pool for
+// another pool's usage. A missing header (older GHES releases) falls back to
+// the pool classified from the request URL, so the pause keeps working there.
+func responsePool(header, classified string) string {
+	switch {
+	case header == "":
+		return classified
+	case documentedPools[header]:
+		return header
+	default:
+		return sc.AttrGitHubApiRateLimitResourceOther
+	}
+}
+
+// updateRateLimit records a new rate limit snapshot for a pool and invokes hooks.
+func (c *Client) updateRateLimit(resource string, remaining int, resetAt time.Time) {
 	c.mu.Lock()
-	c.rlState = RateLimitState{Remaining: remaining, ResetAt: resetAt}
+	p, ok := c.rlPools[resource]
+	if !ok {
+		p = &poolState{}
+		c.rlPools[resource] = p
+	}
+	p.state = RateLimitState{Resource: resource, Remaining: remaining, ResetAt: resetAt}
 	pausing := remaining < rateLimitPauseThreshold
-	if pausing && !c.rlPaused {
-		c.rlPaused = true
+	if pausing && !p.paused {
+		p.paused = true
 		c.logger.Warn("rate limit threshold reached, pausing requests",
+			"resource", resource,
 			"remaining", remaining,
 			"reset_at", resetAt,
 		)
-	} else if !pausing && c.rlPaused {
-		c.rlPaused = false
-		c.logger.Info("rate limit recovered, resuming requests", "remaining", remaining)
+	} else if !pausing && p.paused {
+		p.paused = false
+		c.logger.Info("rate limit recovered, resuming requests",
+			"resource", resource,
+			"remaining", remaining,
+		)
 	}
 	hooks := make([]RateLimitHook, len(c.rlHooks))
 	copy(hooks, c.rlHooks)
-	state := c.rlState
+	state := p.state
 	c.mu.Unlock()
 
 	for _, h := range hooks {
@@ -170,21 +273,25 @@ func (c *Client) updateRateLimit(remaining int, resetAt time.Time) {
 	}
 }
 
-// waitIfPaused blocks until the rate limit window resets (if paused).
-func (c *Client) waitIfPaused(ctx context.Context) error {
+// waitIfPaused blocks until the window of a pool resets, if that pool is paused.
+func (c *Client) waitIfPaused(ctx context.Context, resource string) error {
 	c.mu.Lock()
-	if !c.rlPaused {
+	p, ok := c.rlPools[resource]
+	if !ok || !p.paused {
 		c.mu.Unlock()
 		return nil
 	}
-	resetAt := c.rlState.ResetAt
+	resetAt := p.state.ResetAt
 	c.mu.Unlock()
 
 	waitDur := time.Until(resetAt)
 	if waitDur <= 0 {
 		return nil
 	}
-	c.logger.Info("rate limited: waiting for window reset", "wait", waitDur.Round(time.Second))
+	c.logger.Info("rate limited: waiting for window reset",
+		"resource", resource,
+		"wait", waitDur.Round(time.Second),
+	)
 
 	select {
 	case <-time.After(waitDur):
@@ -211,7 +318,8 @@ type rateLimitTransport struct {
 }
 
 func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if err := t.client.waitIfPaused(req.Context()); err != nil {
+	pool := t.client.classifyPool(req.URL)
+	if err := t.client.waitIfPaused(req.Context(), pool); err != nil {
 		return nil, err
 	}
 
@@ -222,7 +330,7 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 
 	t.client.reportAuthResult(resp.StatusCode == http.StatusUnauthorized)
 
-	// Parse REST rate limit headers.
+	// Parse rate limit headers (REST and GraphQL send the same ones).
 	if rem := resp.Header.Get("X-RateLimit-Remaining"); rem != "" {
 		remaining, err := strconv.Atoi(rem)
 		if err != nil {
@@ -238,13 +346,15 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 			}
 			// Only enter paused state if we have a valid future reset time.
 			// Without a reset time, pause would block indefinitely (zero time → no wait).
+			resource := responsePool(resp.Header.Get("X-RateLimit-Resource"), pool)
 			if remaining < rateLimitPauseThreshold && resetAt.IsZero() {
 				t.client.logger.Warn("rate limit low but X-RateLimit-Reset missing; applying 60s fallback backoff",
+					"resource", resource,
 					"remaining", remaining,
 				)
 				resetAt = time.Now().Add(60 * time.Second)
 			}
-			t.client.updateRateLimit(remaining, resetAt)
+			t.client.updateRateLimit(resource, remaining, resetAt)
 		}
 	}
 

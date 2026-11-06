@@ -54,6 +54,10 @@ func TestClient_RateLimitTracking(t *testing.T) {
 	if !hookCalled.Load() {
 		t.Fatal("rate limit hook was not called")
 	}
+	// No X-RateLimit-Resource header: the REST call is attributed to core.
+	if gotState.Resource != "core" {
+		t.Errorf("expected resource=core, got %q", gotState.Resource)
+	}
 	if gotState.Remaining != 150 {
 		t.Errorf("expected remaining=150, got %d", gotState.Remaining)
 	}
@@ -98,7 +102,7 @@ func TestClient_PauseBelowThreshold(t *testing.T) {
 	// First call: triggers pause (remaining=50 < 200).
 	_, _, _ = c.REST().Repositories.Get(ctx, "owner", "repo")
 
-	state := c.RateLimitState()
+	state := c.RateLimitState("core")
 	if state.Remaining != 50 {
 		t.Fatalf("expected paused state with remaining=50, got %d", state.Remaining)
 	}
@@ -114,7 +118,7 @@ func TestClient_PauseBelowThreshold(t *testing.T) {
 	}
 
 	// After the pause, state should show plenty of quota.
-	state = c.RateLimitState()
+	state = c.RateLimitState("core")
 	if state.Remaining < 200 {
 		t.Errorf("expected recovered state, got remaining=%d", state.Remaining)
 	}
@@ -142,7 +146,7 @@ func TestClient_RateLimitState(t *testing.T) {
 
 	_, _, _ = c.REST().Repositories.Get(context.Background(), "owner", "repo")
 
-	state := c.RateLimitState()
+	state := c.RateLimitState("core")
 	if state.Remaining != 4999 {
 		t.Errorf("expected remaining=4999, got %d", state.Remaining)
 	}
