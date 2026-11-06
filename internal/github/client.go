@@ -98,7 +98,7 @@ func NewClient(auth Authenticator, opts ...ClientOption) (*Client, error) {
 	// to any URL not already ending in it.
 	rest, err := github.NewClient(github.WithHTTPClient(httpClient), github.WithURLs(&c.baseURL, nil))
 	if err != nil {
-		return nil, fmt.Errorf("parsing base URL %q: %w", c.baseURL, err)
+		return nil, fmt.Errorf("creating REST client for %q: %w", c.baseURL, err)
 	}
 	c.rest = rest
 	c.graphql = githubv4.NewEnterpriseClient(graphqlURL(c.baseURL), httpClient)
