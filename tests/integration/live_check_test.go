@@ -432,8 +432,8 @@ func emitConformingMetrics(t *testing.T, p *exporter.Provider) {
 		),
 	)
 
-	// Self-metrics use the global MeterProvider set by exporter.New.
-	self, err := exporter.NewSelfMetrics()
+	// Self-metrics use the product meter.
+	self, err := exporter.NewSelfMetrics(p.Meter())
 	if err != nil {
 		t.Fatalf("NewSelfMetrics: %v", err)
 	}

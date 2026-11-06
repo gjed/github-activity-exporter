@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
@@ -12,7 +11,7 @@ import (
 )
 
 // SelfMetrics holds the instruments for exporter self-monitoring.
-// Obtain one via NewSelfMetrics after the MeterProvider is initialised.
+// Obtain one via NewSelfMetrics with the product meter (Provider.Meter).
 type SelfMetrics struct {
 	scrapeDuration metric.Float64Histogram
 	apiErrors      metric.Int64Counter
@@ -22,10 +21,8 @@ type SelfMetrics struct {
 }
 
 // NewSelfMetrics creates and registers all exporter self-metric instruments
-// against the global MeterProvider (set by New).
-func NewSelfMetrics() (*SelfMetrics, error) {
-	meter := otel.GetMeterProvider().Meter("github.com/gjed/github-activity-exporter")
-
+// on meter. They are product metrics, independent of the telemetry toggles.
+func NewSelfMetrics(meter metric.Meter) (*SelfMetrics, error) {
 	scrapeDuration, err := meter.Float64Histogram(
 		sc.MetricGitHubExporterScrapeDuration,
 		metric.WithDescription("Duration of a complete collection cycle in seconds."),
