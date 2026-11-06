@@ -103,6 +103,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	// ── Build self-telemetry providers ────────────────────────────────────────
+	// Separate from the product MeterProvider: no telemetry setting or OTEL_*
+	// toggle changes what the product metrics export.
+	tel, err := telemetry.New(ctx, telemetry.Settings{
+		Config:               cfg.Telemetry,
+		OTLP:                 cfg.Export.OTLP,
+		Resource:             res,
+		Version:              version,
+		PrometheusRegisterer: provider.PrometheusRegisterer(),
+		Logger:               logger,
+	})
+	if err != nil {
+		logger.Error("failed to initialise self-telemetry", "err", err)
+		os.Exit(1)
+	}
+
 	// Every product instrument, self-metrics included, comes from one meter
 	// with the exporter's instrumentation scope. Each Runner records scrape
 	// duration and API errors into the self-metrics every collection cycle.
@@ -134,6 +150,7 @@ func main() {
 		"collection_interval", exporterCfg.CollectionInterval,
 		"prometheus_enabled", exporterCfg.PrometheusEnabled,
 		"health_listen_address", cfg.Health.ListenAddress,
+		"self_telemetry", activeSignals(tel),
 	)
 
 	// ── Start per-target goroutines ───────────────────────────────────────────
@@ -166,6 +183,20 @@ func main() {
 	if err := provider.Shutdown(shutCtx); err != nil {
 		logger.Error("shutdown error", "err", err)
 	}
+	if err := tel.Shutdown(shutCtx); err != nil {
+		logger.Error("self-telemetry shutdown error", "err", err)
+	}
+}
+
+// activeSignals lists the active self-telemetry signals for the startup log.
+func activeSignals(tel *telemetry.Telemetry) []string {
+	active := []string{}
+	for _, s := range telemetry.Signals {
+		if tel.Active(s) {
+			active = append(active, string(s))
+		}
+	}
+	return active
 }
 
 // buildRunners creates one Runner per target with its own GitHub client and collectors.
