@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -201,5 +202,51 @@ func TestRunner_FlushErrorIsLoggedCountedAndNonFatal(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "metrics flush failed") {
 		t.Fatalf("flush error not logged; logs:\n%s", logs.String())
+	}
+}
+
+type failingRepoSource struct{}
+
+func (failingRepoSource) Repos(context.Context) ([]discovery.Repo, error) {
+	return nil, errors.New("discovery: 401 bad credentials")
+}
+
+// recordingObserver records cycle events as "start:<target>" and
+// "finish:<target>:<discoveryOK>".
+type recordingObserver struct{ events []string }
+
+func (o *recordingObserver) CycleStarted(target string) {
+	o.events = append(o.events, "start:"+target)
+}
+
+func (o *recordingObserver) CycleFinished(target string, discoveryOK bool) {
+	o.events = append(o.events, fmt.Sprintf("finish:%s:%t", target, discoveryOK))
+}
+
+func TestRunner_ReportsCycleToObserver(t *testing.T) {
+	tests := []struct {
+		name   string
+		source collector.RepoSource
+		want   string
+	}{
+		{"discovery succeeds", staticRepoSource{}, "[start:tgt finish:tgt:true]"},
+		{"discovery fails", failingRepoSource{}, "[start:tgt finish:tgt:false]"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obs := &recordingObserver{}
+			meter := metric.NewMeterProvider().Meter("test")
+			r, err := collector.NewRunner(config.Target{Name: "tgt"}, tt.source,
+				collector.RunnerCollectors{}, meter, nil, collector.WithCycleObserver(obs))
+			if err != nil {
+				t.Fatalf("NewRunner: %v", err)
+			}
+
+			r.RunOnce(context.Background())
+
+			if got := fmt.Sprint(obs.events); got != tt.want {
+				t.Errorf("observer events = %s, want %s", got, tt.want)
+			}
+		})
 	}
 }
