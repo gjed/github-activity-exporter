@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/go-github/v62/github"
+	"github.com/google/go-github/v93/github"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
@@ -202,7 +202,7 @@ func (c *IssueCollector) fetchIssues(ctx context.Context, repo discovery.Repo) (
 		if resp.NextPage == 0 {
 			break
 		}
-		opts.Page = resp.NextPage
+		opts.ListOptions.Page = resp.NextPage
 	}
 
 	return all, nil

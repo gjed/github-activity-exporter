@@ -5,13 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/go-github/v62/github"
+	"github.com/google/go-github/v93/github"
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/oauth2"
 )
@@ -95,14 +94,13 @@ func NewClient(auth Authenticator, opts ...ClientOption) (*Client, error) {
 	oauthTransport := &oauth2.Transport{Source: tokenSource, Base: transport}
 	httpClient := &http.Client{Transport: oauthTransport}
 
-	// Set BaseURL directly: WithEnterpriseURLs would append api/v3/ to any
-	// URL not already ending in it.
-	restURL, err := url.Parse(c.baseURL + "/")
+	// Use WithURLs, not WithEnterpriseURLs: the latter would append api/v3/
+	// to any URL not already ending in it.
+	rest, err := github.NewClient(github.WithHTTPClient(httpClient), github.WithURLs(&c.baseURL, nil))
 	if err != nil {
 		return nil, fmt.Errorf("parsing base URL %q: %w", c.baseURL, err)
 	}
-	c.rest = github.NewClient(httpClient)
-	c.rest.BaseURL = restURL
+	c.rest = rest
 	c.graphql = githubv4.NewEnterpriseClient(graphqlURL(c.baseURL), httpClient)
 
 	return c, nil

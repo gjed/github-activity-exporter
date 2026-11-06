@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	gogithub "github.com/google/go-github/v62/github"
+	gogithub "github.com/google/go-github/v93/github"
 
 	"github.com/gjed/github-activity-exporter/internal/config"
 	"github.com/gjed/github-activity-exporter/internal/discovery"
@@ -61,7 +61,7 @@ type httpRepoLister struct {
 
 func newHTTPLister(t *testing.T, serverURL string) *httpRepoLister {
 	t.Helper()
-	c, err := gogithub.NewClient(nil).WithEnterpriseURLs(serverURL+"/", serverURL+"/")
+	c, err := gogithub.NewClient(gogithub.WithEnterpriseURLs(serverURL+"/", serverURL+"/"))
 	if err != nil {
 		t.Fatalf("creating test GitHub client: %v", err)
 	}
