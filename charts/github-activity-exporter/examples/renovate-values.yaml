@@ -1,0 +1,24 @@
+# Renovate PRs and the Dependency Dashboard of one org, with a PAT.
+#
+#   kubectl create secret generic github-activity-exporter \
+#     --from-literal=github-token="$GITHUB_TOKEN" \
+#     --from-literal=otlp-headers='authorization=Bearer <token>'
+config:
+  export:
+    otlp:
+      endpoint: https://otlp.example.com:4318
+  targets:
+    - name: renovate
+      orgs:
+        - org: my-org
+      filters:
+        prs:
+          authors: ["renovate[bot]"]
+      renovate_dashboard:
+        enabled: true
+
+secret:
+  existingSecret: github-activity-exporter
+  env:
+    GITHUB_TOKEN: github-token
+    OTEL_EXPORTER_OTLP_HEADERS: otlp-headers

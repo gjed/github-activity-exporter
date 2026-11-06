@@ -1,0 +1,11 @@
+apiVersion: v2
+name: github-activity-exporter
+description: Collects GitHub pull request and issue activity and pushes it via OTLP.
+type: application
+# version and appVersion are set to the release version by the publish job
+# in .github/workflows/chart.yml; the 0.0.0 placeholders are never published.
+version: 0.0.0
+appVersion: "0.0.0"
+home: https://github.com/gjed/github-activity-exporter
+sources:
+  - https://github.com/gjed/github-activity-exporter

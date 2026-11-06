@@ -1,0 +1,45 @@
+# All PR and issue activity of an org, authenticated as a GitHub App, with the
+# Prometheus bridge, a ServiceMonitor and the Grafana dashboard.
+#
+#   kubectl create secret generic github-activity-exporter \
+#     --from-file=app-key.pem=./my-app.private-key.pem \
+#     --from-literal=otlp-headers='authorization=Bearer <token>'
+config:
+  collection_interval: 5m
+  export:
+    otlp:
+      endpoint: https://otlp.example.com:4318
+    prometheus:
+      enabled: true
+      listen_address: ":9090"
+  health:
+    listen_address: ":10062"
+  targets:
+    - name: my-org
+      auth:
+        app:
+          app_id: 12345
+          installation_id: 67890
+          private_key_path: /etc/github-activity-exporter/secrets/app-key.pem
+      orgs:
+        - org: my-org
+
+secret:
+  existingSecret: github-activity-exporter
+  env:
+    OTEL_EXPORTER_OTLP_HEADERS: otlp-headers
+  files:
+    - app-key.pem
+
+env:
+  - name: OTEL_RESOURCE_ATTRIBUTES
+    value: deployment.environment=production
+
+metrics:
+  service:
+    enabled: true
+  serviceMonitor:
+    enabled: true
+
+dashboard:
+  enabled: true
