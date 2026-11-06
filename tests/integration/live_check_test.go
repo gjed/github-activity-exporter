@@ -408,6 +408,20 @@ func emitConformingMetrics(t *testing.T, p *exporter.Provider) {
 		),
 	)
 
+	for _, name := range []string{sc.MetricGitHubPrCreated, sc.MetricGitHubPrMerged, sc.MetricGitHubPrClosed} {
+		c, err := meter.Int64Counter(name, metric.WithUnit("{pr}"))
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		c.Add(context.Background(), 1,
+			metric.WithAttributes(
+				attribute.String(sc.AttrExporterTarget, "test-org/test-repo"),
+				attribute.String(sc.AttrGitHubOrg, "test-org"),
+				attribute.String(sc.AttrGitHubRepo, "test-repo"),
+			),
+		)
+	}
+
 	scrapeDur, err := meter.Float64Histogram(sc.MetricGitHubExporterScrapeDuration, metric.WithUnit("s"))
 	if err != nil {
 		t.Fatalf("create scrape.duration: %v", err)
@@ -463,10 +477,10 @@ func emitUndeclaredMetric(t *testing.T, p *exporter.Provider) {
 	t.Helper()
 	meter := p.MeterProvider().Meter("integration-test-undeclared-metric")
 
-	// VIOLATION: github.pr.merged is not defined in registry/signals.yaml.
-	c, err := meter.Int64Counter("github.pr.merged", metric.WithUnit("{pr}"))
+	// VIOLATION: github.pr.reopened is not defined in registry/signals.yaml.
+	c, err := meter.Int64Counter("github.pr.reopened", metric.WithUnit("{pr}"))
 	if err != nil {
-		t.Fatalf("create github.pr.merged: %v", err)
+		t.Fatalf("create github.pr.reopened: %v", err)
 	}
 	c.Add(context.Background(), 1, metric.WithAttributes(conformingPRCountAttrs()...))
 }

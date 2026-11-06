@@ -27,10 +27,22 @@ const (
 	// Time from PR creation to close (merged or declined) in seconds.
 	// Instrument: histogram, Unit: s, Stability: development
 	MetricGitHubPrCloseDuration = "github.pr.close.duration"
+// MetricGitHubPrClosed is the metric name for github.pr.closed.
+	// Number of pull requests closed without being merged.
+	// Instrument: counter, Unit: {pr}, Stability: development
+	MetricGitHubPrClosed = "github.pr.closed"
 // MetricGitHubPrCount is the metric name for github.pr.count.
-	// Number of pull requests grouped by state and label.
+	// Number of open pull requests grouped by state and label.
 	// Instrument: updowncounter, Unit: {pr}, Stability: development
 	MetricGitHubPrCount = "github.pr.count"
+// MetricGitHubPrCreated is the metric name for github.pr.created.
+	// Number of pull requests created.
+	// Instrument: counter, Unit: {pr}, Stability: development
+	MetricGitHubPrCreated = "github.pr.created"
+// MetricGitHubPrMerged is the metric name for github.pr.merged.
+	// Number of pull requests merged.
+	// Instrument: counter, Unit: {pr}, Stability: development
+	MetricGitHubPrMerged = "github.pr.merged"
 // MetricGitHubPrReviewStatus is the metric name for github.pr.review_status.
 	// Number of open pull requests grouped by review status.
 	// Instrument: gauge, Unit: {pr}, Stability: development
@@ -81,7 +93,10 @@ var Metrics = []MetricDef{
 	{Name: MetricGitHubPrAge, Instrument: "gauge", Unit: "s"},
 	{Name: MetricGitHubPrAutomerged, Instrument: "counter", Unit: "{pr}"},
 	{Name: MetricGitHubPrCloseDuration, Instrument: "histogram", Unit: "s"},
+	{Name: MetricGitHubPrClosed, Instrument: "counter", Unit: "{pr}"},
 	{Name: MetricGitHubPrCount, Instrument: "updowncounter", Unit: "{pr}"},
+	{Name: MetricGitHubPrCreated, Instrument: "counter", Unit: "{pr}"},
+	{Name: MetricGitHubPrMerged, Instrument: "counter", Unit: "{pr}"},
 	{Name: MetricGitHubPrReviewStatus, Instrument: "gauge", Unit: "{pr}"},
 	{Name: MetricGitHubExporterApiErrors, Instrument: "counter", Unit: "{error}"},
 	{Name: MetricGitHubExporterApiRateLimitRemaining, Instrument: "gauge", Unit: "{request}"},
