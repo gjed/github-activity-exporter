@@ -73,12 +73,19 @@ func TestLiveCheck_UndeclaredAttributeDetected(t *testing.T) {
 
 // TestLiveCheck_NamesEqualRegistry emits every registry metric over OTLP and
 // asserts that the metric names live-check saw are exactly the registry names
-// (naming contract in registry/manifest.yaml). Metrics are emitted without
-// attributes, so live-check reports missing required attributes and exits
-// non-zero; attribute conformance is TestLiveCheck_ConformsToSchema's job.
+// (annotations.prometheus.name in registry/signals.yaml). Metrics are emitted
+// without attributes, so live-check reports missing required attributes and
+// exits non-zero; attribute conformance is TestLiveCheck_ConformsToSchema's job.
 func TestLiveCheck_NamesEqualRegistry(t *testing.T) {
 	out, _ := runLiveCheck(t, emitAllRegistryMetrics)
-	stats, err := liveCheckStatistics(out)
+	requireRegistryNames(t, out)
+}
+
+// requireRegistryNames asserts that the metric names in a live-check report
+// are exactly the registry metric names.
+func requireRegistryNames(t *testing.T, report string) {
+	t.Helper()
+	stats, err := liveCheckStatistics(report)
 	if err != nil {
 		t.Fatalf("live-check report: %v", err)
 	}
@@ -95,7 +102,67 @@ func TestLiveCheck_NamesEqualRegistry(t *testing.T) {
 	}
 	sort.Strings(extra)
 	if len(unseen) > 0 || len(extra) > 0 {
-		t.Fatalf("OTLP metric names != registry names\nregistry metrics not seen: %v\nnon-registry metrics seen: %v", unseen, extra)
+		t.Fatalf("metric names != registry names\nregistry metrics not seen: %v\nnon-registry metrics seen: %v", unseen, extra)
+	}
+}
+
+// requireOnlyMissingRequiredAttributes asserts that every violation in a
+// live-check report is a missing required attribute.
+func requireOnlyMissingRequiredAttributes(t *testing.T, report string) {
+	t.Helper()
+	findings, err := liveCheckFindings(report)
+	if err != nil {
+		t.Fatalf("live-check report: %v", err)
+	}
+	for _, f := range findings {
+		if f.Level == "violation" && f.ID != "required_attribute_not_present" {
+			t.Errorf("unexpected violation %s on %s: %s", f.ID, f.SignalName, f.Message)
+		}
+	}
+}
+
+// liveCheckFinding is the subset of a live-check finding this suite reads.
+type liveCheckFinding struct {
+	ID         string `json:"id"`
+	Level      string `json:"level"`
+	SignalName string `json:"signal_name"`
+	Message    string `json:"message"`
+}
+
+// liveCheckFindings returns every finding in the stream of JSON documents
+// live-check writes with --format json. Findings sit in the all_advice list of
+// a live_check_result at any depth of a sample document.
+func liveCheckFindings(report string) ([]liveCheckFinding, error) {
+	var findings []liveCheckFinding
+	var walk func(v any)
+	walk = func(v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			if r, ok := v["live_check_result"].(map[string]any); ok {
+				advice, _ := json.Marshal(r["all_advice"])
+				var fs []liveCheckFinding
+				_ = json.Unmarshal(advice, &fs)
+				findings = append(findings, fs...)
+			}
+			for _, child := range v {
+				walk(child)
+			}
+		case []any:
+			for _, child := range v {
+				walk(child)
+			}
+		}
+	}
+	dec := json.NewDecoder(strings.NewReader(report))
+	for {
+		var doc any
+		if err := dec.Decode(&doc); err != nil {
+			if errors.Is(err, io.EOF) {
+				return findings, nil
+			}
+			return nil, fmt.Errorf("decode: %w", err)
+		}
+		walk(doc)
 	}
 }
 

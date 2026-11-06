@@ -1,0 +1,18 @@
+# Weaver live-check configuration for the /metrics run in tests/integration
+# (https://github.com/gjed/github-activity-exporter/issues/57). The OTLP run
+# uses .weaver.toml.
+
+# Same resource matcher as .weaver.toml: keep the two in sync.
+[[live-check.matchers]]
+id = "match.resource"
+sample_type = "resource"
+when = 'attributes["service.name"] == "github-activity-exporter"'
+strict_attribute_groups = ["github_activity_exporter.resource"]
+
+# The Prometheus exposition carries no unit, and exposes updowncounters as
+# gauge. policies/live_check/ checks the exposed type against
+# annotations.prometheus.type instead; units stay verified on OTLP.
+[[live-check.finding_level_overrides]]
+ids = ["unexpected_instrument", "unit_mismatch"]
+level = "information"
+signal_type = "metric"
