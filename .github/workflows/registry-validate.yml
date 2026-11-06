@@ -20,7 +20,8 @@ jobs:
           weaver-version: "0.28.0"
 
       - name: Check registry schema
-        run: weaver registry check -r registry/
+        # policies/registry/ enforces the annotations.prometheus naming contract.
+        run: weaver registry check --v2 -r registry/ -p policies/registry/
 
       - name: Package registry (resolved dump for inspection)
         # `weaver registry resolve` is deprecated; `package` writes
