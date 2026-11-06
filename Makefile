@@ -41,17 +41,18 @@ install-weaver: ## Install OTel Weaver CLI (pulls Docker image if available, els
 	fi
 
 .PHONY: check-schema
-check-schema: $(HOME)/.weaver ## Validate OTel Weaver registry
+check-schema: $(HOME)/.weaver ## Validate OTel Weaver registry and registry policies
 ifeq ($(WEAVER_USE_DOCKER),1)
 	docker run --rm \
 		-u $(shell id -u):$(shell id -g) \
 		--env HOME=/tmp/weaver \
 		--mount type=bind,source=$(HOME)/.weaver,target=/tmp/weaver/.weaver \
 		--mount type=bind,source=$(PWD)/registry,target=/workspace/registry,readonly \
+		--mount type=bind,source=$(PWD)/policies,target=/workspace/policies,readonly \
 		$(WEAVER_IMAGE) \
-		registry check -r /workspace/registry/
+		registry check --v2 -r /workspace/registry/ -p /workspace/policies/registry/
 else
-	weaver registry check -r registry/
+	weaver registry check --v2 -r registry/ -p policies/registry/
 endif
 
 .PHONY: generate
