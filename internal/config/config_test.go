@@ -84,6 +84,53 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name: "health defaults",
+			file: "testdata/pat_token.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				h := cfg.Health
+				if h.ListenAddress != ":10062" {
+					t.Errorf("expected health.listen_address :10062, got %q", h.ListenAddress)
+				}
+				// 2 × 5m + 1h
+				if h.StallTimeout != 70*time.Minute {
+					t.Errorf("expected health.stall_timeout 1h10m, got %s", h.StallTimeout)
+				}
+				if h.UnauthorizedCycles != 3 {
+					t.Errorf("expected health.unauthorized_cycles 3, got %d", h.UnauthorizedCycles)
+				}
+			},
+		},
+		{
+			name: "custom health section",
+			file: "testdata/health_custom.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				want := config.Health{ListenAddress: ":8081", StallTimeout: 30 * time.Minute, UnauthorizedCycles: 1}
+				if cfg.Health != want {
+					t.Errorf("expected %+v, got %+v", want, cfg.Health)
+				}
+			},
+		},
+		{
+			name:        "health address equal to enabled bridge address is fatal",
+			file:        "testdata/health_addr_clash.yaml",
+			wantErr:     true,
+			errContains: "health.listen_address and export.prometheus.listen_address",
+		},
+		{
+			name:        "negative health stall timeout is fatal",
+			file:        "testdata/health_bad_stall.yaml",
+			wantErr:     true,
+			errContains: "health.stall_timeout",
+		},
+		{
+			name:        "health unauthorized cycles below 1 is fatal",
+			file:        "testdata/health_bad_cycles.yaml",
+			wantErr:     true,
+			errContains: "health.unauthorized_cycles",
+		},
+		{
 			name:    "missing otlp endpoint is fatal",
 			file:    "testdata/no_endpoint.yaml",
 			wantErr: true,
