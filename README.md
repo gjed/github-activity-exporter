@@ -7,7 +7,7 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/gjed/github-activity-exporter)](go.mod)
 [![License](https://img.shields.io/github/license/gjed/github-activity-exporter)](LICENSE)
 
-GitHub pull request and issue activity exporter — collects PR and issue metrics from the GitHub API, including [Renovate](https://docs.renovatebot.com/) Dependency Dashboard state, and pushes them via OTLP to any OpenTelemetry-compatible backend (Grafana Cloud, Prometheus with OTLP receiver, Datadog, etc.).
+GitHub pull request and issue activity exporter — collects PR and issue metrics from the GitHub API, optionally including [Renovate](https://docs.renovatebot.com/) Dependency Dashboard state, and pushes them via OTLP to any OpenTelemetry-compatible backend (Grafana Cloud, Prometheus with OTLP receiver, Datadog, etc.).
 
 ## Features
 
@@ -105,14 +105,39 @@ targets:
     repos:
       - other-owner/some-repo
     filters:
-      prs:
-        include_labels: []
-        exclude_labels: []
-        states: []                # open, closed, draft, merged
+      prs:                        # a PR is selected only if it passes every non-empty filter
+        authors: []               # author logins, case-insensitive; GitHub App bots as "renovate[bot]"
+        head_branch_prefix: ""    # head branch must start with this, case-sensitive
+        include_labels: []        # at least one of these labels
+        exclude_labels: []        # none of these labels
+        states: []                # open, closed, draft, merged (current state)
       issues:
         exclude_title_patterns: [] # regular expressions
         states: []                # open, closed
+    renovate_dashboard:
+      enabled: false              # collect the Renovate Dependency Dashboard issue
 ```
+
+Quote logins that contain brackets in flow lists: `authors: ["renovate[bot]"]`. Unquoted, YAML reads `[bot]` as a nested list.
+
+### Renovate preset
+
+To track only Renovate PRs and the Dependency Dashboard, select Renovate PRs by author (or by the `renovate` label) and enable the dashboard collector:
+
+```yaml
+targets:
+  - name: renovate
+    orgs:
+      - org: my-org
+    filters:
+      prs:
+        authors: ["renovate[bot]"]  # self-hosted Renovate: its user login
+        # include_labels: [renovate]  # alternative: Renovate's `labels` setting
+    renovate_dashboard:
+      enabled: true
+```
+
+`renovate.*` attributes appear only on the dashboard metrics. A target without `renovate_dashboard.enabled: true` never requests the dashboard issue.
 
 ### Environment variables
 
@@ -153,19 +178,40 @@ The Prometheus bridge serves only `/metrics`.
 
 All metric names and attributes are defined in the OTel registry at [`registry/`](registry/).
 
-| Metric                            | Instrument    | Description                                              |
-| --------------------------------- | ------------- | -------------------------------------------------------- |
-| `github.pr.count`                 | UpDownCounter | PR count by repo, state, and label                       |
-| `github.pr.age`                   | Gauge         | Age in seconds of the oldest open PR per repo            |
-| `github.pr.close.duration`        | Histogram     | Time from open to close/merge for PRs in lookback window |
-| `github.pr.automerged`            | Counter       | PRs merged with no human approval                        |
-| `github.pr.review_status`         | Gauge         | Open PR count by review decision state                   |
-| `github.issue.count`              | UpDownCounter | Issue count by repo, state, and label                    |
-| `github.issue.age`                | Gauge         | Age in seconds of the oldest open issue per repo         |
-| `renovate.dashboard.queue`        | Gauge         | Renovate dashboard PRs by queue state                    |
-| `github_exporter.scrape.duration` | Histogram     | Collection cycle duration in seconds                     |
-| `github_exporter.api.errors`      | Counter       | GitHub API errors by target and endpoint                 |
-| `github_exporter.otlp.errors`     | Counter       | OTLP push failures                                       |
+| Metric                            | Instrument    | Description                                          |
+| --------------------------------- | ------------- | ---------------------------------------------------- |
+| `github.pr.count`                 | UpDownCounter | Open PR count by repo, state (open, draft) and label |
+| `github.pr.age`                   | Gauge         | Age in seconds of the oldest open PR per repo        |
+| `github.pr.created`               | Counter       | PRs created                                          |
+| `github.pr.merged`                | Counter       | PRs merged                                           |
+| `github.pr.closed`                | Counter       | PRs closed without merge                             |
+| `github.pr.close.duration`        | Histogram     | Time from open to close/merge                        |
+| `github.pr.automerged`            | Counter       | PRs merged with no human approval                    |
+| `github.pr.review_status`         | Gauge         | Open PR count by review decision state               |
+| `github.issue.count`              | UpDownCounter | Issue count by repo, state, and label                |
+| `github.issue.age`                | Gauge         | Age in seconds of the oldest open issue per repo     |
+| `renovate.dashboard.queue`        | Gauge         | Renovate dashboard PRs by queue state                |
+| `github_exporter.scrape.duration` | Histogram     | Collection cycle duration in seconds                 |
+| `github_exporter.api.errors`      | Counter       | GitHub API errors by target and endpoint             |
+| `github_exporter.otlp.errors`     | Counter       | OTLP push failures                                   |
+
+### PR events
+
+Each cycle the exporter reads every open PR of a repo, with no limit, for `github.pr.count`, `github.pr.age` and `github.pr.review_status`. It then reads PRs by last update, newest first, until it passes the start of the repo's event window, and counts the events of the selected PRs:
+
+- `github.pr.created`, `github.pr.merged`, `github.pr.closed` (closed without merge; merged PRs count only in `github.pr.merged`), `github.pr.close.duration` and `github.pr.automerged`.
+- The window runs from the start of the repo's previous successful cycle, capped at 30 days back, to the start of the current cycle. Each event is counted once.
+- A repo's first cycle records no events. A failed cycle records none and the next successful cycle covers the gap.
+- Counters reset when the exporter restarts. Events that happen while it is down are not counted.
+
+Rates, globally and per repo:
+
+```promql
+sum(rate({"github.pr.merged"}[1h]))
+sum by ("github.org", "github.repo") (increase({"github.pr.created"}[1d]))
+```
+
+Closed and merged totals are not exported as gauges. Use `increase({"github.pr.merged"}[30d])` instead of `{"github.pr.count", "github.pr.state"="merged"}`.
 
 ### Metric naming
 
