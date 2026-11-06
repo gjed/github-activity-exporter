@@ -11,10 +11,12 @@ metrics:
     unit: "{pr}"
     stability: development
     requirement_level: recommended
-    brief: Number of pull requests grouped by state and label.
+    brief: Number of open pull requests grouped by state and label.
     note: >
-      Use the github.pr.state attribute to distinguish open/merged/closed/draft.
-      Use the github.pr.label attribute for label breakdown.
+      Counts open PRs only; the github.pr.state attribute is open or draft.
+      Closed and merged volumes come from the github.pr.closed and
+      github.pr.merged counters. Use the github.pr.label attribute for label
+      breakdown.
     attributes:
       - ref: exporter.target
         requirement_level: required
@@ -83,6 +85,70 @@ metrics:
     note: >
       A PR is considered automerged if it was merged with no APPROVED review.
       Only counted for PRs merged since the previous collection cycle.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
+
+  - name: github.pr.created
+    instrument: counter
+    annotations:
+      prometheus:
+        name: github.pr.created
+        type: counter
+    unit: "{pr}"
+    stability: development
+    requirement_level: recommended
+    brief: Number of pull requests created.
+    note: >
+      Incremented once per selected PR created since the previous successful
+      collection cycle of its repo.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
+
+  - name: github.pr.merged
+    instrument: counter
+    annotations:
+      prometheus:
+        name: github.pr.merged
+        type: counter
+    unit: "{pr}"
+    stability: development
+    requirement_level: recommended
+    brief: Number of pull requests merged.
+    note: >
+      Incremented once per selected PR merged since the previous successful
+      collection cycle of its repo.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
+
+  - name: github.pr.closed
+    instrument: counter
+    annotations:
+      prometheus:
+        name: github.pr.closed
+        type: counter
+    unit: "{pr}"
+    stability: development
+    requirement_level: recommended
+    brief: Number of pull requests closed without being merged.
+    note: >
+      Incremented once per selected PR closed without merge since the previous
+      successful collection cycle of its repo. Merged PRs are counted by
+      github.pr.merged only.
     attributes:
       - ref: exporter.target
         requirement_level: required

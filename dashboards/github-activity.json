@@ -56,10 +56,23 @@
 
     ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Number of pull requests grouped by state and label.",
+      "description": "Number of pull requests closed without being merged.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
       "id": 13,
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "github.pr.closed{job=\"$job\"}", "legendFormat": "__auto", "refId": "A" }],
+      "title": "github.pr.closed",
+      "type": "timeseries"
+    }
+
+
+
+    ,{
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Number of open pull requests grouped by state and label.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "id": 14,
       "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "github.pr.count{job=\"$job\"}", "legendFormat": "__auto", "refId": "A" }],
       "title": "github.pr.count",
       "type": "timeseries"
@@ -69,10 +82,36 @@
 
     ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Number of pull requests created.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "id": 15,
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "github.pr.created{job=\"$job\"}", "legendFormat": "__auto", "refId": "A" }],
+      "title": "github.pr.created",
+      "type": "timeseries"
+    }
+
+
+
+    ,{
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Number of pull requests merged.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
+      "id": 16,
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "github.pr.merged{job=\"$job\"}", "legendFormat": "__auto", "refId": "A" }],
+      "title": "github.pr.merged",
+      "type": "timeseries"
+    }
+
+
+
+    ,{
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "Number of open pull requests grouped by review status.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
-      "id": 14,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 25 },
+      "id": 17,
       "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "github.pr.review_status{job=\"$job\"}", "legendFormat": "__auto", "refId": "A" }],
       "title": "github.pr.review_status",
       "type": "timeseries"
