@@ -30,6 +30,11 @@
       "groupName": "semantic-release plugins",
       "automerge": true,
       "automergeType": "pr"
+    },
+    {
+      "description": ["Hold conventional-changelog-conventionalcommits below v10: v10 replaced Handlebars templates with render functions and requires conventional-changelog-writer 9, but @semantic-release/release-notes-generator 14.x and @semantic-release/commit-analyzer 13.x still depend on conventional-changelog-writer ^8 (release fails with 'requires conventional-changelog-writer@9 or newer'). Remove once release-notes-generator supports writer 9. See https://github.com/gjed/github-activity-exporter/issues/65"],
+      "matchPackageNames": ["conventional-changelog-conventionalcommits"],
+      "allowedVersions": "<10.0.0"
     }
   ],
   "customManagers": [
