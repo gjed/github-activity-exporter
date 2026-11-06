@@ -113,6 +113,17 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name:    "health stall timeout from env var without a file key",
+			file:    "testdata/pat_token.yaml",
+			envVars: map[string]string{"GITHUB_ACTIVITY_EXPORTER_HEALTH_STALL_TIMEOUT": "3h"},
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Health.StallTimeout != 3*time.Hour {
+					t.Errorf("expected health.stall_timeout 3h from env, got %s", cfg.Health.StallTimeout)
+				}
+			},
+		},
+		{
 			name:        "health address equal to enabled bridge address is fatal",
 			file:        "testdata/health_addr_clash.yaml",
 			wantErr:     true,

@@ -160,6 +160,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("export.prometheus.listen_address", ":9090")
 	v.SetDefault("health.listen_address", ":10062")
 	v.SetDefault("health.unauthorized_cycles", 3)
+	v.SetDefault("health.stall_timeout", "0s")
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("reading config %q: %w", path, err)
