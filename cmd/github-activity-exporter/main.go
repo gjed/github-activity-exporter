@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/gjed/github-activity-exporter/internal/collector"
 	"github.com/gjed/github-activity-exporter/internal/config"
@@ -232,13 +233,7 @@ func buildTargetRunner(
 		return nil, fmt.Errorf("build issue collector: %w", err)
 	}
 
-	botLogin := envOr("RENOVATE_BOT_LOGIN", "renovate[bot]")
-	dashColl, err := collector.NewDashboardCollector(
-		ghc.REST().Issues,
-		botLogin,
-		otelMeter,
-		logger,
-	)
+	dashColl, err := newDashboardCollector(t, ghc.REST().Issues, otelMeter, logger)
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard collector: %w", err)
 	}
@@ -248,6 +243,26 @@ func buildTargetRunner(
 		Issue:     issColl,
 		Dashboard: dashColl,
 	}, otelMeter, logger, opts...)
+}
+
+// newDashboardCollector builds the Renovate Dependency Dashboard collector,
+// or returns nil when the target does not enable it; the Runner skips a nil
+// collector.
+func newDashboardCollector(
+	t config.Target,
+	issues collector.DashboardIssueClient,
+	meter metric.Meter,
+	logger *slog.Logger,
+) (*collector.DashboardCollector, error) {
+	if !t.RenovateDashboard.Enabled {
+		return nil, nil
+	}
+	return collector.NewDashboardCollector(
+		issues,
+		envOr("RENOVATE_BOT_LOGIN", "renovate[bot]"),
+		meter,
+		logger,
+	)
 }
 
 // buildAuthenticator creates an Authenticator from the target auth config,
