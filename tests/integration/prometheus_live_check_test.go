@@ -28,6 +28,8 @@ import (
 )
 
 // scrapeAccept are the Accept headers the /metrics tests scrape with.
+// /metrics does not serve OpenMetrics, so the openmetrics request falls back
+// to the text format: it covers that fallback, not the OpenMetrics encoding.
 var scrapeAccept = map[string]string{
 	// Prometheus 3.x and Alloy default scrape: OpenMetrics first.
 	"openmetrics": "application/openmetrics-text;version=1.0.0;escaping=allow-utf-8",
@@ -84,7 +86,7 @@ func scrapeAllRegistryMetrics(t *testing.T, accept string) map[string]*dto.Metri
 	t.Helper()
 	addr := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	p, err := exporter.New(context.Background(), exporter.Config{
-		OTLPEndpoint:       "http://127.0.0.1:1", // never pushed to: export only via ForceFlush
+		OTLPEndpoint:       "http://127.0.0.1:1", // unreachable: the 1h interval never fires; Shutdown's final push fails and is ignored
 		CollectionInterval: time.Hour,
 		PrometheusEnabled:  true,
 		PrometheusAddr:     addr,
