@@ -195,7 +195,7 @@ func buildTargetRunner(
 		ghclient.WithBaseURL(t.BaseURL),
 		// The hook runs in the client transport and has no context.
 		ghclient.WithRateLimitHook(func(s ghclient.RateLimitState) {
-			selfMetrics.RecordRateLimit(context.Background(), t.Name, s.Remaining, s.ResetAt)
+			selfMetrics.RecordRateLimit(context.Background(), t.Name, s.Resource, s.Remaining, s.ResetAt)
 		}),
 		ghclient.WithAuthResultHook(func(unauthorized bool) {
 			tracker.AuthResult(t.Name, unauthorized)
