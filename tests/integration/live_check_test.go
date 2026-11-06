@@ -75,10 +75,12 @@ func TestLiveCheck_UndeclaredAttributeDetected(t *testing.T) {
 // asserts that the metric names live-check saw are exactly the registry names
 // (annotations.prometheus.name in registry/signals.yaml). Metrics are emitted
 // without attributes, so live-check reports missing required attributes and
-// exits non-zero; attribute conformance is TestLiveCheck_ConformsToSchema's job.
+// exits non-zero; any other violation fails the test. Attribute conformance is
+// TestLiveCheck_ConformsToSchema's job.
 func TestLiveCheck_NamesEqualRegistry(t *testing.T) {
 	out, _ := runLiveCheck(t, emitAllRegistryMetrics)
 	requireRegistryNames(t, out)
+	requireOnlyMissingRequiredAttributes(t, out)
 }
 
 // requireRegistryNames asserts that the metric names in a live-check report
