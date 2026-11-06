@@ -49,9 +49,10 @@ type Runner struct {
 	// which that repo's PRs were collected successfully. It is the start of
 	// the repo's next event window, which ends at the current cycle start, so
 	// each event-based instrument (created, merged, closed, close.duration,
-	// automerged) records an event once. A repo whose collection fails keeps its previous value,
-	// so its events are picked up on the next successful cycle. In-memory
-	// only: events that happen while the exporter is down are not recorded.
+	// automerged) records an event once. A repo whose collection fails keeps
+	// its previous value, so its events are picked up on the next successful
+	// cycle. In-memory only: events that happen while the exporter is down are
+	// not recorded.
 	lastCollectedAt map[string]time.Time
 
 	// registration handle so we can unregister on shutdown.
