@@ -15,11 +15,22 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
-// rateWindow replaces $__rate_interval and $__interval. It holds at least two
-// collection cycles (collection_interval 5s), so rate() has samples.
-const rateWindow = "1m"
+const (
+	// defaultCollectionInterval is the exporter's default collection_interval
+	// (internal/config), the push cadence the dashboard is sized for.
+	defaultCollectionInterval = 5 * time.Minute
+	// testCollectionInterval is the collection_interval the e2e runs with.
+	testCollectionInterval = 5 * time.Second
+	// grafanaScrapeInterval is the Grafana Prometheus data source's default
+	// scrape interval, an input of $__rate_interval.
+	grafanaScrapeInterval = 15 * time.Second
+)
+
+// rangeRE matches a PromQL range selector [<window>].
+var rangeRE = regexp.MustCompile(`\[([^\]]+)\]`)
 
 // dashboardJSON holds the parts of a Grafana dashboard the runner reads.
 type dashboardJSON struct {
@@ -36,9 +47,10 @@ type dashVariable struct {
 }
 
 type dashPanel struct {
-	Title   string       `json:"title"`
-	Panels  []dashPanel  `json:"panels"` // rows nest panels
-	Targets []dashTarget `json:"targets"`
+	Title    string       `json:"title"`
+	Interval string       `json:"interval"` // Min interval
+	Panels   []dashPanel  `json:"panels"`   // rows nest panels
+	Targets  []dashTarget `json:"targets"`
 }
 
 type dashTarget struct {
@@ -48,7 +60,7 @@ type dashTarget struct {
 
 // panelTarget is one query of the dashboard, with its panel title.
 type panelTarget struct {
-	panel, refID, expr string
+	panel, refID, expr, interval string
 }
 
 var (
@@ -58,11 +70,21 @@ var (
 	varRefRE = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::[^}]*)?\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
 )
 
-// timeMacros are Grafana's time variables, replaced with fixed windows.
-var timeMacros = map[string]string{
-	"__rate_interval": rateWindow,
-	"__interval":      rateWindow,
-	"__range":         "5m",
+// rateInterval returns the window Grafana gives $__rate_interval for a panel
+// with the given Min interval, max($__interval + scrape, 4 × scrape) with
+// $__interval at its floor, scaled from the default collection_interval to
+// the e2e's. The e2e window then holds as many pushes as a production one.
+// It fails unless the Min interval spans two default collection intervals.
+func rateInterval(minInterval string) (string, error) {
+	d, err := time.ParseDuration(minInterval)
+	if err != nil {
+		return "", fmt.Errorf("panel Min interval %q: %v", minInterval, err)
+	}
+	if d < 2*defaultCollectionInterval {
+		return "", fmt.Errorf("panel Min interval %s is shorter than 2 × collection_interval (%s): rate() gets fewer than 2 samples", d, defaultCollectionInterval)
+	}
+	prod := max(d+grafanaScrapeInterval, 4*grafanaScrapeInterval)
+	return fmt.Sprintf("%dms", (prod / (defaultCollectionInterval / testCollectionInterval)).Milliseconds()), nil
 }
 
 // runDashboardQueries runs every panel target of dashboards/github-activity.json
@@ -154,7 +176,7 @@ func labelValues(promURL, label, selector string) ([]string, error) {
 }
 
 // expandVars replaces $name, ${name} and ${name:format} with the variable's
-// value and the time macros with their windows. An unknown name is an error.
+// value. An unknown name is an error.
 func expandVars(expr string, vars map[string]string) (string, error) {
 	var missing []string
 	out := varRefRE.ReplaceAllStringFunc(expr, func(ref string) string {
@@ -162,9 +184,6 @@ func expandVars(expr string, vars map[string]string) (string, error) {
 		name := m[1]
 		if name == "" {
 			name = m[2]
-		}
-		if v, ok := timeMacros[name]; ok {
-			return v
 		}
 		if v, ok := vars[name]; ok {
 			return v
@@ -183,7 +202,7 @@ func collectTargets(panels []dashPanel) []panelTarget {
 	var out []panelTarget
 	for _, p := range panels {
 		for _, tg := range p.Targets {
-			out = append(out, panelTarget{panel: p.Title, refID: tg.RefID, expr: tg.Expr})
+			out = append(out, panelTarget{panel: p.Title, refID: tg.RefID, expr: tg.Expr, interval: p.Interval})
 		}
 		out = append(out, collectTargets(p.Panels)...)
 	}
@@ -195,7 +214,22 @@ func collectTargets(panels []dashPanel) []panelTarget {
 // the panel, refId, expanded expression and Prometheus response.
 func checkPanelTarget(t *testing.T, promURL string, pt panelTarget, vars map[string]string) {
 	t.Helper()
-	expr, err := expandVars(pt.expr, vars)
+	for _, r := range rangeRE.FindAllStringSubmatch(pt.expr, -1) {
+		if r[1] != "$__rate_interval" {
+			t.Errorf("panel %q refId %s: range [%s] is not [$__rate_interval]\nexpr: %s", pt.panel, pt.refID, r[1], pt.expr)
+			return
+		}
+	}
+	window, err := rateInterval(pt.interval)
+	if err != nil {
+		t.Errorf("panel %q refId %s: %v", pt.panel, pt.refID, err)
+		return
+	}
+	withTime := map[string]string{"__rate_interval": window, "__interval": window}
+	for k, v := range vars {
+		withTime[k] = v
+	}
+	expr, err := expandVars(pt.expr, withTime)
 	if err != nil {
 		t.Errorf("panel %q refId %s: %v\nexpr: %s", pt.panel, pt.refID, err, pt.expr)
 		return
