@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/prometheus/otlptranslator"
@@ -31,7 +32,9 @@ import (
 	promexporter "go.opentelemetry.io/otel/exporters/prometheus"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/sdk/metric"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/encoding"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -81,6 +84,8 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Provider, error
 	periodicReader := metric.NewPeriodicReader(
 		otlpExp,
 		metric.WithInterval(cfg.CollectionInterval),
+		// Pinned: OTEL_METRIC_EXPORT_TIMEOUT must not reach the product pipeline.
+		metric.WithTimeout(exportTimeout),
 	)
 
 	opts := []metric.Option{
@@ -178,17 +183,33 @@ func (p *Provider) newOTLPExporter(ctx context.Context, cfg Config) (metric.Expo
 	}
 }
 
+// The product OTLP exporter sets every option the SDK would otherwise read
+// from OTEL_EXPORTER_OTLP_{,METRICS_}*, because the SDK applies the env first
+// and options on top. Those variables configure self-telemetry; they must not
+// change where or how the product metrics are pushed.
+const (
+	exportTimeout = 30 * time.Second // PeriodicReader export, SDK default
+	pushTimeout   = 10 * time.Second // one OTLP request, SDK default
+)
+
 func (p *Provider) newHTTPExporter(ctx context.Context, cfg Config) (metric.Exporter, error) {
+	// Set even for http:// (as nil), so OTEL_EXPORTER_OTLP_*CERTIFICATE cannot
+	// add a TLS config the SDK rejects for plain HTTP.
+	var tlsCfg *tls.Config
+	switch {
+	case cfg.TLSInsecure:
+		tlsCfg = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // opt-in, documented
+	case strings.HasPrefix(cfg.OTLPEndpoint, "https://"):
+		tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
 	opts := []otlpmetrichttp.Option{
 		otlpmetrichttp.WithEndpointURL(cfg.OTLPEndpoint),
-	}
-	if len(cfg.Headers) > 0 {
-		opts = append(opts, otlpmetrichttp.WithHeaders(cfg.Headers))
-	}
-	if cfg.TLSInsecure {
-		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(&tls.Config{
-			InsecureSkipVerify: true, //nolint:gosec // opt-in, documented
-		}))
+		otlpmetrichttp.WithHeaders(cfg.Headers), // nil also overrides the env
+		otlpmetrichttp.WithTLSClientConfig(tlsCfg),
+		otlpmetrichttp.WithCompression(otlpmetrichttp.NoCompression),
+		otlpmetrichttp.WithTimeout(pushTimeout),
+		otlpmetrichttp.WithTemporalitySelector(metric.DefaultTemporalitySelector),
+		otlpmetrichttp.WithAggregationSelector(metric.DefaultAggregationSelector),
 	}
 
 	exp, err := otlpmetrichttp.New(ctx, opts...)
@@ -212,9 +233,15 @@ func (p *Provider) newGRPCExporter(ctx context.Context, cfg Config) (metric.Expo
 			MinVersion: tls.VersionTLS12,
 		})))
 	}
-	if len(cfg.Headers) > 0 {
-		opts = append(opts, otlpmetricgrpc.WithHeaders(cfg.Headers))
-	}
+	opts = append(opts,
+		otlpmetricgrpc.WithHeaders(cfg.Headers), // nil also overrides the env
+		// WithCompressor accepts only "gzip"; a later call option is the only
+		// way to override the env compression with none.
+		otlpmetricgrpc.WithDialOption(grpc.WithDefaultCallOptions(grpc.UseCompressor(encoding.Identity))),
+		otlpmetricgrpc.WithTimeout(pushTimeout),
+		otlpmetricgrpc.WithTemporalitySelector(metric.DefaultTemporalitySelector),
+		otlpmetricgrpc.WithAggregationSelector(metric.DefaultAggregationSelector),
+	)
 
 	exp, err := otlpmetricgrpc.New(ctx, opts...)
 	if err != nil {
