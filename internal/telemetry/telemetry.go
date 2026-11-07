@@ -81,15 +81,20 @@ type Telemetry struct {
 	lp *sdklog.LoggerProvider
 }
 
-// New resolves which signals are active and builds an SDK provider with an
-// OTLP exporter for each active OTLP signal. Inactive signals get no provider
-// and no exporter, so they open no connection. When traces or logs are active
-// it sets the global TracerProvider or LoggerProvider; the global
-// MeterProvider stays the product one.
+// New routes OTel SDK errors to Settings.Logger, resolves which signals are
+// active and builds an SDK provider with an OTLP exporter for each active OTLP
+// signal. Inactive signals get no provider and no exporter, so they open no
+// connection. When traces or logs are active it sets the global
+// TracerProvider or LoggerProvider; the global MeterProvider stays the
+// product one.
 func New(ctx context.Context, s Settings) (*Telemetry, error) {
 	if s.Logger == nil {
 		s.Logger = slog.Default()
 	}
+	logger := s.Logger
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		logger.Warn("opentelemetry error", "err", err)
+	}))
 	if s.Getenv == nil {
 		s.Getenv = os.Getenv
 	}

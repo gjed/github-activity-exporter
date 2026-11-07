@@ -3,6 +3,7 @@ package telemetry_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -379,5 +380,20 @@ func TestNew_PrometheusBridge(t *testing.T) {
 		if seen[name] != 1 {
 			t.Errorf("family %s seen %d times, want 1 (families: %v)", name, seen[name], seen)
 		}
+	}
+}
+
+func TestNew_RoutesOTelErrorsToLogger(t *testing.T) {
+	clearEnv(t, nil)
+	prev := otel.GetErrorHandler()
+	t.Cleanup(func() { otel.SetErrorHandler(prev) })
+
+	var buf bytes.Buffer
+	tel := newTelemetry(t, toggles(false, true, true, true, true), config.OTLP{}, nil, slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+
+	otel.Handle(errors.New("export failed"))
+	if !strings.Contains(buf.String(), `"msg":"opentelemetry error"`) || !strings.Contains(buf.String(), `"err":"export failed"`) {
+		t.Errorf("OTel error not logged through slog: %q", buf.String())
 	}
 }
