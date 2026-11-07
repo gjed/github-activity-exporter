@@ -99,12 +99,17 @@ An active traces, metrics or logs signal SHALL export over OTLP. When neither `O
 
 ### Requirement: Product metrics isolation
 
-No `telemetry` setting and no `OTEL_*` toggle SHALL change which product metrics (GitHub metrics and `github_exporter.*` self-metrics) are exported, where they are pushed, or when.
+No `telemetry` setting and no `OTEL_*` variable other than `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` SHALL change which product metrics (GitHub metrics and `github_exporter.*` self-metrics) are exported, where and how they are pushed, or when.
 
 #### Scenario: Every toggle combination
 
 - **WHEN** the exporter runs with any combination of `telemetry.enabled`, the per-signal toggles, `OTEL_SDK_DISABLED` and `OTEL_{TRACES,METRICS,LOGS}_EXPORTER`
 - **THEN** every product metric is pushed to `export.otlp` and exposed on `/metrics` (when enabled) exactly as with the default config
+
+#### Scenario: OTLP exporter variables do not reach the product push
+
+- **WHEN** `OTEL_EXPORTER_OTLP_{,METRICS_}*` headers, compression, timeout, certificate, temporality preference or histogram aggregation, or `OTEL_METRIC_EXPORT_TIMEOUT`, are set
+- **THEN** the product push carries only the `export.otlp` headers, is uncompressed, uses cumulative temporality and explicit-bucket histograms, and keeps the default timeouts
 
 ### Requirement: Self-telemetry metrics on the Prometheus bridge
 
