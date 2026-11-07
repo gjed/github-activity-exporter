@@ -87,7 +87,7 @@ The container SHALL expose the health port (`health.port`, default `10062`), wit
 
 #### Scenario: Health port mismatch
 
-- **WHEN** `config.health.listen_address` is set and its port differs from `health.port`
+- **WHEN** the port of `config.health.listen_address`, or of the exporter default `:10062` when it is unset, differs from `health.port`
 - **THEN** rendering fails naming both values
 
 ### Requirement: Prometheus bridge Service and ServiceMonitor
