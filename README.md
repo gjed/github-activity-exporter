@@ -193,7 +193,7 @@ telemetry:
     enabled: true
 ```
 
-A signal is active only when `telemetry.enabled` and its own `enabled` are both true, `OTEL_SDK_DISABLED` is not `true`, and, for traces, metrics and logs, `OTEL_<SIGNAL>_EXPORTER` is not `none`. Environment variables can turn a signal off, never on. Every key can be overridden with `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_ENABLED` and `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_<SIGNAL>_ENABLED`; a value that is not a boolean is a startup error. The startup log lists the active signals under `self_telemetry`.
+A signal is active only when `telemetry.enabled` and its own `enabled` are both true, `OTEL_SDK_DISABLED` is not `true`, and, for traces, metrics and logs, `OTEL_<SIGNAL>_EXPORTER` is not `none`. Environment variables can turn a signal off, never on. Every key can be overridden with `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_ENABLED` and `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_<SIGNAL>_ENABLED`; a value that is not a boolean is a startup error. The startup log lists the active signals that have a provider under `self_telemetry`; profiles join the list with [#77](https://github.com/gjed/github-activity-exporter/issues/77).
 
 This release adds the configuration, the providers and the resource. The signals themselves come in [#74](https://github.com/gjed/github-activity-exporter/issues/74) (runtime and HTTP client metrics), [#75](https://github.com/gjed/github-activity-exporter/issues/75) (traces), [#76](https://github.com/gjed/github-activity-exporter/issues/76) (OTLP logs) and [#77](https://github.com/gjed/github-activity-exporter/issues/77) (profiles).
 
