@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -241,7 +242,7 @@ func (m *mockGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 
 	var out []gqlPR
 	for _, n := range nodes {
-		if req.Variables.States == nil || contains(req.Variables.States, n.State) {
+		if req.Variables.States == nil || slices.Contains(req.Variables.States, n.State) {
 			out = append(out, n)
 		}
 	}
@@ -349,13 +350,4 @@ func fixtureIssues(now time.Time) map[string][]*github.Issue {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
-}
-
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }
