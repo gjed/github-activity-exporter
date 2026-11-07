@@ -48,7 +48,7 @@ jobs:
       - name: Lint, render and validate
         run: |
           set -o pipefail
-          crds='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          crds='https://raw.githubusercontent.com/datreeio/CRDs-catalog/c86448cbf1a840ca62d119259864863897c8748a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
           for values in "" "$CHART_DIR"/examples/*-values.yaml; do
             echo "::group::values: ${values:-defaults}"
             helm lint --strict "$CHART_DIR" ${values:+-f "$values"}
