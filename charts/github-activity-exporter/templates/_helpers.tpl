@@ -51,14 +51,14 @@ never written: see values.yaml `config`.
 {{- if and (or $s.env $s.files) (not (or $s.create $s.existingSecret)) }}
 {{- fail "secret.env and secret.files need secret.existingSecret or secret.create" }}
 {{- end }}
-{{- $health := dig "health" "listen_address" "" .Values.config | toString }}
-{{- if and $health (not (hasSuffix (printf ":%v" .Values.health.port) $health)) }}
-{{- fail (printf "config.health.listen_address %q does not use health.port %v" $health .Values.health.port) }}
+{{- $health := dig "health" "listen_address" ":10062" .Values.config | toString }}
+{{- if not (hasSuffix (printf ":%v" .Values.health.port) $health) }}
+{{- fail (printf "config.health.listen_address %q (exporter default when unset) does not use health.port %v" $health .Values.health.port) }}
 {{- end }}
 {{- $bridge := include "github-activity-exporter.bridgeEnabled" . }}
-{{- $metrics := dig "export" "prometheus" "listen_address" "" .Values.config | toString }}
-{{- if and $bridge $metrics (not (hasSuffix (printf ":%v" .Values.metrics.port) $metrics)) }}
-{{- fail (printf "config.export.prometheus.listen_address %q does not use metrics.port %v" $metrics .Values.metrics.port) }}
+{{- $metrics := dig "export" "prometheus" "listen_address" ":9090" .Values.config | toString }}
+{{- if and $bridge (not (hasSuffix (printf ":%v" .Values.metrics.port) $metrics)) }}
+{{- fail (printf "config.export.prometheus.listen_address %q (exporter default when unset) does not use metrics.port %v" $metrics .Values.metrics.port) }}
 {{- end }}
 {{- if and .Values.metrics.service.enabled (not $bridge) }}
 {{- fail "metrics.service.enabled needs config.export.prometheus.enabled: true" }}
