@@ -119,7 +119,7 @@ func startExporter(t *testing.T, apiURL, otlpURL string) <-chan struct{} {
 	}
 
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
-	cfg := fmt.Sprintf(`collection_interval: 5s
+	cfg := fmt.Sprintf(`collection_interval: %s
 export:
   otlp:
     endpoint: %s
@@ -137,7 +137,7 @@ targets:
       - org: acme
     renovate_dashboard:
       enabled: true
-`, otlpURL, freePort(t), apiURL)
+`, testCollectionInterval, otlpURL, freePort(t), apiURL)
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -18,6 +18,10 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// warmupWindow is the window in which every series must have two samples
+// before the dashboard queries run.
+const warmupWindow = "1m"
+
 // pollDeadline bounds how long the exporter may take to fill Prometheus with
 // enough samples for rate() and histogram_quantile().
 const pollDeadline = 3 * time.Minute
@@ -113,7 +117,7 @@ func waitForSamples(t *testing.T, promURL string, want []string, exited <-chan s
 		}
 		missing = missing[:0]
 		for _, name := range want {
-			expr := fmt.Sprintf("count_over_time({__name__=%q}[%s]) >= 2", name, rateWindow)
+			expr := fmt.Sprintf("count_over_time({__name__=%q}[%s]) >= 2", name, warmupWindow)
 			body, err := promGet(promURL + "/api/v1/query?query=" + url.QueryEscape(expr))
 			if n, cerr := checkResult(body); err != nil || cerr != nil || n == 0 {
 				missing = append(missing, name)
@@ -123,7 +127,7 @@ func waitForSamples(t *testing.T, promURL string, want []string, exited <-chan s
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("after %s, not every series has 2 samples in %s; missing: %v", pollDeadline, rateWindow, missing)
+			t.Fatalf("after %s, not every series has 2 samples in %s; missing: %v", pollDeadline, warmupWindow, missing)
 		}
 		time.Sleep(time.Second)
 	}
