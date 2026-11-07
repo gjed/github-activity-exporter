@@ -188,10 +188,11 @@ func main() {
 	}
 }
 
-// activeSignals lists the active self-telemetry signals for the startup log.
+// activeSignals lists the active self-telemetry signals that have a provider,
+// for the startup log. Profiles have none until pprof lands (#77).
 func activeSignals(tel *telemetry.Telemetry) []string {
 	active := []string{}
-	for _, s := range telemetry.Signals {
+	for _, s := range []telemetry.Signal{telemetry.SignalMetrics, telemetry.SignalTraces, telemetry.SignalLogs} {
 		if tel.Active(s) {
 			active = append(active, string(s))
 		}
