@@ -20,6 +20,10 @@ test: ## Run unit tests
 test-integration: ## Run integration tests (requires live OTLP receiver)
 	go test -tags integration -timeout 120s ./tests/integration/...
 
+.PHONY: test-e2e
+test-e2e: ## Run dashboard end-to-end check (requires Docker)
+	go test -tags e2e -count=1 -timeout 600s -v ./tests/e2e/...
+
 .PHONY: lint
 lint: ## Run linter
 	golangci-lint run ./...

@@ -214,6 +214,23 @@ jobs:
         # `weaver registry live-check` and asserts schema conformance.
         run: go test -tags integration -count=1 -timeout 180s -v ./tests/integration/...
 
+  dashboard-e2e:
+    name: Dashboard E2E
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run dashboard E2E
+        # Runs every dashboard query against Prometheus 3.x in Docker, fed by the exporter.
+        run: make test-e2e
+
   release-dry-run:
     name: Release Dry Run
     runs-on: ubuntu-latest

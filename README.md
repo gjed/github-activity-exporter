@@ -289,6 +289,8 @@ With any other setting the backend stores escaped or suffixed names (for example
 
 Variables: data source, `job` (the exporter's `service.name`, `github-activity-exporter`, optionally prefixed with `service.namespace/`), `exporter.target`, `github.org` and `github.repo`. The Dependency Dashboard row shows no data unless a target enables `renovate_dashboard`.
 
+`make test-e2e` (Docker required) runs the exporter against a mock GitHub API, pushes OTLP into Prometheus 3.x, and fails if any dashboard query errors or returns no data.
+
 ## Development
 
 ### Prerequisites
@@ -338,6 +340,7 @@ make generate
 | `check-generated`   | every PR + push to `main` | Fails if `make generate` produces uncommitted changes     |
 | `registry-validate` | every PR + push to `main` | Weaver schema check + emit smoke-test (separate workflow) |
 | `integration-test`  | PRs targeting `main`      | Starts exporter + mock GitHub API, runs Weaver live-check |
+| `dashboard-e2e`     | every PR + push to `main` | Runs every dashboard query against Prometheus 3.x         |
 | `release`           | push to `main`            | semantic-release → version tag + GitHub Release           |
 | `image`             | release published         | Multi-arch image → GHCR (`X.Y.Z`, `X.Y`, `X`, `latest`)   |
 | `chart check`       | PRs touching the chart    | `helm lint`, `helm template`, `kubeconform -strict`       |
