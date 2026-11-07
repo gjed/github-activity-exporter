@@ -14,7 +14,7 @@
 { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "id": 1, "panels": [], "title": "Pull requests", "type": "row" }
 ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Number of pull requests created.",
+      "description": "Number of pull requests created. Number of pull requests merged. Number of pull requests closed without being merged.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
       "id": 2,
@@ -30,7 +30,7 @@
     }
 ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Number of pull requests created.",
+      "description": "Number of pull requests created. Number of pull requests merged. Number of pull requests closed without being merged.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
       "id": 3,

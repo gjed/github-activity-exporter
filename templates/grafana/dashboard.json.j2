@@ -80,9 +80,15 @@ histogram_quantile({{ q }}, sum{{ by_clause(m, ["le"] + by) }} (rate({{ sel(m, "
 {%- endif -%}
 {%- endmacro -%}
 
-{%- macro brief(name) -%}
+{#- brief(name or [names]): the metric briefs, joined, as a JSON string. -#}
+{%- macro brief(names) -%}
+{%- set names = [names] if names is string else names -%}
+{%- set out = namespace(briefs=[]) -%}
+{%- for name in names -%}
 {{- check_metric(name) -}}
-{{- (ctx | selectattr("metric_name", "equalto", name) | first).brief | trim | tojson -}}
+{%- set out.briefs = out.briefs + [(ctx | selectattr("metric_name", "equalto", name) | first).brief | trim] -%}
+{%- endfor -%}
+{{- out.briefs | join(" ") | tojson -}}
 {%- endmacro -%}
 
 {%- macro target(ref, e, legend) -%}
@@ -154,12 +160,12 @@ histogram_quantile({{ q }}, sum{{ by_clause(m, ["le"] + by) }} (rate({{ sel(m, "
   "links": [],
   "panels": [
 {{ row("Pull requests") }}
-{% call panel("PRs created, merged and closed per hour", brief("github.pr.created"), "short") %}
+{% call panel("PRs created, merged and closed per hour", brief(["github.pr.created", "github.pr.merged", "github.pr.closed"]), "short") %}
 {{- target("A", expr("github.pr.created", "rate", scale=per_hour), "created") }},
         {{ target("B", expr("github.pr.merged", "rate", scale=per_hour), "merged") }},
         {{ target("C", expr("github.pr.closed", "rate", scale=per_hour), "closed") -}}
 {% endcall %}
-{% call panel("PRs created, merged and closed per hour by repo", brief("github.pr.created"), "short") %}
+{% call panel("PRs created, merged and closed per hour by repo", brief(["github.pr.created", "github.pr.merged", "github.pr.closed"]), "short") %}
 {{- target("A", expr("github.pr.created", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}} created") }},
         {{ target("B", expr("github.pr.merged", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}} merged") }},
         {{ target("C", expr("github.pr.closed", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}} closed") -}}
