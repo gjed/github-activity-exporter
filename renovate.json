@@ -74,6 +74,14 @@
       "depNameTemplate": "open-telemetry/weaver",
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Docker images pinned with a `// renovate:` comment in the e2e tests",
+      "fileMatch": ["^tests/e2e/.*\\.go$"],
+      "matchStrings": [
+        "// renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)\\s+[^\\n]*\"\\S+?:(?<currentValue>[^\"]+)\""
+      ]
     }
   ]
 }

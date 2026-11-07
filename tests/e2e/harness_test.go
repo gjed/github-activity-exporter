@@ -22,6 +22,7 @@ import (
 
 // promImage is the Prometheus 3.x image the e2e runs against, with UTF-8 names
 // (the 3.x default) and the OTLP NoTranslation strategy set in its config.
+// renovate: datasource=docker depName=prom/prometheus
 const promImage = "prom/prometheus:v3.16.0"
 
 // otlpMetricsPath is the Prometheus OTLP receiver path.
