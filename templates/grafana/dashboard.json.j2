@@ -20,6 +20,12 @@
 -#}
 {%- set pos = namespace(x=0, y=0, id=1) -%}
 
+{#- min_interval: every panel's Min interval, 2x the default collection_interval
+    (5m). The exporter pushes once per cycle, so a shorter $__rate_interval holds
+    0 or 1 sample and rate() returns nothing. Raise it for a longer
+    collection_interval. -#}
+{%- set min_interval = "10m" -%}
+
 {#- check_metric(name): fails generation unless the registry defines exactly one metric with that name. -#}
 {%- macro check_metric(name) -%}
 {%- if (ctx | selectattr("metric_name", "equalto", name) | list | length) != 1 -%}{{ dashboard_metric_not_in_registry(name) }}{%- endif -%}
@@ -55,7 +61,9 @@
     annotations.prometheus.type.
       rate:     counter,   sum by (...) (rate(...)) * scale
       quantile: histogram, histogram_quantile(q, sum by (le, ...) (rate(<name>_bucket)))
-      sum/max/min: gauge,  agg by (...) (...) + offset -#}
+      sum/max/min: gauge,  agg by (...) (last_over_time(...)) + offset
+    Gauges go through last_over_time so a series does not go stale between
+    pushes that are one collection_interval apart. -#}
 {%- macro expr(name, shape, by=[], q="0.5", matchers=[], scale="", offset="", per_target=true) -%}
 {{- check_metric(name) -}}
 {%- set m = ctx | selectattr("metric_name", "equalto", name) | first -%}
@@ -68,7 +76,7 @@ sum{{ by_clause(m, by) }} (rate({{ sel(m, "", matchers, per_target) }}[$__rate_i
 histogram_quantile({{ q }}, sum{{ by_clause(m, ["le"] + by) }} (rate({{ sel(m, "_bucket", matchers) }}[$__rate_interval])))
 {%- else -%}
 {%- if type != "gauge" %}{{ dashboard_wrong_prometheus_type(name) }}{% endif -%}
-{{ shape }}{{ by_clause(m, by) }} ({{ sel(m, "", matchers) }}){{ offset }}
+{{ shape }}{{ by_clause(m, by) }} (last_over_time({{ sel(m, "", matchers) }}[$__rate_interval])){{ offset }}
 {%- endif -%}
 {%- endmacro -%}
 
@@ -97,6 +105,7 @@ histogram_quantile({{ q }}, sum{{ by_clause(m, ["le"] + by) }} (rate({{ sel(m, "
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "{{ unit }}" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": {{ pos.x }}, "y": {{ pos.y }} },
       "id": {{ pos.id }},
+      "interval": "{{ min_interval }}",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {{ caller() }}

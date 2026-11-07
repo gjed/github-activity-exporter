@@ -18,6 +18,7 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
       "id": 2,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum (rate({\"github.pr.created\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval])) * 3600", "legendFormat": "created", "range": true, "refId": "A" },
@@ -33,6 +34,7 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
       "id": 3,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.org\", \"github.repo\") (rate({\"github.pr.created\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval])) * 3600", "legendFormat": "{{github.org}}/{{github.repo}} created", "range": true, "refId": "A" },
@@ -48,9 +50,10 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
       "id": 4,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.pr.state\") ({\"github.pr.count\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\", \"github.pr.label\"=\"\"})", "legendFormat": "{{github.pr.state}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.pr.state\") (last_over_time({\"github.pr.count\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\", \"github.pr.label\"=\"\"}[$__rate_interval]))", "legendFormat": "{{github.pr.state}}", "range": true, "refId": "A" }
       ],
       "title": "Open PRs by state",
       "type": "timeseries"
@@ -61,9 +64,10 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
       "id": 5,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.pr.review_status\") ({\"github.pr.review_status\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"})", "legendFormat": "{{github.pr.review_status}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.pr.review_status\") (last_over_time({\"github.pr.review_status\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval]))", "legendFormat": "{{github.pr.review_status}}", "range": true, "refId": "A" }
       ],
       "title": "Open PRs by review status",
       "type": "timeseries"
@@ -74,9 +78,10 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
       "id": 6,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"github.org\", \"github.repo\") ({\"github.pr.age\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"})", "legendFormat": "{{github.org}}/{{github.repo}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"github.org\", \"github.repo\") (last_over_time({\"github.pr.age\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval]))", "legendFormat": "{{github.org}}/{{github.repo}}", "range": true, "refId": "A" }
       ],
       "title": "Oldest open PR age by repo",
       "type": "timeseries"
@@ -87,6 +92,7 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
       "id": 7,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.5, sum by (le) (rate({\"github.pr.close.duration_bucket\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval])))", "legendFormat": "p50", "range": true, "refId": "A" },
@@ -101,6 +107,7 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
       "id": 8,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.org\", \"github.repo\") (rate({\"github.pr.automerged\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval])) * 3600", "legendFormat": "{{github.org}}/{{github.repo}}", "range": true, "refId": "A" }
@@ -115,9 +122,10 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
       "id": 10,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.issue.state\") ({\"github.issue.count\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\", \"github.issue.state\"!=\"\"})", "legendFormat": "{{github.issue.state}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.issue.state\") (last_over_time({\"github.issue.count\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\", \"github.issue.state\"!=\"\"}[$__rate_interval]))", "legendFormat": "{{github.issue.state}}", "range": true, "refId": "A" }
       ],
       "title": "Issues by state",
       "type": "timeseries"
@@ -128,9 +136,10 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
       "id": 11,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"github.org\", \"github.repo\") ({\"github.issue.age\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"})", "legendFormat": "{{github.org}}/{{github.repo}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"github.org\", \"github.repo\") (last_over_time({\"github.issue.age\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval]))", "legendFormat": "{{github.org}}/{{github.repo}}", "range": true, "refId": "A" }
       ],
       "title": "Oldest open issue age by repo",
       "type": "timeseries"
@@ -142,9 +151,10 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 43 },
       "id": 13,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "min by (\"exporter.target\", \"github.api.rate_limit.resource\") ({\"github_exporter.api.rate_limit.remaining\", job=~\"$job\", \"exporter.target\"=~\"$target\"})", "legendFormat": "{{exporter.target}} {{github.api.rate_limit.resource}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "min by (\"exporter.target\", \"github.api.rate_limit.resource\") (last_over_time({\"github_exporter.api.rate_limit.remaining\", job=~\"$job\", \"exporter.target\"=~\"$target\"}[$__rate_interval]))", "legendFormat": "{{exporter.target}} {{github.api.rate_limit.resource}}", "range": true, "refId": "A" }
       ],
       "title": "Rate limit remaining by pool",
       "type": "timeseries"
@@ -155,9 +165,10 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 43 },
       "id": 14,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"exporter.target\", \"github.api.rate_limit.resource\") ({\"github_exporter.api.rate_limit.reset\", job=~\"$job\", \"exporter.target\"=~\"$target\"}) - time()", "legendFormat": "{{exporter.target}} {{github.api.rate_limit.resource}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"exporter.target\", \"github.api.rate_limit.resource\") (last_over_time({\"github_exporter.api.rate_limit.reset\", job=~\"$job\", \"exporter.target\"=~\"$target\"}[$__rate_interval])) - time()", "legendFormat": "{{exporter.target}} {{github.api.rate_limit.resource}}", "range": true, "refId": "A" }
       ],
       "title": "Time until rate limit reset by pool",
       "type": "timeseries"
@@ -169,6 +180,7 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 52 },
       "id": 16,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.5, sum by (le, \"exporter.target\") (rate({\"github_exporter.scrape.duration_bucket\", job=~\"$job\", \"exporter.target\"=~\"$target\"}[$__rate_interval])))", "legendFormat": "{{exporter.target}} p50", "range": true, "refId": "A" },
@@ -183,6 +195,7 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 52 },
       "id": 17,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"exporter.target\", \"github.api.endpoint\") (rate({\"github_exporter.api.errors\", job=~\"$job\", \"exporter.target\"=~\"$target\"}[$__rate_interval])) * 3600", "legendFormat": "{{exporter.target}} {{github.api.endpoint}}", "range": true, "refId": "A" }
@@ -195,6 +208,7 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 60 },
       "id": 18,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"exporter.target\") (rate({\"github_exporter.otlp.errors\", job=~\"$job\"}[$__rate_interval])) * 3600", "legendFormat": "{{exporter.target}}", "range": true, "refId": "A" }
@@ -209,9 +223,10 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 69 },
       "id": 20,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.org\", \"github.repo\", \"renovate.dashboard.section\") ({\"renovate.dashboard.queue\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"})", "legendFormat": "{{github.org}}/{{github.repo}} {{renovate.dashboard.section}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.org\", \"github.repo\", \"renovate.dashboard.section\") (last_over_time({\"renovate.dashboard.queue\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval]))", "legendFormat": "{{github.org}}/{{github.repo}} {{renovate.dashboard.section}}", "range": true, "refId": "A" }
       ],
       "title": "Renovate queue by section",
       "type": "timeseries"
@@ -222,9 +237,10 @@
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 69 },
       "id": 21,
+      "interval": "10m",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"github.org\", \"github.repo\") ({\"renovate.dashboard.parse_error\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"})", "legendFormat": "{{github.org}}/{{github.repo}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"github.org\", \"github.repo\") (last_over_time({\"renovate.dashboard.parse_error\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval]))", "legendFormat": "{{github.org}}/{{github.repo}}", "range": true, "refId": "A" }
       ],
       "title": "Dependency Dashboard parse errors",
       "type": "timeseries"

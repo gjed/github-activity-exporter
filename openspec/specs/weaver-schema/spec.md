@@ -85,7 +85,7 @@ The system SHALL generate a `dashboards/github-activity.json` Grafana dashboard 
 #### Scenario: Query shape follows the Prometheus type
 
 - **WHEN** `make generate` renders a panel for a metric
-- **THEN** a `counter` is queried through `rate` or `increase`, a `histogram` through `histogram_quantile` over `<name>_bucket`, a `gauge` raw, and the metric name comes from `annotations.prometheus.name`
+- **THEN** a `counter` is queried through `rate` or `increase`, a `histogram` through `histogram_quantile` over `<name>_bucket`, a `gauge` through `last_over_time`, every window is at least twice the default `collection_interval`, and the metric name comes from `annotations.prometheus.name`
 
 #### Scenario: Panel references an unknown metric
 
