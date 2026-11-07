@@ -283,6 +283,12 @@ With any other setting the backend stores escaped or suffixed names (for example
 
 `/metrics` does not serve the OpenMetrics text format, because OpenMetrics requires counter names to end in `_total`. Scrapers that ask for OpenMetrics first, as Prometheus 3.x and Alloy do by default, get the Prometheus text format, which keeps the `counter` type.
 
+## Grafana dashboard
+
+`dashboards/github-activity.json` is generated from the registry by `make generate` ([#19](https://github.com/gjed/github-activity-exporter/issues/19)). Every query uses the name and type each metric declares in `annotations.prometheus`, in UTF-8 PromQL syntax (`{"github.pr.count", job=~"$job"}`): counters through `rate`, histograms through `histogram_quantile` over `_bucket`, gauges as is. It needs the backend settings from [Metric naming](#metric-naming).
+
+Variables: data source, `job` (the exporter's `service.name`, `github-activity-exporter`, optionally prefixed with `service.namespace/`), `exporter.target`, `github.org` and `github.repo`. The Dependency Dashboard row shows no data unless a target enables `renovate_dashboard`.
+
 ## Development
 
 ### Prerequisites

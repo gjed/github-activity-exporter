@@ -1,3 +1,136 @@
+{#-
+  Grafana dashboard generated from the Weaver registry.
+
+  Every query is built from a metric's annotations.prometheus.name and
+  annotations.prometheus.type (the naming contract, see registry/signals.yaml):
+    counter   -> rate()
+    histogram -> histogram_quantile() over <name>_bucket
+    gauge     -> the raw series, aggregated
+  Names and UTF-8 label names are quoted (Prometheus 3.x / Mimir UTF-8
+  selector syntax). Legends use bare label names: Grafana looks up the text
+  between {{ }} as the label key.
+
+  A panel that references a metric the registry does not define, a label the
+  metric does not declare, or the wrong Prometheus type calls an undefined
+  function, which fails `make generate`.
+  SIMPLIFIED: minijinja has no raise. Weaver reports "value of type undefined
+  is not callable" with the template line of the failed check
+  (dashboard_metric_not_in_registry, dashboard_label_not_on_metric or
+  dashboard_wrong_prometheus_type), not the metric name.
+-#}
+{%- set pos = namespace(x=0, y=0, id=1) -%}
+
+{#- check_metric(name): fails generation unless the registry defines exactly one metric with that name. -#}
+{%- macro check_metric(name) -%}
+{%- if (ctx | selectattr("metric_name", "equalto", name) | list | length) != 1 -%}{{ dashboard_metric_not_in_registry(name) }}{%- endif -%}
+{%- endmacro -%}
+
+{#- sel(m, suffix, matchers, per_target): UTF-8 selector filtered by the dashboard
+    variables. The org/repo filters are added only when the metric declares the
+    attribute; per_target=false drops the $target filter. -#}
+{%- macro sel(m, suffix="", matchers=[], per_target=true) -%}
+{%- set attrs = m.attributes | map(attribute="name") | list -%}
+{\"{{ m.annotations.prometheus.name }}{{ suffix }}\", job=~\"$job\"
+{%- if per_target %}, \"exporter.target\"=~\"$target\"{% endif -%}
+{%- if "github.org" in attrs %}, \"github.org\"=~\"$org\"{% endif -%}
+{%- if "github.repo" in attrs %}, \"github.repo\"=~\"$repo\"{% endif -%}
+{%- for l, op, v in matchers -%}
+{%- if l not in attrs %}{{ dashboard_label_not_on_metric(l) }}{% endif -%}
+, \"{{ l }}\"{{ op }}\"{{ v }}\"
+{%- endfor -%}
+}
+{%- endmacro -%}
+
+{%- macro by_clause(m, labels) -%}
+{%- set attrs = m.attributes | map(attribute="name") | list -%}
+{%- for l in labels -%}
+{%- if l not in attrs and l != "le" %}{{ dashboard_label_not_on_metric(l) }}{% endif -%}
+{%- if loop.first %} by ({% endif -%}
+{%- if l == "le" %}le{% else %}\"{{ l }}\"{% endif -%}
+{%- if loop.last %}){% else %}, {% endif -%}
+{%- endfor -%}
+{%- endmacro -%}
+
+{#- expr(name, shape, ...): the PromQL for one target, shape checked against
+    annotations.prometheus.type.
+      rate:     counter,   sum by (...) (rate(...)) * scale
+      quantile: histogram, histogram_quantile(q, sum by (le, ...) (rate(<name>_bucket)))
+      sum/max/min: gauge,  agg by (...) (...) + offset -#}
+{%- macro expr(name, shape, by=[], q="0.5", matchers=[], scale="", offset="", per_target=true) -%}
+{{- check_metric(name) -}}
+{%- set m = ctx | selectattr("metric_name", "equalto", name) | first -%}
+{%- set type = m.annotations.prometheus.type -%}
+{%- if shape == "rate" -%}
+{%- if type != "counter" %}{{ dashboard_wrong_prometheus_type(name) }}{% endif -%}
+sum{{ by_clause(m, by) }} (rate({{ sel(m, "", matchers, per_target) }}[$__rate_interval])){{ scale }}
+{%- elif shape == "quantile" -%}
+{%- if type != "histogram" %}{{ dashboard_wrong_prometheus_type(name) }}{% endif -%}
+histogram_quantile({{ q }}, sum{{ by_clause(m, ["le"] + by) }} (rate({{ sel(m, "_bucket", matchers) }}[$__rate_interval])))
+{%- else -%}
+{%- if type != "gauge" %}{{ dashboard_wrong_prometheus_type(name) }}{% endif -%}
+{{ shape }}{{ by_clause(m, by) }} ({{ sel(m, "", matchers) }}){{ offset }}
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro brief(name) -%}
+{{- check_metric(name) -}}
+{{- (ctx | selectattr("metric_name", "equalto", name) | first).brief | trim | tojson -}}
+{%- endmacro -%}
+
+{%- macro target(ref, e, legend) -%}
+{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "{{ e }}", "legendFormat": {{ legend | tojson }}, "range": true, "refId": "{{ ref }}" }
+{%- endmacro -%}
+
+{#- row(title): a full-width row; starts a new grid line. -#}
+{%- macro row(title) -%}
+{%- if pos.x > 0 %}{% set pos.y = pos.y + 8 %}{% set pos.x = 0 %}{% endif -%}
+    {% if pos.id > 1 %},{% endif %}{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": {{ pos.y }} }, "id": {{ pos.id }}, "panels": [], "title": {{ title | tojson }}, "type": "row" }
+{%- set pos.y = pos.y + 1 -%}
+{%- set pos.id = pos.id + 1 -%}
+{%- endmacro -%}
+
+{#- panel(...): a 12x8 time series panel; caller() renders the targets. -#}
+{%- macro panel(title, description, unit) -%}
+    ,{
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": {{ description }},
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "{{ unit }}" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": {{ pos.x }}, "y": {{ pos.y }} },
+      "id": {{ pos.id }},
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {{ caller() }}
+      ],
+      "title": {{ title | tojson }},
+      "type": "timeseries"
+    }
+{%- set pos.id = pos.id + 1 -%}
+{%- if pos.x == 0 %}{% set pos.x = 12 %}{% else %}{% set pos.x = 0 %}{% set pos.y = pos.y + 8 %}{% endif -%}
+{%- endmacro -%}
+
+{#- variable(name, label, selector, attr): a chained label-values query variable. -#}
+{%- macro variable(name, label, selector, attr) -%}
+{%- set q = "label_values(" ~ selector ~ ", " ~ attr ~ ")" -%}
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "definition": {{ q | tojson }},
+        "includeAll": true,
+        "label": {{ label | tojson }},
+        "multi": true,
+        "name": "{{ name }}",
+        "options": [],
+        "query": { "qryType": 5, "query": {{ q | tojson }}, "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+{%- endmacro -%}
+
+{%- set per_hour = " * 3600" -%}
+{%- set repo = ["github.org", "github.repo"] -%}
 {
   "__inputs": [],
   "__requires": [
@@ -5,82 +138,91 @@
     { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
   ],
   "annotations": { "list": [] },
-  "description": "Generated by OTel Weaver from registry/signals.yaml. Run `make generate` to regenerate. Metric names in PromQL expressions use OTel dotted names as emitted by the Prometheus bridge with UTF-8 name validation enabled.",
+  "description": "Generated by OTel Weaver from registry/signals.yaml (make generate). Queries use the UTF-8 names declared in annotations.prometheus; the backend must keep OTLP names as sent (translation strategy NoTranslation).",
   "editable": true,
   "graphTooltip": 1,
   "id": null,
   "links": [],
   "panels": [
-    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "id": 1, "title": "Pull Requests", "type": "row" }
-{% set panel_id = namespace(v=10) %}
-{% set pr_idx = namespace(v=0) %}
-{% for metric in ctx %}{% if "github.pr" in metric.metric_name %}
-    ,{
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "{{ metric.brief }}",
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": {{ (pr_idx.v % 2) * 12 }}, "y": {{ 1 + (pr_idx.v // 2) * 8 }} },
-      "id": {{ panel_id.v }},
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "{{ metric.metric_name }}{job=\"$job\"}", "legendFormat": "__auto", "refId": "A" }],
-      "title": "{{ metric.metric_name }}",
-      "type": "timeseries"
-    }
-{% set pr_idx.v = pr_idx.v + 1 %}
-{% set panel_id.v = panel_id.v + 1 %}
-{% endif %}{% endfor %}
-    ,{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 }, "id": 100, "title": "Issues", "type": "row" }
-{% set iss_idx = namespace(v=0) %}
-{% for metric in ctx %}{% if "github.issue" in metric.metric_name %}
-    ,{
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "{{ metric.brief }}",
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": {{ (iss_idx.v % 2) * 12 }}, "y": {{ 51 + (iss_idx.v // 2) * 8 }} },
-      "id": {{ 100 + iss_idx.v + 1 }},
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "{{ metric.metric_name }}{job=\"$job\"}", "legendFormat": "__auto", "refId": "A" }],
-      "title": "{{ metric.metric_name }}",
-      "type": "timeseries"
-    }
-{% set iss_idx.v = iss_idx.v + 1 %}
-{% endif %}{% endfor %}
-    ,{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 100 }, "id": 200, "title": "Renovate Dashboard", "type": "row" }
-{% set ren_idx = namespace(v=0) %}
-{% for metric in ctx %}{% if "renovate." in metric.metric_name %}
-    ,{
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "{{ metric.brief }}",
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": {{ 101 + ren_idx.v * 8 }} },
-      "id": {{ 200 + ren_idx.v + 1 }},
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "{{ metric.metric_name }}{job=\"$job\"}", "legendFormat": "{{ '{{renovate_dashboard_section}}' }}", "refId": "A" }],
-      "title": "{{ metric.metric_name }}",
-      "type": "timeseries"
-    }
-{% set ren_idx.v = ren_idx.v + 1 %}
-{% endif %}{% endfor %}
-    ,{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 150 }, "id": 300, "title": "Exporter Self-Metrics", "type": "row" }
-{% set sel_idx = namespace(v=0) %}
-{% for metric in ctx %}{% if "github_exporter." in metric.metric_name %}
-    ,{
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "{{ metric.brief }}",
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": {{ (sel_idx.v % 2) * 12 }}, "y": {{ 151 + (sel_idx.v // 2) * 8 }} },
-      "id": {{ 300 + sel_idx.v + 1 }},
-      "targets": [{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "{{ metric.metric_name }}{job=\"$job\"}", "legendFormat": "__auto", "refId": "A" }],
-      "title": "{{ metric.metric_name }}",
-      "type": "timeseries"
-    }
-{% set sel_idx.v = sel_idx.v + 1 %}
-{% endif %}{% endfor %}
+{{ row("Pull requests") }}
+{% call panel("PRs created, merged and closed per hour", brief("github.pr.created"), "short") %}
+{{- target("A", expr("github.pr.created", "rate", scale=per_hour), "created") }},
+        {{ target("B", expr("github.pr.merged", "rate", scale=per_hour), "merged") }},
+        {{ target("C", expr("github.pr.closed", "rate", scale=per_hour), "closed") -}}
+{% endcall %}
+{% call panel("PRs created, merged and closed per hour by repo", brief("github.pr.created"), "short") %}
+{{- target("A", expr("github.pr.created", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}} created") }},
+        {{ target("B", expr("github.pr.merged", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}} merged") }},
+        {{ target("C", expr("github.pr.closed", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}} closed") -}}
+{% endcall %}
+{% call panel("Open PRs by state", brief("github.pr.count"), "short") %}
+{{- target("A", expr("github.pr.count", "sum", by=["github.pr.state"], matchers=[["github.pr.label", "=", ""]]), "{{github.pr.state}}") -}}
+{% endcall %}
+{% call panel("Open PRs by review status", brief("github.pr.review_status"), "short") %}
+{{- target("A", expr("github.pr.review_status", "sum", by=["github.pr.review_status"]), "{{github.pr.review_status}}") -}}
+{% endcall %}
+{% call panel("Oldest open PR age by repo", brief("github.pr.age"), "s") %}
+{{- target("A", expr("github.pr.age", "max", by=repo), "{{github.org}}/{{github.repo}}") -}}
+{% endcall %}
+{% call panel("PR close duration", brief("github.pr.close.duration"), "s") %}
+{{- target("A", expr("github.pr.close.duration", "quantile", q="0.5"), "p50") }},
+        {{ target("B", expr("github.pr.close.duration", "quantile", q="0.9"), "p90") -}}
+{% endcall %}
+{% call panel("PRs automerged per hour", brief("github.pr.automerged"), "short") %}
+{{- target("A", expr("github.pr.automerged", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}}") -}}
+{% endcall %}
+{{ row("Issues") }}
+{% call panel("Issues by state", brief("github.issue.count"), "short") %}
+{{- target("A", expr("github.issue.count", "sum", by=["github.issue.state"], matchers=[["github.issue.state", "!=", ""]]), "{{github.issue.state}}") -}}
+{% endcall %}
+{% call panel("Oldest open issue age by repo", brief("github.issue.age"), "s") %}
+{{- target("A", expr("github.issue.age", "max", by=repo), "{{github.org}}/{{github.repo}}") -}}
+{% endcall %}
+{{ row("GitHub API") }}
+{% call panel("Rate limit remaining by pool", brief("github_exporter.api.rate_limit.remaining"), "short") %}
+{{- target("A", expr("github_exporter.api.rate_limit.remaining", "min", by=["exporter.target", "github.api.rate_limit.resource"]), "{{exporter.target}} {{github.api.rate_limit.resource}}") -}}
+{% endcall %}
+{% call panel("Time until rate limit reset by pool", brief("github_exporter.api.rate_limit.reset"), "s") %}
+{{- target("A", expr("github_exporter.api.rate_limit.reset", "max", by=["exporter.target", "github.api.rate_limit.resource"], offset=" - time()"), "{{exporter.target}} {{github.api.rate_limit.resource}}") -}}
+{% endcall %}
+{{ row("Exporter self-metrics") }}
+{% call panel("Collection cycle duration", brief("github_exporter.scrape.duration"), "s") %}
+{{- target("A", expr("github_exporter.scrape.duration", "quantile", by=["exporter.target"], q="0.5"), "{{exporter.target}} p50") }},
+        {{ target("B", expr("github_exporter.scrape.duration", "quantile", by=["exporter.target"], q="0.9"), "{{exporter.target}} p90") -}}
+{% endcall %}
+{% call panel("GitHub API errors per hour", brief("github_exporter.api.errors"), "short") %}
+{{- target("A", expr("github_exporter.api.errors", "rate", by=["exporter.target", "github.api.endpoint"], scale=per_hour), "{{exporter.target}} {{github.api.endpoint}}") -}}
+{% endcall %}
+{#- One OTLP exporter pushes for every target; its errors carry the exporter's
+    own exporter.target ("default"), not a configured target, so $target does
+    not apply. -#}
+{% call panel("OTLP push errors per hour", brief("github_exporter.otlp.errors"), "short") %}
+{{- target("A", expr("github_exporter.otlp.errors", "rate", by=["exporter.target"], scale=per_hour, per_target=false), "{{exporter.target}}") -}}
+{% endcall %}
+{{ row("Dependency Dashboard") }}
+{% call panel("Renovate queue by section", brief("renovate.dashboard.queue"), "short") %}
+{{- target("A", expr("renovate.dashboard.queue", "sum", by=["github.org", "github.repo", "renovate.dashboard.section"]), "{{github.org}}/{{github.repo}} {{renovate.dashboard.section}}") -}}
+{% endcall %}
+{% call panel("Dependency Dashboard parse errors", brief("renovate.dashboard.parse_error"), "short") %}
+{{- target("A", expr("renovate.dashboard.parse_error", "max", by=repo), "{{github.org}}/{{github.repo}}") -}}
+{% endcall %}
   ],
   "refresh": "1m",
   "schemaVersion": 39,
-  "tags": ["renovate", "github", "generated"],
+  "tags": ["github", "renovate", "generated"],
   "templating": {
     "list": [
-      { "current": {}, "hide": 0, "includeAll": false, "label": "Data Source", "name": "datasource", "options": [], "query": "prometheus", "refresh": 1, "type": "datasource" },
-      { "current": {}, "datasource": { "type": "prometheus", "uid": "${datasource}" }, "definition": "label_values(github_exporter.scrape.duration, job)", "hide": 0, "includeAll": false, "label": "Job", "name": "job", "options": [], "query": { "query": "label_values(github_exporter.scrape.duration, job)", "refId": "StandardVariableQuery" }, "refresh": 2, "sort": 1, "type": "query" }
+      { "current": {}, "includeAll": false, "label": "Data source", "name": "datasource", "options": [], "query": "prometheus", "refresh": 1, "regex": "", "type": "datasource" },
+{#- job: Prometheus derives job from service.namespace/service.name; the
+    exporter's service.name is github-activity-exporter. -#}
+{{- check_metric("github_exporter.scrape.duration") }}
+{%- set cycles = ctx | selectattr("metric_name", "equalto", "github_exporter.scrape.duration") | first -%}
+{%- if cycles.annotations.prometheus.type != "histogram" %}{{ dashboard_wrong_prometheus_type("github_exporter.scrape.duration") }}{% endif %}
+{%- set cycles_count = '"' ~ cycles.annotations.prometheus.name ~ '_count"' %}
+{{ variable("job", "Job", "{" ~ cycles_count ~ ', job=~"(.+/)?github-activity-exporter"}', "job") }},
+{{ variable("target", "exporter.target", "{" ~ cycles_count ~ ', job=~"$job"}', "exporter.target") }},
+{{ variable("org", "github.org", '{job=~"$job", "exporter.target"=~"$target", "github.org"!=""}', "github.org") }},
+{{ variable("repo", "github.repo", '{job=~"$job", "exporter.target"=~"$target", "github.org"=~"$org", "github.repo"!=""}', "github.repo") }}
     ]
   },
   "time": { "from": "now-24h", "to": "now" },
