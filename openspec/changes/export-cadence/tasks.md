@@ -23,8 +23,8 @@
 
 ## 4. api.errors initialisation (#103)
 
-- [ ] 4.1 `templates/go/attributes.go.j2`: per-enum `Attr<Id>Values` list; `make generate`; verify `AttrGitHubApiEndpointValues` holds `graphql` and `rest.repos`.
-- [ ] 4.2 `SelfMetrics.InitAPIErrors` over `sc.AttrGitHubApiEndpointValues`, called in `Runner.Run` next to `InitOverruns`; unit test that a started runner exports 0 per endpoint value before any error.
+- [x] 4.1 `templates/go/attributes.go.j2`: per-enum `Attr<Id>Values` list; `make generate`; verify `AttrGitHubApiEndpointValues` holds `graphql` and `rest.repos`.
+- [x] 4.2 `SelfMetrics.InitAPIErrors` over `sc.AttrGitHubApiEndpointValues`, called in `Runner.Run` next to `InitOverruns`; unit test that a started runner exports 0 per endpoint value before any error.
 
 ## 5. Integration
 

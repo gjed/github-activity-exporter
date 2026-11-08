@@ -56,3 +56,23 @@ const (
 {% endfor %}
 {% endfor %}
 )
+
+// Enum value lists, in registry order, for code that must cover every value.
+var (
+{%- for group in ctx %}
+{%- for attr in group.attributes %}
+{%- if attr.type is mapping and attr.type.members is defined %}
+{%- set attr_id = attr.name | pascal_case_const
+                  | replace("Reviewstatus", "ReviewStatus")
+                  | replace("Ratelimit", "RateLimit")
+                  | replace("Github", "GitHub") %}
+	// Attr{{ attr_id }}Values lists every {{ attr.name }} value.
+	Attr{{ attr_id }}Values = []string{
+{%- for member in attr.type.members %}
+		"{{ member.value }}",
+{%- endfor %}
+	}
+{%- endif %}
+{%- endfor %}
+{%- endfor %}
+)
