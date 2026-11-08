@@ -28,7 +28,7 @@
 
 ## 6. Chart and docs
 
-- [ ] 6.1 Add `charts/github-activity-exporter/examples/self-telemetry-values.yaml` enabling only self-telemetry metrics; verify `helm template` renders it and the ConfigMap holds the `telemetry` section
+- [x] 6.1 Add `charts/github-activity-exporter/examples/self-telemetry-values.yaml` enabling only self-telemetry metrics; verify `helm template` renders it and the ConfigMap holds the `telemetry` section
 - [ ] 6.2 README: runtime and GitHub HTTP client metrics, activation, attributes and `url.template` routes; markdown lint on changed files
 
 ## 7. Validation

@@ -13,6 +13,7 @@ Examples:
 
 - [`examples/renovate-values.yaml`](examples/renovate-values.yaml): Renovate PRs and the Dependency Dashboard of one org, with a PAT.
 - [`examples/github-app-values.yaml`](examples/github-app-values.yaml): an org through a GitHub App, with the Prometheus bridge, a ServiceMonitor and the Grafana dashboard.
+- [`examples/self-telemetry-values.yaml`](examples/self-telemetry-values.yaml): one org with a PAT, plus self-telemetry metrics (Go runtime and GitHub API client metrics).
 
 ## Config
 

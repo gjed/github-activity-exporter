@@ -1,0 +1,36 @@
+# One org with a PAT, plus self-telemetry metrics: Go runtime and GitHub API
+# HTTP client metrics, pushed to export.otlp every 60s
+# (OTEL_METRIC_EXPORT_INTERVAL). The other self-telemetry signals stay off.
+# The OTLP backend needs out-of-order ingestion (README, Self-telemetry metrics).
+#
+#   kubectl create secret generic github-activity-exporter \
+#     --from-literal=github-token="$GITHUB_TOKEN"
+config:
+  export:
+    otlp:
+      endpoint: https://otlp.example.com:4318
+  telemetry:
+    enabled: true
+    metrics:
+      enabled: true
+    traces:
+      enabled: false
+    logs:
+      enabled: false
+    profiles:
+      enabled: false
+  targets:
+    - name: my-org
+      orgs:
+        - org: my-org
+
+secret:
+  existingSecret: github-activity-exporter
+  env:
+    GITHUB_TOKEN: github-token
+
+env:
+  # go.memory.limit is reported only under a memory limit: about 90% of the
+  # default container memory limit (resources.limits.memory, 256Mi).
+  - name: GOMEMLIMIT
+    value: 230MiB
