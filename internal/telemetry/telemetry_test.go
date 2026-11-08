@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/otlptranslator"
@@ -64,13 +65,15 @@ func restoreGlobals(t *testing.T) {
 	})
 }
 
+// toggles sets the signal toggles. Profiles get a valid destination that
+// nothing listens on: a profiler started here only logs push errors.
 func toggles(global, metrics, traces, logs, profiles bool) config.Telemetry {
 	return config.Telemetry{
 		Enabled:  global,
 		Metrics:  config.Signal{Enabled: metrics},
 		Traces:   config.Signal{Enabled: traces},
 		Logs:     config.Signal{Enabled: logs},
-		Profiles: config.Profiles{Enabled: profiles},
+		Profiles: config.Profiles{Enabled: profiles, Endpoint: "http://127.0.0.1:1", Interval: time.Hour},
 	}
 }
 
@@ -129,6 +132,8 @@ func newTelemetry(t *testing.T, cfg config.Telemetry, otlp config.OTLP, reg prom
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	// Stops a running profiler, which holds the process-wide CPU profile.
+	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
 	return tel
 }
 
