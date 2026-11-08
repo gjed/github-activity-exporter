@@ -179,6 +179,8 @@ A partially filled `auth` block (for example `app` without `app_id`) is a startu
 
 `base_url` drives every GitHub call for the target: REST, GraphQL, the GitHub App token exchange and the startup credential check. GraphQL goes to `https://api.github.com/graphql` by default and to `https://<host>/api/graphql` when `base_url` ends in `/api/v3`. Targets with different `base_url` values can run in one deployment.
 
+PR, issue and Dependency Dashboard collection all use GraphQL and share the `graphql` rate-limit pool, which is billed in points. Per repo and per cycle, PR collection costs at least 2 points (the open-PR scan and the event scan), issue collection 1 point plus 1 per further 100 repo labels (with `exclude_title_patterns` set, 1 per 100 issues instead), and the Dependency Dashboard 1 point when enabled. A token gets 5,000 points per hour; a GitHub App installation gets 5,000 plus 50 per repo and per org member beyond 20, capped at 12,500, or 10,000 on a GitHub Enterprise Cloud organization ([GitHub rate limits](https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api)). Size `collection_interval` so that repos × points × cycles per hour stays below the limit: 389 repos with the dashboard enabled, at the default 5m, cost at least 389 × 4 × 12 ≈ 18,700 points per hour. When fewer than 200 points remain, the pool pauses until it resets and PR, issue and dashboard collection all wait.
+
 Scalar config keys can be overridden with `GITHUB_ACTIVITY_EXPORTER_` env vars, upper-cased with `.` replaced by `_` (for example `GITHUB_ACTIVITY_EXPORTER_EXPORT_OTLP_ENDPOINT`). Per-target settings, including `auth`, cannot be overridden this way.
 
 ## Health endpoints
