@@ -206,6 +206,30 @@ func TestOwner_UserAppInstallation(t *testing.T) {
 	}
 }
 
+// An App installed on another account yields no repos for the user owner and
+// a warning, not a discovery error.
+func TestOwner_UserAppInstallationOtherAccount(t *testing.T) {
+	s := &ownerServer{
+		t:            t,
+		types:        map[string]string{"gjed": "User"},
+		installRepos: []*gogithub.Repository{makeRepo("other/three", false, false)},
+	}
+	srv := s.start()
+
+	target := config.Target{
+		Name: "app",
+		Auth: config.Auth{App: config.AppAuth{AppID: 1, InstallationID: 2}},
+		Orgs: []config.OrgConfig{{Org: "gjed"}},
+	}
+	got, err := discover(t, srv, target)
+	if err != nil {
+		t.Fatalf("Repos(): %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %v, want none", got)
+	}
+}
+
 func TestOwner_UserFilters(t *testing.T) {
 	s := &ownerServer{
 		t:     t,
