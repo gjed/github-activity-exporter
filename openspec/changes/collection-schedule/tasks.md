@@ -2,10 +2,10 @@
 
 ## 1. Fixed collection period ([#95](https://github.com/gjed/github-activity-exporter/issues/95))
 
-- [ ] 1.1 Declare `github_exporter.scrape.overruns` in `registry/signals.yaml` (counter, `{cycle}`, `exporter.target` required, `annotations.prometheus`); `make generate`; verify `make check-schema` passes and the diff is limited to the new constant in `internal/semconv`
-- [ ] 1.2 Add `RecordOverrun` to `exporter.SelfMetrics` and `collector.SelfMetricsRecorder`; emit it in the integration live-check conforming metrics; verify `go test ./internal/exporter/...`
-- [ ] 1.3 Rewrite `Runner.Run` to wait `interval - time.Since(start)` on a stoppable timer, log a warning and call `RecordOverrun` on overrun; verify with `testing/synctest` tests in `internal/collector`: starts spaced by the period, an overrun starts the next cycle at once, cycles never overlap, no catch-up after a long overrun, no overrun recorded on shutdown
-- [ ] 1.4 README and `config.Health.StallTimeout` doc comment: `collection_interval` is the period between cycle starts, overrun behaviour, stall-timeout derivation; markdown lint on README
+- [x] 1.1 Declare `github_exporter.scrape.overruns` in `registry/signals.yaml` (counter, `{cycle}`, `exporter.target` required, `annotations.prometheus`); `make generate`; verify `make check-schema` passes and the diff is limited to the new constant in `internal/semconv`
+- [x] 1.2 Add `RecordOverrun` to `exporter.SelfMetrics` and `collector.SelfMetricsRecorder`; emit it in the integration live-check conforming metrics; verify `go test ./internal/exporter/...`
+- [x] 1.3 Rewrite `Runner.Run` to wait `interval - time.Since(start)` on a stoppable timer, log a warning and call `RecordOverrun` on overrun; verify with `testing/synctest` tests in `internal/collector`: starts spaced by the period, an overrun starts the next cycle at once, cycles never overlap, no catch-up after a long overrun, no overrun recorded on shutdown
+- [x] 1.4 README and `config.Health.StallTimeout` doc comment: `collection_interval` is the period between cycle starts, overrun behaviour, stall-timeout derivation; markdown lint on README
 
 ## 2. Discovery refresh in production ([#97](https://github.com/gjed/github-activity-exporter/issues/97))
 

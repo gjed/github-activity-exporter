@@ -81,7 +81,7 @@ The exporter takes no flags other than `--version`. Targets, GitHub auth and exp
 The path is read from `CONFIG_FILE`. It defaults to `config.yaml` in the working directory, and to `/etc/github-activity-exporter/config.yaml` in the Docker image.
 
 ```yaml
-collection_interval: 5m           # how often to collect and push metrics
+collection_interval: 5m           # period between collection cycle starts, see "Collection schedule"
 export:
   otlp:
     endpoint: https://otlp.example.com:4318  # required; http: full URL, grpc: host:port without scheme
@@ -143,6 +143,10 @@ Quote logins that contain brackets in flow lists: `authors: ["renovate[bot]"]`. 
 
 `include_repos`, `exclude_repos` and `include_archived` apply to user accounts as to organizations. An `orgs` entry that names no existing account fails discovery with an error naming the target and the owner.
 
+### Collection schedule
+
+Each target starts a collection cycle every `collection_interval`, measured from the start of its previous cycle, and pushes the cycle's metrics when the cycle ends. A cycle that runs longer than `collection_interval` is an overrun: the exporter logs a warning, increments `github_exporter.scrape.overruns` and starts the next cycle as soon as the late one finishes. Cycles of one target never overlap, and missed periods are not caught up. Steady overruns mean the configured freshness is out of reach; raise `collection_interval`.
+
 ### Renovate preset
 
 To track only Renovate PRs and the Dependency Dashboard, select Renovate PRs by author (or by the `renovate` label) and enable the dashboard collector:
@@ -190,7 +194,7 @@ The exporter always serves `/healthz` and `/readyz` on `health.listen_address` (
 `/healthz` returns 503 when, for any target:
 
 - its collection loop exited before shutdown;
-- no collection cycle completed within `health.stall_timeout` of the previous one, or of the loop start. The default, `2 × collection_interval + 1h` (1h10m at 5m), leaves room for a full GitHub rate-limit pause;
+- no collection cycle completed within `health.stall_timeout` of the previous one, or of the loop start. A cycle completes at most `collection_interval` plus its own duration after the previous one, so the default, `2 × collection_interval + 1h` (1h10m at 5m), allows a cycle of up to `collection_interval + 1h`: room for a full GitHub rate-limit pause;
 - its last `health.unauthorized_cycles` cycles (default 3) were all unauthorized. A cycle is unauthorized when GitHub answered at least one request, including the GitHub App token exchange, with 401 and none with any other status. A cycle with any non-401 response clears the count; a cycle with no GitHub response leaves it as is.
 
 A 401 never affects `/readyz`. A credential revoked while running fails `/healthz`; after a restart the startup credential check fails and the exporter exits.
@@ -218,7 +222,7 @@ A signal is active only when `telemetry.enabled` and its own `enabled` are both 
 
 Metrics are described in [Self-telemetry metrics](#self-telemetry-metrics) and profiles in [Profiles](#profiles). The other signals come in [#75](https://github.com/gjed/github-activity-exporter/issues/75) (traces) and [#76](https://github.com/gjed/github-activity-exporter/issues/76) (OTLP logs).
 
-Self-telemetry runs on its own OTel SDK providers. No `telemetry` key and no `OTEL_*` variable other than `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` changes what the GitHub metrics export, where, how or when: their OTLP push is configured by `export.otlp` only. The `github_exporter.*` metrics (`scrape.duration`, `api.errors`, `otlp.errors`, `api.rate_limit.*`) belong to the GitHub metrics and are always on; the dashboard needs them. When the Prometheus bridge is enabled, self-telemetry metrics are also served on `/metrics`.
+Self-telemetry runs on its own OTel SDK providers. No `telemetry` key and no `OTEL_*` variable other than `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` changes what the GitHub metrics export, where, how or when: their OTLP push is configured by `export.otlp` only. The `github_exporter.*` metrics (`scrape.duration`, `scrape.overruns`, `api.errors`, `otlp.errors`, `api.rate_limit.*`) belong to the GitHub metrics and are always on; the dashboard needs them. When the Prometheus bridge is enabled, self-telemetry metrics are also served on `/metrics`.
 
 Traces, metrics and logs go over OTLP. With no OTLP endpoint in the environment, each signal uses `export.otlp`: same endpoint, protocol, headers and TLS. For `protocol: http` the endpoint is a base URL, and a trailing `/v1/metrics` is dropped, so `https://gw.example.com/otlp` and `https://gw.example.com/otlp/v1/metrics` both send traces to `https://gw.example.com/otlp/v1/traces`. Once `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` is set, that signal is configured from the `OTEL_EXPORTER_OTLP_*` variables only, and `export.otlp` headers are never sent to it.
 
@@ -325,6 +329,7 @@ All metric names and attributes are defined in the OTel registry at [`registry/`
 | `github.issue.age`                | Gauge         | Age in seconds of the oldest open issue per repo     |
 | `renovate.dashboard.queue`        | Gauge         | Renovate dashboard PRs by queue state                |
 | `github_exporter.scrape.duration` | Histogram     | Collection cycle duration in seconds                 |
+| `github_exporter.scrape.overruns` | Counter       | Cycles longer than `collection_interval`             |
 | `github_exporter.api.errors`      | Counter       | GitHub API errors by target and endpoint             |
 | `github_exporter.otlp.errors`     | Counter       | OTLP push failures                                   |
 

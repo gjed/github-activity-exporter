@@ -14,6 +14,7 @@ import (
 // Obtain one via NewSelfMetrics with the product meter (Provider.Meter).
 type SelfMetrics struct {
 	scrapeDuration metric.Float64Histogram
+	overruns       metric.Int64Counter
 	apiErrors      metric.Int64Counter
 	otlpErrors     metric.Int64Counter
 	rlRemaining    metric.Int64Gauge
@@ -30,6 +31,15 @@ func NewSelfMetrics(meter metric.Meter) (*SelfMetrics, error) {
 		metric.WithExplicitBucketBoundaries(
 			0.1, 0.5, 1, 5, 10, 30, 60, 120, 300,
 		),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	overruns, err := meter.Int64Counter(
+		sc.MetricGitHubExporterScrapeOverruns,
+		metric.WithDescription("Number of collection cycles that ran longer than the collection interval."),
+		metric.WithUnit("{cycle}"),
 	)
 	if err != nil {
 		return nil, err
@@ -73,6 +83,7 @@ func NewSelfMetrics(meter metric.Meter) (*SelfMetrics, error) {
 
 	return &SelfMetrics{
 		scrapeDuration: scrapeDuration,
+		overruns:       overruns,
 		apiErrors:      apiErrors,
 		otlpErrors:     otlpErrors,
 		rlRemaining:    rlRemaining,
@@ -85,6 +96,16 @@ func NewSelfMetrics(meter metric.Meter) (*SelfMetrics, error) {
 func (s *SelfMetrics) RecordScrapeDuration(ctx context.Context, target string, start time.Time) {
 	s.scrapeDuration.Record(ctx,
 		time.Since(start).Seconds(),
+		metric.WithAttributes(
+			attribute.String(sc.AttrExporterTarget, target),
+		),
+	)
+}
+
+// RecordOverrun increments the overrun counter: a collection cycle of target
+// ran longer than the collection interval.
+func (s *SelfMetrics) RecordOverrun(ctx context.Context, target string) {
+	s.overruns.Add(ctx, 1,
 		metric.WithAttributes(
 			attribute.String(sc.AttrExporterTarget, target),
 		),

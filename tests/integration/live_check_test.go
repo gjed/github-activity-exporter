@@ -450,6 +450,7 @@ func emitConformingMetrics(t *testing.T, p *exporter.Provider) {
 		t.Fatalf("NewSelfMetrics: %v", err)
 	}
 	self.RecordAPIError(context.Background(), "test-org/test-repo", sc.AttrGitHubApiEndpointGraphQL)
+	self.RecordOverrun(context.Background(), "test-org/test-repo")
 	self.RecordRateLimit(context.Background(), "test-org/test-repo", sc.AttrGitHubApiRateLimitResourceCore, 4999, time.Now().Add(time.Hour))
 	self.RecordRateLimit(context.Background(), "test-org/test-repo", sc.AttrGitHubApiRateLimitResourceGraphQL, 4500, time.Now().Add(time.Hour))
 }

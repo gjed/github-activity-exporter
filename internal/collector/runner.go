@@ -28,7 +28,7 @@ type RunnerCollectors struct {
 }
 
 // Runner drives all collectors for one target on each collection cycle.
-// It owns the collection interval timer and per-target state. It is safe
+// It owns the collection period timer and per-target state. It is safe
 // to run concurrently with other Runners (one per target).
 type Runner struct {
 	target     string
@@ -82,6 +82,7 @@ type CycleObserver interface {
 // Satisfied by *exporter.SelfMetrics.
 type SelfMetricsRecorder interface {
 	RecordScrapeDuration(ctx context.Context, target string, start time.Time)
+	RecordOverrun(ctx context.Context, target string)
 	RecordAPIError(ctx context.Context, target, endpoint string)
 	RecordOTLPError(ctx context.Context, target string)
 }
@@ -89,8 +90,8 @@ type SelfMetricsRecorder interface {
 // RunnerOption configures a Runner.
 type RunnerOption func(*Runner)
 
-// WithInterval sets the collection interval. Non-positive values keep the
-// default (5 minutes).
+// WithInterval sets the collection interval, the period between the starts of
+// consecutive cycles. Non-positive values keep the default (5 minutes).
 func WithInterval(d time.Duration) RunnerOption {
 	return func(r *Runner) {
 		if d > 0 {
@@ -196,8 +197,11 @@ func (r *Runner) observableCallback(ctx context.Context, obs metric.Observer) er
 	return nil
 }
 
-// Run executes the collection loop, sleeping between cycles for the configured
-// interval. It blocks until ctx is cancelled, then unregisters callbacks and
+// Run executes the collection loop, starting a cycle every interval measured
+// from the start of the previous one. A cycle that runs longer than the
+// interval is an overrun: it is logged and counted, and the next cycle starts
+// as soon as it finishes. Cycles never overlap and missed periods are not
+// caught up. Run blocks until ctx is cancelled, then unregisters callbacks and
 // returns — allowing the caller to wait for graceful shutdown via WaitGroup.
 func (r *Runner) Run(ctx context.Context) {
 	r.logger.Info("runner started", "target", r.target, "interval", r.interval)
@@ -211,12 +215,28 @@ func (r *Runner) Run(ctx context.Context) {
 	}()
 
 	for {
+		start := time.Now()
 		r.runOnce(ctx)
+		if ctx.Err() != nil {
+			return
+		}
 
+		elapsed := time.Since(start)
+		if elapsed > r.interval {
+			r.logger.Warn("collection cycle overran collection_interval, starting the next one now",
+				"target", r.target, "duration", elapsed, "interval", r.interval)
+			if r.self != nil {
+				r.self.RecordOverrun(ctx, r.target)
+			}
+			continue
+		}
+
+		wait := time.NewTimer(r.interval - elapsed)
 		select {
 		case <-ctx.Done():
+			wait.Stop()
 			return
-		case <-time.After(r.interval):
+		case <-wait.C:
 		}
 	}
 }
