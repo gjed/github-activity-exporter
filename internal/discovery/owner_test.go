@@ -97,7 +97,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 func discover(t *testing.T, srv *httptest.Server, target config.Target) ([]string, error) {
 	t.Helper()
-	repos, err := discovery.New(target, newHTTPLister(t, srv.URL)).Repos(context.Background())
+	repos, err := discovery.New(target, newTestClient(t, srv.URL)).Repos(context.Background())
 	return repoNames(repos), err
 }
 
@@ -239,7 +239,7 @@ func TestOwner_NotFound(t *testing.T) {
 	s := &ownerServer{t: t, types: map[string]string{}, self: "bot"}
 	srv := s.start()
 
-	d := discovery.New(patTarget("ghost"), newHTTPLister(t, srv.URL))
+	d := discovery.New(patTarget("ghost"), newTestClient(t, srv.URL))
 	for i := range 2 {
 		_, err := d.Repos(context.Background())
 		if err == nil {
@@ -272,7 +272,7 @@ func TestOwner_TypeCachedAcrossRefreshes(t *testing.T) {
 		Auth: config.Auth{Token: "tok"},
 		Orgs: []config.OrgConfig{{Org: "gjed"}, {Org: "acme"}},
 	}
-	d := discovery.New(target, newHTTPLister(t, srv.URL), discovery.WithRefreshInterval(time.Millisecond))
+	d := discovery.New(target, newTestClient(t, srv.URL), discovery.WithRefreshInterval(time.Millisecond))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go d.Start(ctx)
