@@ -126,3 +126,55 @@ AttrRenovateDashboardSectionPending = "pending"
 
 
 )
+
+// Enum value lists, in registry order, for code that must cover every value.
+var (
+	// AttrGitHubApiEndpointValues lists every github.api.endpoint value.
+	AttrGitHubApiEndpointValues = []string{
+		"graphql",
+		"rest.repos",
+	}
+	// AttrGitHubApiRateLimitResourceValues lists every github.api.rate_limit.resource value.
+	AttrGitHubApiRateLimitResourceValues = []string{
+		"core",
+		"search",
+		"code_search",
+		"graphql",
+		"integration_manifest",
+		"source_import",
+		"actions_runner_registration",
+		"scim",
+		"dependency_snapshots",
+		"dependency_sbom",
+		"code_scanning_upload",
+		"code_scanning_autofix",
+		"audit_log",
+		"other",
+	}
+	// AttrGitHubIssueStateValues lists every github.issue.state value.
+	AttrGitHubIssueStateValues = []string{
+		"open",
+		"closed",
+	}
+	// AttrGitHubPrReviewStatusValues lists every github.pr.review_status value.
+	AttrGitHubPrReviewStatusValues = []string{
+		"approved",
+		"changes_requested",
+		"pending",
+		"none",
+	}
+	// AttrGitHubPrStateValues lists every github.pr.state value.
+	AttrGitHubPrStateValues = []string{
+		"open",
+		"closed",
+		"draft",
+		"merged",
+	}
+	// AttrRenovateDashboardSectionValues lists every renovate.dashboard.section value.
+	AttrRenovateDashboardSectionValues = []string{
+		"awaiting-schedule",
+		"rate-limited",
+		"pending-approval",
+		"pending",
+	}
+)

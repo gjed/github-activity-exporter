@@ -114,6 +114,20 @@ func (s *SelfMetrics) InitOverruns(ctx context.Context, target string) {
 	)
 }
 
+// InitAPIErrors adds 0 to the API error counter of target for every
+// github.api.endpoint value, so each series is exported from the first push
+// and increase() sees the first error.
+func (s *SelfMetrics) InitAPIErrors(ctx context.Context, target string) {
+	for _, endpoint := range sc.AttrGitHubApiEndpointValues {
+		s.apiErrors.Add(ctx, 0,
+			metric.WithAttributes(
+				attribute.String(sc.AttrExporterTarget, target),
+				attribute.String(sc.AttrGitHubApiEndpoint, endpoint),
+			),
+		)
+	}
+}
+
 // RecordOverrun increments the overrun counter: a collection cycle of target
 // ran longer than the collection interval.
 func (s *SelfMetrics) RecordOverrun(ctx context.Context, target string) {

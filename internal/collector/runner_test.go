@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ func (s staticRepoSource) Repos(context.Context) ([]discovery.Repo, error) { ret
 type fakeSelfMetrics struct {
 	scrapes    []string
 	inits      []string // target per InitOverruns call
+	apiInits   []string // target per InitAPIErrors call
 	overruns   []string // target per recorded overrun
 	apiErrors  []string // endpoint per recorded error
 	otlpErrors []string // target per recorded error
@@ -36,6 +38,10 @@ func (f *fakeSelfMetrics) RecordScrapeDuration(_ context.Context, target string,
 
 func (f *fakeSelfMetrics) InitOverruns(_ context.Context, target string) {
 	f.inits = append(f.inits, target)
+}
+
+func (f *fakeSelfMetrics) InitAPIErrors(_ context.Context, target string) {
+	f.apiInits = append(f.apiInits, target)
 }
 
 func (f *fakeSelfMetrics) RecordOverrun(_ context.Context, target string) {
@@ -329,5 +335,40 @@ func TestRunner_ReportsCycleToObserver(t *testing.T) {
 				t.Errorf("observer events = %s, want %s", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestRunner_RunInitialisesCounters asserts Run sets the overrun and API error
+// counters of its target to 0 before the first cycle ends.
+func TestRunner_RunInitialisesCounters(t *testing.T) {
+	self := &fakeSelfMetrics{}
+	flushed := make(chan struct{}, 1)
+	r, err := collector.NewRunner(config.Target{Name: "tgt"}, staticRepoSource{},
+		collector.RunnerCollectors{}, metric.NewMeterProvider().Meter("test"), nil,
+		collector.WithSelfMetrics(self),
+		collector.WithFlush(func(context.Context) error {
+			select {
+			case flushed <- struct{}{}:
+			default:
+			}
+			return nil
+		}))
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { r.Run(ctx); close(done) }()
+	select {
+	case <-flushed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the first cycle")
+	}
+	cancel()
+	<-done
+
+	if !slices.Equal(self.inits, []string{"tgt"}) || !slices.Equal(self.apiInits, []string{"tgt"}) {
+		t.Fatalf("InitOverruns calls = %v, InitAPIErrors calls = %v, want one each for tgt", self.inits, self.apiInits)
 	}
 }

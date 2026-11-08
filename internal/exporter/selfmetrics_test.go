@@ -235,3 +235,48 @@ func TestSelfMetrics_ScrapeDurationBuckets(t *testing.T) {
 	}
 	t.Fatalf("metric %s not collected", sc.MetricGitHubExporterScrapeDuration)
 }
+
+// TestSelfMetrics_InitAPIErrors_ExportsZero asserts the API error series of a
+// target exist with value 0 for every github.api.endpoint value before any error.
+func TestSelfMetrics_InitAPIErrors_ExportsZero(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	sm, err := exporter.NewSelfMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test"))
+	if err != nil {
+		t.Fatalf("NewSelfMetrics: %v", err)
+	}
+	sm.InitAPIErrors(context.Background(), "tgt")
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name != sc.MetricGitHubExporterApiErrors {
+				continue
+			}
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("unexpected data %#v", m.Data)
+			}
+			var got []string
+			for _, dp := range sum.DataPoints {
+				if dp.Value != 0 {
+					t.Errorf("value = %d, want 0", dp.Value)
+				}
+				if v, _ := dp.Attributes.Value(attribute.Key(sc.AttrExporterTarget)); v.AsString() != "tgt" {
+					t.Errorf("%s = %q, want tgt", sc.AttrExporterTarget, v.AsString())
+				}
+				v, _ := dp.Attributes.Value(attribute.Key(sc.AttrGitHubApiEndpoint))
+				got = append(got, v.AsString())
+			}
+			slices.Sort(got)
+			want := slices.Sorted(slices.Values(sc.AttrGitHubApiEndpointValues))
+			if !slices.Equal(got, want) {
+				t.Fatalf("endpoints = %v, want %v", got, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("metric %s not collected", sc.MetricGitHubExporterApiErrors)
+}
