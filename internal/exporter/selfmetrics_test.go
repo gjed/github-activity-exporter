@@ -159,3 +159,39 @@ func TestSelfMetrics_RecordRateLimit_SeriesPerPool(t *testing.T) {
 		t.Errorf("metric %s not collected", name)
 	}
 }
+
+// TestSelfMetrics_InitOverruns_ExportsZero asserts the overrun series of a
+// target exists with value 0 before any overrun.
+func TestSelfMetrics_InitOverruns_ExportsZero(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	sm, err := exporter.NewSelfMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test"))
+	if err != nil {
+		t.Fatalf("NewSelfMetrics: %v", err)
+	}
+	sm.InitOverruns(context.Background(), "tgt")
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name != sc.MetricGitHubExporterScrapeOverruns {
+				continue
+			}
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok || len(sum.DataPoints) != 1 {
+				t.Fatalf("unexpected data %#v", m.Data)
+			}
+			dp := sum.DataPoints[0]
+			if dp.Value != 0 {
+				t.Errorf("value = %d, want 0", dp.Value)
+			}
+			if v, _ := dp.Attributes.Value(attribute.Key(sc.AttrExporterTarget)); v.AsString() != "tgt" {
+				t.Errorf("%s = %q, want tgt", sc.AttrExporterTarget, v.AsString())
+			}
+			return
+		}
+	}
+	t.Fatalf("metric %s not collected", sc.MetricGitHubExporterScrapeOverruns)
+}

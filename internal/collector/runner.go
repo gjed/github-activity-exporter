@@ -82,6 +82,7 @@ type CycleObserver interface {
 // Satisfied by *exporter.SelfMetrics.
 type SelfMetricsRecorder interface {
 	RecordScrapeDuration(ctx context.Context, target string, start time.Time)
+	InitOverruns(ctx context.Context, target string)
 	RecordOverrun(ctx context.Context, target string)
 	RecordAPIError(ctx context.Context, target, endpoint string)
 	RecordOTLPError(ctx context.Context, target string)
@@ -214,6 +215,9 @@ func (r *Runner) Run(ctx context.Context) {
 		r.logger.Info("runner stopped", "target", r.target)
 	}()
 
+	if r.self != nil {
+		r.self.InitOverruns(ctx, r.target)
+	}
 	for {
 		start := time.Now()
 		r.runOnce(ctx)

@@ -24,6 +24,7 @@ func (s staticRepoSource) Repos(context.Context) ([]discovery.Repo, error) { ret
 
 type fakeSelfMetrics struct {
 	scrapes    []string
+	inits      []string // target per InitOverruns call
 	overruns   []string // target per recorded overrun
 	apiErrors  []string // endpoint per recorded error
 	otlpErrors []string // target per recorded error
@@ -31,6 +32,10 @@ type fakeSelfMetrics struct {
 
 func (f *fakeSelfMetrics) RecordScrapeDuration(_ context.Context, target string, _ time.Time) {
 	f.scrapes = append(f.scrapes, target)
+}
+
+func (f *fakeSelfMetrics) InitOverruns(_ context.Context, target string) {
+	f.inits = append(f.inits, target)
 }
 
 func (f *fakeSelfMetrics) RecordOverrun(_ context.Context, target string) {
