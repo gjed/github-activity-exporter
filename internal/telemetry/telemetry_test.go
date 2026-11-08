@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -380,6 +383,81 @@ func TestNew_PrometheusBridge(t *testing.T) {
 		if seen[name] != 1 {
 			t.Errorf("family %s seen %d times, want 1 (families: %v)", name, seen[name], seen)
 		}
+	}
+}
+
+// runtimeMetrics are the Go runtime metrics recorded when self-telemetry
+// metrics are active (go.memory.limit only under a memory limit).
+var runtimeMetrics = []string{
+	"go.memory.used", "go.memory.allocated", "go.memory.allocations", "go.memory.gc.goal",
+	"go.goroutine.count", "go.processor.limit", "go.config.gogc", "go.schedule.duration",
+}
+
+// gatherNames returns the family names on reg.
+func gatherNames(t *testing.T, reg *prometheus.Registry) []string {
+	t.Helper()
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("Gather: %v", err)
+	}
+	names := make([]string, 0, len(families))
+	for _, f := range families {
+		names = append(names, f.GetName())
+	}
+	return names
+}
+
+func TestNew_RuntimeMetrics(t *testing.T) {
+	clearEnv(t, nil)
+	prev := debug.SetMemoryLimit(256 << 20)
+	t.Cleanup(func() { debug.SetMemoryLimit(prev) })
+
+	reg := prometheus.NewRegistry()
+	tel := newTelemetry(t, toggles(true, true, false, false, false), config.OTLP{Endpoint: "http://127.0.0.1:1", Protocol: "http"}, reg, nil)
+	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+
+	names := gatherNames(t, reg)
+	for _, want := range append(runtimeMetrics, "go.memory.limit") {
+		if !slices.Contains(names, want) {
+			t.Errorf("family %s missing (families: %v)", want, names)
+		}
+	}
+}
+
+func TestNew_RuntimeMemoryLimitOnlyWhenSet(t *testing.T) {
+	clearEnv(t, nil)
+	prev := debug.SetMemoryLimit(math.MaxInt64) // no limit
+	t.Cleanup(func() { debug.SetMemoryLimit(prev) })
+
+	reg := prometheus.NewRegistry()
+	tel := newTelemetry(t, toggles(true, true, false, false, false), config.OTLP{Endpoint: "http://127.0.0.1:1", Protocol: "http"}, reg, nil)
+	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+
+	if names := gatherNames(t, reg); slices.Contains(names, "go.memory.limit") {
+		t.Errorf("go.memory.limit reported without a memory limit (families: %v)", names)
+	}
+}
+
+func TestNew_NoRuntimeMetricsWhenInactive(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cfg config.Telemetry
+		env map[string]string
+	}{
+		"default":          {cfg: toggles(false, true, true, true, true)},
+		"metrics disabled": {cfg: toggles(true, false, true, true, true)},
+		"exporter none":    {cfg: toggles(true, true, false, false, false), env: map[string]string{"OTEL_METRICS_EXPORTER": "none"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			clearEnv(t, tc.env)
+			reg := prometheus.NewRegistry()
+			tel := newTelemetry(t, tc.cfg, config.OTLP{Endpoint: "http://127.0.0.1:1", Protocol: "http"}, reg, nil)
+			t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+			for _, n := range gatherNames(t, reg) {
+				if strings.HasPrefix(n, "go.") || strings.HasPrefix(n, "http.") {
+					t.Errorf("family %s exposed with self-telemetry metrics inactive", n)
+				}
+			}
+		})
 	}
 }
 

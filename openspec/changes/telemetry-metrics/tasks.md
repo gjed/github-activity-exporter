@@ -8,7 +8,7 @@
 
 ## 2. Runtime metrics
 
-- [ ] 2.1 Add `go.opentelemetry.io/contrib/instrumentation/runtime` v0.72.0; in `internal/telemetry` attach `runtime.NewProducer()` to both readers and call `runtime.Start` when metrics are active; tests that an active provider yields every `go.*` metric (with `go.memory.limit` only under a memory limit) and an inactive one none; verify `go test ./internal/telemetry/...`
+- [x] 2.1 Add `go.opentelemetry.io/contrib/instrumentation/runtime` v0.72.0; in `internal/telemetry` attach `runtime.NewProducer()` to both readers and call `runtime.Start` when metrics are active; tests that an active provider yields every `go.*` metric (with `go.memory.limit` only under a memory limit) and an inactive one none; verify `go test ./internal/telemetry/...`
 
 ## 3. HTTP client metrics
 
