@@ -22,12 +22,17 @@ The system SHALL contain a `registry/` directory at the repository root with a v
 
 ### Requirement: Metric schema covers all emitted metrics
 
-The registry SHALL define every metric emitted by the exporter: name, instrument type (gauge/counter/histogram/updowncounter), unit, brief description, signal `requirement_level`, and all attributes with their types and requirement levels. Every metric SHALL declare an `attributes:` block listing exactly the attributes the code attaches to it. The registry SHALL declare the resource attributes the exporter sets.
+The registry SHALL define every metric emitted by the exporter: name, instrument type (gauge/counter/histogram/updowncounter), unit, brief description, signal `requirement_level`, and all attributes with their types and requirement levels. Every metric SHALL declare an `attributes:` block listing exactly the attributes the code attaches to it. The registry SHALL declare the resource attributes the exporter sets. A metric defined by the OTel semantic conventions that the registry depends on SHALL be declared by importing it from that dependency and refining it, not by redefining it; the refinement SHALL remove any attribute the exporter never attaches.
 
 #### Scenario: All metric names present in registry
 
 - **WHEN** the registry is resolved
 - **THEN** it contains definitions for: `github.pr.count`, `github.pr.age`, `github.pr.close.duration`, `github.pr.automerged`, `github.pr.created`, `github.pr.merged`, `github.pr.closed`, `github.issue.count`, `github.issue.age`, `renovate.dashboard.queue`, `github_exporter.scrape.duration`, `github_exporter.api.errors`, `github_exporter.otlp.errors`, `github_exporter.api.rate_limit.remaining`, `github_exporter.api.rate_limit.reset`
+
+#### Scenario: Self-telemetry metrics imported from OTel semantic conventions
+
+- **WHEN** the registry is resolved
+- **THEN** `go.memory.used`, `go.memory.limit`, `go.memory.allocated`, `go.memory.allocations`, `go.memory.gc.goal`, `go.goroutine.count`, `go.processor.limit`, `go.config.gogc`, `go.schedule.duration`, `http.client.request.duration` and `http.client.request.body.size` come from the pinned OTel semantic conventions dependency through `imports`, and no file in `registry/` redefines them or their attributes
 
 #### Scenario: All attributes typed
 
@@ -61,12 +66,17 @@ The registry SHALL define every metric emitted by the exporter: name, instrument
 
 ### Requirement: Go constants generated from schema
 
-The system SHALL generate a `internal/semconv/` Go package from the Weaver registry containing typed constants for all metric names and attribute key strings.
+The system SHALL generate a `internal/semconv/` Go package from the Weaver registry containing typed constants for all metric names and attribute key strings the registry defines itself. Metrics and attributes imported from the OTel semantic conventions dependency SHALL NOT get generated constants; the instrumentation libraries that record them own their names.
 
 #### Scenario: Generated file is up to date
 
 - **WHEN** `make generate` is run
 - **THEN** `internal/semconv/metrics.go` and `internal/semconv/attributes.go` are regenerated and match the current registry
+
+#### Scenario: No constants for imported metrics
+
+- **WHEN** `make generate` is run
+- **THEN** `internal/semconv/metrics.go` has no constant for any `go.*` or `http.*` metric
 
 #### Scenario: No magic strings in collector code
 
@@ -75,7 +85,7 @@ The system SHALL generate a `internal/semconv/` Go package from the Weaver regis
 
 ### Requirement: Grafana dashboard generated from schema
 
-The system SHALL generate a `dashboards/github-activity.json` Grafana dashboard from the Weaver registry using a Jinja2 template. Every panel query SHALL be built from the metric's `annotations.prometheus.name` and `annotations.prometheus.type` in UTF-8 PromQL syntax, with names and UTF-8 label names quoted. The dashboard SHALL define the variables `datasource`, `job`, `exporter.target`, `github.org` and `github.repo`.
+The system SHALL generate a `dashboards/github-activity.json` Grafana dashboard from the Weaver registry using a Jinja2 template. Every panel query SHALL be built from the metric's `annotations.prometheus.name` and `annotations.prometheus.type` in UTF-8 PromQL syntax, with names and UTF-8 label names quoted; for an imported metric the annotation comes from its refinement. The dashboard SHALL define the variables `datasource`, `job`, `exporter.target`, `github.org` and `github.repo`.
 
 #### Scenario: Dashboard regenerated on schema change
 
@@ -95,12 +105,17 @@ The system SHALL generate a `dashboards/github-activity.json` Grafana dashboard 
 #### Scenario: Dashboard contains panels for key metrics
 
 - **WHEN** the dashboard is imported into Grafana
-- **THEN** it contains panels for: PR created/merged/closed rates globally and per repo, open PR count, oldest open PR age, open PRs by review status, PR close duration p50/p90, automerged rate, open issue count, oldest open issue age, GitHub API rate limit per pool, scrape duration, API errors and OTLP push errors, and a separate Dependency Dashboard row with the Renovate queue by section and parse errors
+- **THEN** it contains panels for: PR created/merged/closed rates globally and per repo, open PR count, oldest open PR age, open PRs by review status, PR close duration p50/p90, automerged rate, open issue count, oldest open issue age, GitHub API rate limit per pool, scrape duration, API errors and OTLP push errors, a separate Dependency Dashboard row with the Renovate queue by section and parse errors, and a separate "Exporter internals" row with runtime memory by type, heap goal and limit, heap allocation rate, goroutine count, and GitHub API request latency p50/p90 per `url.template` and `http.response.status_code`
 
 #### Scenario: Dependency Dashboard row without the collector
 
 - **WHEN** no target enables the Renovate Dependency Dashboard collector
 - **THEN** only the Dependency Dashboard row shows no data
+
+#### Scenario: Exporter internals row without self-telemetry metrics
+
+- **WHEN** self-telemetry metrics are inactive
+- **THEN** only the Exporter internals row shows no data
 
 ### Requirement: Schema validated in CI
 
@@ -118,12 +133,22 @@ The system SHALL run `weaver registry check --v2 -r registry/ -p policies/regist
 
 ### Requirement: Live-check integration test
 
-The system SHALL include an integration test that starts the exporter, collects metrics, and validates the emitted OTLP stream against the Weaver registry using `weaver registry live-check` in v2 mode with the default advice policies. Live-check SHALL fail on any metric, metric attribute or resource attribute the registry does not declare, and on any missing required attribute. The integration tests SHALL also emit every registry metric and fail unless the metric names in the live-check report are exactly the registry metric names and the report has no violation other than a missing required attribute.
+The system SHALL include an integration test that starts the exporter, collects metrics, and validates the emitted OTLP stream against the Weaver registry using `weaver registry live-check` in v2 mode with the default advice policies. Live-check SHALL fail on any metric, metric attribute or resource attribute the registry does not declare, and on any missing required attribute. The integration tests SHALL also emit every registry metric and fail unless the metric names in the live-check report are exactly the registry metric names and the report has no violation other than a missing required attribute. The OTLP run SHALL be made with self-telemetry metrics active, sending GitHub requests through the instrumented client, and with them inactive.
 
 #### Scenario: Emitted metrics conform to schema
 
 - **WHEN** the integration test runs
 - **THEN** `weaver registry live-check` exits with code 0 (no schema violations)
+
+#### Scenario: Self-telemetry metrics conform to schema
+
+- **WHEN** the integration test runs with self-telemetry metrics active and GitHub requests sent through the instrumented client
+- **THEN** live-check sees the `go.*` and `http.client.*` metrics, exits with code 0, and reports no undeclared metric or attribute
+
+#### Scenario: No self-telemetry metrics when inactive
+
+- **WHEN** the integration test runs with self-telemetry metrics inactive
+- **THEN** live-check sees no `go.*` and no `http.*` metric
 
 #### Scenario: OTLP names equal registry names
 
@@ -147,7 +172,7 @@ The system SHALL include an integration test that starts the exporter, collects 
 
 ### Requirement: Metric naming contract
 
-Every registry metric SHALL declare its Prometheus exposure as `annotations.prometheus.name` and `annotations.prometheus.type`. `prometheus.name` SHALL equal the metric name exactly: no type or unit suffix (`_total`, `_seconds`, ...) and no underscore escaping. `prometheus.type` SHALL follow from the instrument: counter -> `counter`, updowncounter -> `gauge`, gauge -> `gauge`, histogram -> `histogram`. The only derived names SHALL be the classic histogram sample series `<name>_bucket`, `<name>_sum` and `<name>_count`. `registry/manifest.yaml` SHALL NOT restate the contract in prose; it SHALL point at the annotations. The backend requirements for these names SHALL be documented in `README.md`.
+Every registry metric SHALL declare its Prometheus exposure as `annotations.prometheus.name` and `annotations.prometheus.type`; a metric imported from the OTel semantic conventions dependency SHALL declare them on its refinement. `prometheus.name` SHALL equal the metric name exactly: no type or unit suffix (`_total`, `_seconds`, ...) and no underscore escaping. `prometheus.type` SHALL follow from the instrument: counter -> `counter`, updowncounter -> `gauge`, gauge -> `gauge`, histogram -> `histogram`. The only derived names SHALL be the classic histogram sample series `<name>_bucket`, `<name>_sum` and `<name>_count`. `registry/manifest.yaml` SHALL NOT restate the contract in prose; it SHALL point at the annotations. The backend requirements for these names SHALL be documented in `README.md`.
 
 #### Scenario: Manifest states the contract
 
@@ -157,7 +182,12 @@ Every registry metric SHALL declare its Prometheus exposure as `annotations.prom
 #### Scenario: Every metric declares the annotation
 
 - **WHEN** the registry is resolved
-- **THEN** every metric has `annotations.prometheus.name` equal to its name and `annotations.prometheus.type` derived from its instrument
+- **THEN** every metric has `annotations.prometheus.name` equal to its name and `annotations.prometheus.type` derived from its instrument, on its own definition or, for an imported metric, on its refinement
+
+#### Scenario: Imported metric without the annotation
+
+- **WHEN** a metric is imported from the OTel semantic conventions dependency and no refinement declares its `annotations.prometheus`
+- **THEN** `weaver registry check` exits non-zero with a `violation` naming the metric
 
 #### Scenario: Prometheus name derivable from the registry
 
@@ -166,12 +196,17 @@ Every registry metric SHALL declare its Prometheus exposure as `annotations.prom
 
 ### Requirement: Prometheus exposition verified by live-check
 
-The integration tests SHALL scrape `/metrics`, convert the exposition to live-check samples and run `weaver registry live-check` on them with a policy that fails when a family's exposed type differs from `annotations.prometheus.type`. The run SHALL use its own weaver configuration that downgrades the built-in `unexpected_instrument` and `unit_mismatch` findings, since the exposition carries no unit and exposes updowncounters as `gauge`.
+The integration tests SHALL scrape `/metrics`, convert the exposition to live-check samples and run `weaver registry live-check` on them with a policy that fails when a family's exposed type differs from `annotations.prometheus.type`, including for imported metrics. The run SHALL use its own weaver configuration that downgrades the built-in `unexpected_instrument`, `unit_mismatch` and attribute `type_mismatch` findings, since the exposition carries no unit, exposes updowncounters as `gauge` and has only string label values. The `/metrics` run SHALL be made with self-telemetry metrics active and inactive.
 
 #### Scenario: Exposition conforms to the contract
 
 - **WHEN** every registry metric is recorded and `/metrics` is scraped with `Accept: application/openmetrics-text;version=1.0.0` first, or with plain text
 - **THEN** live-check sees exactly the registry metric names, no non-registry metric, and no violation other than a missing required attribute
+
+#### Scenario: Self-telemetry metrics on /metrics
+
+- **WHEN** self-telemetry metrics are active and `/metrics` is scraped
+- **THEN** live-check sees the `go.*` and `http.client.*` families, each with the type its `annotations.prometheus.type` declares, and no violation; with self-telemetry metrics inactive no `go.*` or `http.*` family is exposed
 
 #### Scenario: Suffixed name detected
 
