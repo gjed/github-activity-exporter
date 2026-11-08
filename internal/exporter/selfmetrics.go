@@ -102,6 +102,16 @@ func (s *SelfMetrics) RecordScrapeDuration(ctx context.Context, target string, s
 	)
 }
 
+// InitOverruns adds 0 to the overrun counter of target, so its series is
+// exported from the first push and increase() sees the first overrun.
+func (s *SelfMetrics) InitOverruns(ctx context.Context, target string) {
+	s.overruns.Add(ctx, 0,
+		metric.WithAttributes(
+			attribute.String(sc.AttrExporterTarget, target),
+		),
+	)
+}
+
 // RecordOverrun increments the overrun counter: a collection cycle of target
 // ran longer than the collection interval.
 func (s *SelfMetrics) RecordOverrun(ctx context.Context, target string) {

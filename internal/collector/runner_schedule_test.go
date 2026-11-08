@@ -111,6 +111,9 @@ func TestRunner_StartsCyclesEveryInterval(t *testing.T) {
 		if len(self.overruns) != 0 {
 			t.Errorf("overruns = %v, want none", self.overruns)
 		}
+		if len(self.inits) != 1 || self.inits[0] != "tgt" {
+			t.Errorf("overrun series initialised for %v, want once for tgt", self.inits)
+		}
 	})
 }
 
