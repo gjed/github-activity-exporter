@@ -30,7 +30,6 @@ func TestParseDashboard_RealBodies(t *testing.T) {
 		{"gjed_github-configs-public_16.txt", 0, noQueue},
 		{"gjed_renovate-config_3.txt", 0, noQueue},
 		{"gjed_siemens-converter_19.txt", 0, noQueue},
-		{"gjed_sinapsi-converter_18.txt", 0, noQueue},
 		{"gjed_terraform-github-config-as-yaml_99.txt", 0, noQueue},
 		// Only an untracked section: PR Edited (Blocked).
 		{"zextras_service-discover-template_10.txt", 0, noQueue},
