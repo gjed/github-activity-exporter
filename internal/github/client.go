@@ -87,6 +87,9 @@ type Client struct {
 
 	authHooks []AuthResultHook
 
+	// base is the transport under the rate limit transport.
+	base http.RoundTripper
+
 	// baseURL is the REST API root without a trailing slash.
 	baseURL string
 
@@ -119,6 +122,15 @@ func WithAuthResultHook(hook AuthResultHook) ClientOption {
 	}
 }
 
+// WithBaseTransport sets the transport the client sends requests through,
+// under its rate limit and auth handling; see NewTransport. Default
+// http.DefaultTransport.
+func WithBaseTransport(rt http.RoundTripper) ClientOption {
+	return func(c *Client) {
+		c.base = rt
+	}
+}
+
 // WithLogger sets the logger for the client.
 func WithLogger(logger *slog.Logger) ClientOption {
 	return func(c *Client) {
@@ -141,12 +153,13 @@ func NewClient(auth Authenticator, opts ...ClientOption) (*Client, error) {
 		logger:  slog.Default(),
 		baseURL: defaultGitHubAPIURL,
 		rlPools: make(map[string]*poolState),
+		base:    http.DefaultTransport,
 	}
 	for _, o := range opts {
 		o(c)
 	}
 
-	transport := &rateLimitTransport{client: c, inner: http.DefaultTransport}
+	transport := &rateLimitTransport{client: c, inner: c.base}
 	tokenSource := &authenticatorTokenSource{auth: auth, client: c}
 	oauthTransport := &oauth2.Transport{Source: tokenSource, Base: transport}
 	httpClient := &http.Client{Transport: oauthTransport}

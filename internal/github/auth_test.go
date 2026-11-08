@@ -60,7 +60,7 @@ func TestPATAuthenticator_Ping_success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	auth := internalgithub.NewPATAuthenticatorWithBase("ghp_ok", srv.URL)
+	auth := internalgithub.NewPATAuthenticatorWithBase("ghp_ok", srv.URL, nil)
 	if err := auth.Ping(context.Background()); err != nil {
 		t.Fatalf("Ping() unexpected error: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestPATAuthenticator_Ping_unauthorized(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	auth := internalgithub.NewPATAuthenticatorWithBase("ghp_bad", srv.URL)
+	auth := internalgithub.NewPATAuthenticatorWithBase("ghp_bad", srv.URL, nil)
 	err := auth.Ping(context.Background())
 	if err == nil {
 		t.Fatal("expected error for 401, got nil")

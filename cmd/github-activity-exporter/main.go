@@ -130,7 +130,13 @@ func main() {
 	}
 
 	// ── Build per-target runners ──────────────────────────────────────────────
-	runners, err := buildRunners(ctx, cfg, logger, meter, selfMetrics, tracker,
+	// GitHub HTTP client metrics go on the self-telemetry MeterProvider; with
+	// self-telemetry metrics inactive the GitHub transport is not instrumented.
+	var httpMeterProvider metric.MeterProvider
+	if tel.Active(telemetry.SignalMetrics) {
+		httpMeterProvider = tel.MeterProvider()
+	}
+	runners, err := buildRunners(ctx, cfg, logger, meter, httpMeterProvider, selfMetrics, tracker,
 		collector.WithInterval(exporterCfg.CollectionInterval),
 		collector.WithSelfMetrics(selfMetrics),
 		collector.WithFlush(provider.ForceFlush),
@@ -206,13 +212,14 @@ func buildRunners(
 	cfg *config.Config,
 	logger *slog.Logger,
 	meter metric.Meter,
+	httpMeterProvider metric.MeterProvider,
 	selfMetrics *exporter.SelfMetrics,
 	tracker *health.Tracker,
 	opts ...collector.RunnerOption,
 ) ([]*collector.Runner, error) {
 	runners := make([]*collector.Runner, 0, len(cfg.Targets))
 	for _, t := range cfg.Targets {
-		r, err := buildTargetRunner(ctx, t, logger, meter, selfMetrics, tracker, opts...)
+		r, err := buildTargetRunner(ctx, t, logger, meter, httpMeterProvider, selfMetrics, tracker, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("target %q: %w", t.Name, err)
 		}
@@ -221,17 +228,24 @@ func buildRunners(
 	return runners, nil
 }
 
-// buildTargetRunner builds a Runner for a single config.Target.
+// buildTargetRunner builds a Runner for a single config.Target. A nil
+// httpMeterProvider leaves the GitHub HTTP transport uninstrumented.
 func buildTargetRunner(
 	ctx context.Context,
 	t config.Target,
 	logger *slog.Logger,
 	otelMeter metric.Meter,
+	httpMeterProvider metric.MeterProvider,
 	selfMetrics *exporter.SelfMetrics,
 	tracker *health.Tracker,
 	opts ...collector.RunnerOption,
 ) (*collector.Runner, error) {
-	auth, err := buildAuthenticator(t.Auth, t.BaseURL)
+	transport, err := ghclient.NewTransport(t.BaseURL, httpMeterProvider)
+	if err != nil {
+		return nil, fmt.Errorf("build github transport: %w", err)
+	}
+
+	auth, err := buildAuthenticator(t.Auth, t.BaseURL, &http.Client{Transport: transport})
 	if err != nil {
 		return nil, fmt.Errorf("build authenticator: %w", err)
 	}
@@ -239,6 +253,7 @@ func buildTargetRunner(
 	ghc, err := ghclient.NewClient(auth,
 		ghclient.WithLogger(logger),
 		ghclient.WithBaseURL(t.BaseURL),
+		ghclient.WithBaseTransport(transport),
 		// The hook runs in the client transport and has no context.
 		ghclient.WithRateLimitHook(func(s ghclient.RateLimitState) {
 			selfMetrics.RecordRateLimit(context.Background(), t.Name, s.Resource, s.Remaining, s.ResetAt)
@@ -309,10 +324,10 @@ func newDashboardCollector(
 }
 
 // buildAuthenticator creates an Authenticator from the target auth config,
-// talking to the target's REST API root.
-func buildAuthenticator(a config.Auth, baseURL string) (ghclient.Authenticator, error) {
+// talking to the target's REST API root through client.
+func buildAuthenticator(a config.Auth, baseURL string, client *http.Client) (ghclient.Authenticator, error) {
 	if a.Token != "" {
-		return ghclient.NewPATAuthenticatorWithBase(a.Token, baseURL), nil
+		return ghclient.NewPATAuthenticatorWithBase(a.Token, baseURL, client), nil
 	}
 	opts := ghclient.AppAuthOptions{
 		AppID:            a.App.AppID,
@@ -320,6 +335,7 @@ func buildAuthenticator(a config.Auth, baseURL string) (ghclient.Authenticator, 
 		PrivateKeyPath:   a.App.PrivateKeyPath,
 		PrivateKeyBase64: a.App.PrivateKeyValue,
 		BaseURL:          baseURL,
+		HTTPClient:       client,
 	}
 	return ghclient.NewAppAuthenticator(opts)
 }

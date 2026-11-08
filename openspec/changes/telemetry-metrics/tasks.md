@@ -12,9 +12,9 @@
 
 ## 3. HTTP client metrics
 
-- [ ] 3.1 Add `otelhttp` v0.72.0; add `NewTransport(mp)` with `routeTransport` (route table, `url.template`, `error.type` for 4xx/5xx, no-op tracer and propagator), `WithBaseTransport` on `Client`, and an HTTP client on the PAT and App authenticators for ping and token exchange; verify `go build ./...`
-- [ ] 3.2 Transport tests in `internal/github` with `httptest` and a `ManualReader`: 401 reaches the auth hook and is recorded; rate-limit pause and gauges unchanged and the paused request's duration excludes the wait; REST, GraphQL, ping and token exchange `url.template` (github.com and GHES roots); no repo name in attributes; unknown path without `url.template`; 5xx `error.type`; nil provider returns `http.DefaultTransport`; verify `go test ./internal/github/...`
-- [ ] 3.3 Wire in `main.go`: build the transport from `tel.MeterProvider()` only when `tel.Active(telemetry.SignalMetrics)`, pass it to the client and authenticators; verify `go build ./... && go test ./cmd/...`
+- [x] 3.1 Add `otelhttp` v0.72.0; add `NewTransport(mp)` with `routeTransport` (route table, `url.template`, `error.type` for 4xx/5xx, no-op tracer and propagator), `WithBaseTransport` on `Client`, and an HTTP client on the PAT and App authenticators for ping and token exchange; verify `go build ./...`
+- [x] 3.2 Transport tests in `internal/github` with `httptest` and a `ManualReader`: 401 reaches the auth hook and is recorded; rate-limit pause and gauges unchanged and the paused request's duration excludes the wait; REST, GraphQL, ping and token exchange `url.template` (github.com and GHES roots); no repo name in attributes; unknown path without `url.template`; 5xx `error.type`; nil provider returns `http.DefaultTransport`; verify `go test ./internal/github/...`
+- [x] 3.3 Wire in `main.go`: build the transport from `tel.MeterProvider()` only when `tel.Active(telemetry.SignalMetrics)`, pass it to the client and authenticators; verify `go build ./... && go test ./cmd/...`
 
 ## 4. Live-checks
 
