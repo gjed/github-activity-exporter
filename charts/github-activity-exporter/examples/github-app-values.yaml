@@ -9,6 +9,7 @@ config:
   export:
     otlp:
       endpoint: https://otlp.example.com:4318
+      headers_env: OTLP_HEADERS
     prometheus:
       enabled: true
       listen_address: ":9090"
@@ -27,7 +28,7 @@ config:
 secret:
   existingSecret: github-activity-exporter
   env:
-    OTEL_EXPORTER_OTLP_HEADERS: otlp-headers
+    OTLP_HEADERS: otlp-headers
   files:
     - app-key.pem
 

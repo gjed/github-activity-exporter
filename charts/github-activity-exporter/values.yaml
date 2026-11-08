@@ -26,7 +26,9 @@ secret:
   #   GITHUB_TOKEN: github-token                # targets without an auth block
   #   ACME_GITHUB_TOKEN: acme-token             # auth.token_env: ACME_GITHUB_TOKEN
   #   GITHUB_APP_KEY: app-key-b64               # auth.app.private_key_env: GITHUB_APP_KEY
-  #   OTEL_EXPORTER_OTLP_HEADERS: otlp-headers  # "authorization=Bearer ...,x-scope-orgid=..."
+  #   OTLP_HEADERS: otlp-headers                # export.otlp.headers_env: OTLP_HEADERS, "authorization=Bearer ...,x-scope-orgid=..."
+  # These vars precede `env` in the pod, so an `env` value can reference them
+  # as $(VAR), e.g. OTLP_HEADERS: "authorization=Bearer $(OTLP_TOKEN)".
   env: {}
   # Secret keys mounted read-only at /etc/github-activity-exporter/secrets/<key>,
   # for example app-key.pem for auth.app.private_key_path.
