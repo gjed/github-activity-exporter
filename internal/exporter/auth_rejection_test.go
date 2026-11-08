@@ -12,12 +12,16 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	colmetricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/gjed/github-activity-exporter/internal/exporter"
+	sc "github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
 const (
@@ -44,8 +48,8 @@ func (b *syncBuffer) String() string {
 }
 
 // pushTwiceRejected pushes twice to an endpoint that rejects both pushes and
-// returns the log output. Every request must carry the auth header.
-func pushTwiceRejected(t *testing.T, cfg exporter.Config) string {
+// returns the log output and the github_exporter.otlp.errors total.
+func pushTwiceRejected(t *testing.T, cfg exporter.Config) (string, int64) {
 	t.Helper()
 	var logs syncBuffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -56,14 +60,45 @@ func pushTwiceRejected(t *testing.T, cfg exporter.Config) string {
 		t.Fatalf("New: %v", err)
 	}
 	t.Cleanup(func() { _ = p.Shutdown(context.Background()) })
+	// New sets the global MeterProvider, and the error counter is created on
+	// the global one at the first failure: swap in a readable one.
+	reader := sdkmetric.NewManualReader()
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
 	push(t, p)
 	push(t, p)
-	return logs.String()
+	return logs.String(), otlpErrors(t, reader)
 }
 
-// checkAuthLogs asserts two push failures, one auth warning, and no header value.
-func checkAuthLogs(t *testing.T, logs string) {
+// otlpErrors sums the github_exporter.otlp.errors data points in reader.
+func otlpErrors(t *testing.T, reader *sdkmetric.ManualReader) int64 {
 	t.Helper()
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	var total int64
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != sc.MetricGitHubExporterOTLPErrors {
+				continue
+			}
+			for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
+				total += dp.Value
+			}
+		}
+	}
+	return total
+}
+
+// checkAuthLogs asserts two counted push failures, one auth warning, and no
+// header value.
+func checkAuthLogs(t *testing.T, logs string, errs int64) {
+	t.Helper()
+	if errs != 2 {
+		t.Errorf("github_exporter.otlp.errors = %d, want 2", errs)
+	}
 	if n := strings.Count(logs, "OTLP export failed"); n != 2 {
 		t.Errorf("got %d export failure warnings, want 2:\n%s", n, logs)
 	}
@@ -88,7 +123,8 @@ func TestAuthRejection_HTTP(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 
-			checkAuthLogs(t, pushTwiceRejected(t, exporter.Config{OTLPEndpoint: srv.URL + "/v1/metrics"}))
+			logs, errs := pushTwiceRejected(t, exporter.Config{OTLPEndpoint: srv.URL + "/v1/metrics"})
+			checkAuthLogs(t, logs, errs)
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -117,7 +153,10 @@ func TestAuthRejection_AfterOtherFailure(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	logs := pushTwiceRejected(t, exporter.Config{OTLPEndpoint: srv.URL + "/v1/metrics"})
+	logs, errs := pushTwiceRejected(t, exporter.Config{OTLPEndpoint: srv.URL + "/v1/metrics"})
+	if errs != 2 {
+		t.Errorf("github_exporter.otlp.errors = %d, want 2", errs)
+	}
 	if c := strings.Count(logs, authWarning); c != 1 {
 		t.Errorf("got %d auth rejection warnings, want 1:\n%s", c, logs)
 	}
@@ -129,7 +168,7 @@ func TestAuthRejection_HTTPServerError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	logs := pushTwiceRejected(t, exporter.Config{OTLPEndpoint: srv.URL + "/v1/metrics"})
+	logs, _ := pushTwiceRejected(t, exporter.Config{OTLPEndpoint: srv.URL + "/v1/metrics"})
 	if strings.Contains(logs, authWarning) {
 		t.Errorf("auth warning logged for a 400:\n%s", logs)
 	}
@@ -156,11 +195,12 @@ func TestAuthRejection_GRPC(t *testing.T) {
 			go func() { _ = gs.Serve(lis) }()
 			t.Cleanup(gs.Stop)
 
-			checkAuthLogs(t, pushTwiceRejected(t, exporter.Config{
+			logs, errs := pushTwiceRejected(t, exporter.Config{
 				OTLPEndpoint: lis.Addr().String(),
 				Protocol:     exporter.ProtocolGRPC,
 				TLSInsecure:  true,
-			}))
+			})
+			checkAuthLogs(t, logs, errs)
 		})
 	}
 }
