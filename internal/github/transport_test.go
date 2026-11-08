@@ -252,10 +252,17 @@ func TestNewTransport_ErrorStatus(t *testing.T) {
 	// A request that fails without a response.
 	srv.Close()
 	_, _, _ = c.REST().Issues.ListByRepo(ctx, "o", "r", opts)
+	failed := 0
 	for _, p := range httpPoints(t, reader) {
-		if _, hasStatus := p.attrs["http.response.status_code"]; !hasStatus && p.attrs["error.type"] == "" {
-			t.Errorf("failed request recorded without error.type: %v", p.attrs)
+		if _, hasStatus := p.attrs["http.response.status_code"]; !hasStatus {
+			failed++
+			if p.attrs["error.type"] == "" {
+				t.Errorf("failed request recorded without error.type: %v", p.attrs)
+			}
 		}
+	}
+	if failed == 0 {
+		t.Error("request that failed without a response was not recorded")
 	}
 }
 
