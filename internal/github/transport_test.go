@@ -95,7 +95,7 @@ func fakeGitHub(t *testing.T, prefix, gqlPath string) *httptest.Server {
 		case strings.HasSuffix(r.URL.Path, "/access_tokens"):
 			w.WriteHeader(http.StatusCreated)
 			_, _ = fmt.Fprintf(w, `{"token":"ghs_x","expires_at":%q}`, time.Now().Add(time.Hour).Format(time.RFC3339))
-		case strings.HasSuffix(r.URL.Path, "/issues"), strings.HasSuffix(r.URL.Path, "/repos"):
+		case strings.HasSuffix(r.URL.Path, "/repos"):
 			_, _ = w.Write([]byte(`[]`))
 		default:
 			_, _ = w.Write([]byte(`{}`))
@@ -137,9 +137,6 @@ func TestNewTransport_URLTemplate(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewClient: %v", err)
 			}
-			if _, _, err := c.REST().Issues.ListByRepo(ctx, "acme", "widgets", &github.IssueListByRepoOptions{}); err != nil {
-				t.Fatalf("ListByRepo: %v", err)
-			}
 			if _, _, err := c.REST().Repositories.ListByOrg(ctx, "acme", nil); err != nil {
 				t.Fatalf("ListByOrg: %v", err)
 			}
@@ -156,7 +153,6 @@ func TestNewTransport_URLTemplate(t *testing.T) {
 				tc.prefix + "/app":  true,
 				tc.prefix + "/user": true,
 				tc.prefix + "/app/installations/{installation_id}/access_tokens": true,
-				tc.prefix + "/repos/{owner}/{repo}/issues":                       true,
 				tc.prefix + "/orgs/{org}/repos":                                  true,
 				tc.gqlPath:                                                       true,
 				"":                                                               true, // GET /repos/acme/widgets is not a known route
