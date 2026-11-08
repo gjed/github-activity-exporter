@@ -2,17 +2,24 @@ package collector_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"regexp"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gjed/github-activity-exporter/internal/collector"
 	"github.com/gjed/github-activity-exporter/internal/config"
 	"github.com/gjed/github-activity-exporter/internal/discovery"
+	ghclient "github.com/gjed/github-activity-exporter/internal/github"
 	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
@@ -238,5 +245,89 @@ func TestIssueCollector_QueryError(t *testing.T) {
 	}
 	if len(snap.counts) != 0 || snap.age != -1 {
 		t.Errorf("emitted %v, age %v for a failed repo, want nothing", snap.counts, snap.age)
+	}
+}
+
+// TestIssueAndDashboard_GraphQLPool runs the issue collector (both paths) and
+// the dashboard collector through the real GitHub client: every request goes
+// to /graphql, the rate-limit hook sees the graphql pool only, and the
+// responses decode into the queries.
+func TestIssueAndDashboard_GraphQLPool(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		paths    []string
+		createdB []string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Query     string
+			Variables struct {
+				FilterBy *struct{ CreatedBy string } `json:"filterBy"`
+			}
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		if req.Variables.FilterBy != nil {
+			createdB = append(createdB, req.Variables.FilterBy.CreatedBy)
+		}
+		mu.Unlock()
+
+		w.Header().Set("X-RateLimit-Resource", "graphql")
+		w.Header().Set("X-RateLimit-Remaining", "4999")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10))
+		w.Header().Set("Content-Type", "application/json")
+		page := `"pageInfo":{"hasNextPage":false,"endCursor":"x"}`
+		switch {
+		case strings.Contains(req.Query, "filterBy"):
+			fmt.Fprintf(w, `{"data":{"repository":{"issues":{"nodes":[{"title":"Dependency Dashboard","body":%q,"author":{"__typename":"Bot","login":"renovate"}}],%s}}}}`, typicalDashboard, page)
+		case strings.Contains(req.Query, "oldest:"):
+			fmt.Fprintf(w, `{"data":{"repository":{"open":{"totalCount":2},"closed":{"totalCount":1},"oldest":{"nodes":[{"createdAt":"2026-01-01T00:00:00Z"}]},"labels":{"nodes":[{"name":"bug","issues":{"totalCount":2}}],%s}}}}`, page)
+		default:
+			fmt.Fprintf(w, `{"data":{"repository":{"issues":{"nodes":[{"state":"OPEN","title":"bug","createdAt":"2026-01-01T00:00:00Z","labels":{"nodes":[{"name":"bug"}]}}],%s}}}}`, page)
+		}
+	}))
+	defer srv.Close()
+
+	var pools []string
+	ghc, err := ghclient.NewClient(ghclient.NewPATAuthenticator("token"),
+		ghclient.WithBaseURL(srv.URL),
+		ghclient.WithRateLimitHook(func(s ghclient.RateLimitState) {
+			mu.Lock()
+			pools = append(pools, s.Resource)
+			mu.Unlock()
+		}),
+	)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	counted := collectIssues(t, ghc.GraphQL(), config.IssueFilters{})
+	if want := map[string]int64{"state=open": 2, "state=closed": 1, "label=bug": 2}; !maps.Equal(counted.counts, want) {
+		t.Errorf("counted: counts = %v, want %v", counted.counts, want)
+	}
+	listed := collectIssues(t, ghc.GraphQL(), config.IssueFilters{ExcludeTitleRegexps: []*regexp.Regexp{regexp.MustCompile(`^never$`)}})
+	if want := map[string]int64{"state=open": 1, "label=bug": 1}; !maps.Equal(listed.counts, want) {
+		t.Errorf("listed: counts = %v, want %v", listed.counts, want)
+	}
+	if queue, failed := collectDashboard(t, ghc.GraphQL(), "renovate[bot]"); len(queue) == 0 || len(failed) != 0 {
+		t.Errorf("dashboard: queue = %v, failed = %v, want found", queue, failed)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if fmt.Sprint(paths) != "[/graphql /graphql /graphql]" {
+		t.Errorf("request paths = %v, want three /graphql", paths)
+	}
+	if fmt.Sprint(createdB) != "[renovate[bot]]" {
+		t.Errorf("createdBy = %v, want [renovate[bot]]", createdB)
+	}
+	if len(pools) == 0 {
+		t.Error("rate-limit hook never called")
+	}
+	for _, p := range pools {
+		if p != "graphql" {
+			t.Errorf("rate-limit hook pool = %q, want graphql", p)
+		}
 	}
 }
