@@ -32,7 +32,7 @@ func TestDashboardQueries(t *testing.T) {
 	promURL := startPrometheus(t)
 	mock := newMockGitHub(t)
 	otlpURL := startOTLPProxy(t, promURL)
-	exited := startExporter(t, mock.URL+"/api/v3", otlpURL)
+	exited := startExporter(t, mock.URL+"/api/v3", otlpURL, promURL+otlpMetricsPath)
 
 	want := expectedSeriesNames(t)
 	waitForSamples(t, promURL, want, exited)
@@ -60,17 +60,25 @@ func TestDashboardQueries(t *testing.T) {
 	}
 }
 
-// signalsFile is the part of registry/signals.yaml the e2e reads.
-type signalsFile struct {
-	Metrics []struct {
-		Name        string `yaml:"name"`
-		Annotations struct {
-			Prometheus struct {
-				Name string `yaml:"name"`
-				Type string `yaml:"type"`
-			} `yaml:"prometheus"`
-		} `yaml:"annotations"`
-	} `yaml:"metrics"`
+// registryMetric is the part of a registry metric or metric refinement the
+// e2e reads.
+type registryMetric struct {
+	Name        string `yaml:"name"`
+	Ref         string `yaml:"ref"`
+	Annotations struct {
+		Prometheus struct {
+			Name string `yaml:"name"`
+			Type string `yaml:"type"`
+		} `yaml:"prometheus"`
+	} `yaml:"annotations"`
+}
+
+// registryFile is the part of a registry/*.yaml definition file the e2e reads:
+// own metrics, and refinements of metrics imported from the OTel semantic
+// conventions (registry/telemetry.yaml), which carry their annotations.
+type registryFile struct {
+	Metrics           []registryMetric `yaml:"metrics"`
+	MetricRefinements []registryMetric `yaml:"metric_refinements"`
 }
 
 // expectedSeriesNames returns the Prometheus series names of every registry
@@ -78,19 +86,31 @@ type signalsFile struct {
 // histogram is stored as classic <name>_bucket, _sum and _count series.
 func expectedSeriesNames(t *testing.T) []string {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(repoRoot(), "registry", "signals.yaml"))
+	files, err := filepath.Glob(filepath.Join(repoRoot(), "registry", "*.yaml"))
 	if err != nil {
-		t.Fatalf("read registry: %v", err)
+		t.Fatalf("list registry: %v", err)
 	}
-	var sig signalsFile
-	if err := yaml.Unmarshal(raw, &sig); err != nil {
-		t.Fatalf("parse registry: %v", err)
+	var metrics []registryMetric
+	for _, f := range files {
+		if filepath.Base(f) == "manifest.yaml" {
+			continue
+		}
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read registry: %v", err)
+		}
+		var rf registryFile
+		if err := yaml.Unmarshal(raw, &rf); err != nil {
+			t.Fatalf("parse %s: %v", f, err)
+		}
+		metrics = append(metrics, rf.Metrics...)
+		metrics = append(metrics, rf.MetricRefinements...)
 	}
 	var names []string
-	for _, m := range sig.Metrics {
+	for _, m := range metrics {
 		p := m.Annotations.Prometheus
 		if p.Name == "" {
-			t.Fatalf("registry metric %q has no annotations.prometheus.name", m.Name)
+			t.Fatalf("registry metric %q has no annotations.prometheus.name", m.Name+m.Ref)
 		}
 		if p.Type == "histogram" {
 			names = append(names, p.Name+"_bucket", p.Name+"_sum", p.Name+"_count")
