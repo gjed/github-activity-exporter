@@ -249,12 +249,17 @@ The system SHALL NOT write any OTLP header value, from `export.otlp.headers` or 
 
 ### Requirement: Auth rejection warning
 
-When the first OTLP push of the process is rejected as unauthenticated or forbidden (HTTP 401/403, gRPC `Unauthenticated`/`PermissionDenied`), the system SHALL log one warning that names `export.otlp.headers` and `export.otlp.headers_env`. `/healthz` and `/readyz` SHALL NOT change because of OTLP push failures.
+The first time in the process an OTLP push is rejected as unauthenticated or forbidden (HTTP 401/403, gRPC `Unauthenticated`/`PermissionDenied`), the system SHALL log one warning that names `export.otlp.headers` and `export.otlp.headers_env`. `/healthz` and `/readyz` SHALL NOT change because of OTLP push failures.
 
 #### Scenario: First push gets 401
 
 - **WHEN** the first OTLP push gets HTTP 401
 - **THEN** one auth-rejection warning is logged, `github_exporter.otlp.errors` is incremented, and `/healthz` stays 200
+
+#### Scenario: 401 after another failure
+
+- **WHEN** the first OTLP push fails because the endpoint is not ready and the next one gets HTTP 401
+- **THEN** one auth-rejection warning is logged for the 401
 
 #### Scenario: Later rejections
 
