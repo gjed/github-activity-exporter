@@ -14,6 +14,7 @@ Examples:
 - [`examples/renovate-values.yaml`](examples/renovate-values.yaml): Renovate PRs and the Dependency Dashboard of one org, with a PAT.
 - [`examples/github-app-values.yaml`](examples/github-app-values.yaml): an org through a GitHub App, with the Prometheus bridge, a ServiceMonitor and the Grafana dashboard.
 - [`examples/self-telemetry-values.yaml`](examples/self-telemetry-values.yaml): one org with a PAT, plus self-telemetry metrics (Go runtime and GitHub API client metrics).
+- [`examples/profiles-values.yaml`](examples/profiles-values.yaml): Renovate PRs of one org, with profiles pushed to an in-cluster OpenTelemetry Collector.
 
 ## Config
 
@@ -73,6 +74,10 @@ The Deployment runs exactly one replica and the count is not configurable. Two e
 ## Security
 
 The pod runs as UID/GID 65532 with a read-only root filesystem, no privilege escalation, all capabilities dropped, the `RuntimeDefault` seccomp profile and no service account token. It is admitted by the `restricted` Pod Security Standard.
+
+## Profiles
+
+[`examples/profiles-values.yaml`](examples/profiles-values.yaml) turns on profiles: the exporter pushes Go pprof profiles to the `pprof` receiver of an OpenTelemetry Collector, which forwards them as OTLP profiles (see [Profiles](https://github.com/gjed/github-activity-exporter#profiles)). The push is outbound only, so the chart opens no port for it and there is no `/debug/pprof/` endpoint on the health port. The push has no authentication: point `telemetry.profiles.endpoint` at a Collector inside the cluster, never at one reachable from outside it. A bad profiles setting is logged as an error and the pod runs with profiles off.
 
 ## Grafana dashboard
 
