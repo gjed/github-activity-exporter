@@ -1,0 +1,36 @@
+# Renovate PRs of one org with a PAT, plus self-telemetry profiles pushed to the
+# pprof receiver of an in-cluster OpenTelemetry Collector (otelcol-contrib).
+# The push has no authentication: keep the Collector inside the cluster.
+#
+#   kubectl create secret generic github-activity-exporter \
+#     --from-literal=github-token="$GITHUB_TOKEN" \
+#     --from-literal=otlp-headers='authorization=Bearer <token>'
+config:
+  export:
+    otlp:
+      endpoint: https://otlp.example.com:4318
+  telemetry:
+    enabled: true
+    metrics:
+      enabled: false
+    traces:
+      enabled: false
+    logs:
+      enabled: false
+    profiles:
+      enabled: true
+      endpoint: http://otel-collector.monitoring.svc:4040
+      interval: 60s
+  targets:
+    - name: renovate
+      orgs:
+        - org: my-org
+      filters:
+        prs:
+          authors: ["renovate[bot]"]
+
+secret:
+  existingSecret: github-activity-exporter
+  env:
+    GITHUB_TOKEN: github-token
+    OTEL_EXPORTER_OTLP_HEADERS: otlp-headers
