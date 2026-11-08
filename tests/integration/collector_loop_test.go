@@ -37,6 +37,8 @@ func TestCollectionLoop_MockData(t *testing.T) {
 
 	// ── Dashboard fixture ──────────────────────────────────────────────────────
 	dashBody := `
+This issue lists Renovate updates and detected dependencies.
+
 ## Awaiting Schedule
 - [ ] foo
 - [ ] bar

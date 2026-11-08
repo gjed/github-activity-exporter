@@ -6,8 +6,8 @@
 
 ## 2. Parse error semantics (#78)
 
-- [ ] 2.1 Detect a Renovate dashboard by the four markers in design.md, set `parse_error` only when none is present, and zero-fill the four tracked sections; verify with table-driven tests asserting `parse_error=0` and all-zero queues for the five no-branch fixtures and zextras/service-discover-template#10, and `parse_error=1` for a non-dashboard body
-- [ ] 2.2 Update the `renovate.dashboard.parse_error` note in `registry/signals.yaml`, run `make generate`, and verify `make check-schema` passes
+- [x] 2.1 Detect a Renovate dashboard by the four markers in design.md, set `parse_error` only when none is present, and zero-fill the four tracked sections; verify with table-driven tests asserting `parse_error=0` and all-zero queues for the five no-branch fixtures and zextras/service-discover-template#10, and `parse_error=1` for a non-dashboard body
+- [x] 2.2 Update the `renovate.dashboard.parse_error` note in `registry/signals.yaml`, run `make generate`, and verify `make check-schema` passes
 
 ## 3. Branch-only queue counts (#79)
 

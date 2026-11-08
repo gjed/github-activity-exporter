@@ -36,7 +36,7 @@ func dashboardIssue(title, body, author string) *github.Issue {
 }
 
 const typicalDashboard = `
-This issue contains a list of Renovate updates and their statuses.
+This issue lists Renovate updates and detected dependencies.
 
 ## Awaiting Schedule
 - [ ] Update dependency foo to v2.0.0
@@ -55,6 +55,7 @@ This issue contains a list of Renovate updates and their statuses.
 `
 
 const emptyDashboard = `
+This issue lists Renovate updates and detected dependencies.
 ## Awaiting Schedule
 
 ## Rate-Limited
@@ -70,6 +71,7 @@ Some text here.
 `
 
 const extraSectionsDashboard = `
+This issue lists Renovate updates and detected dependencies.
 ## Awaiting Schedule
 - [ ] foo
 

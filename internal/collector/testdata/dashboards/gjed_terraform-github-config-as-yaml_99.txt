@@ -1,0 +1,86 @@
+This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.
+
+This repository currently has no open or pending branches.
+
+## Detected Dependencies
+
+<details><summary>github-actions (3)</summary>
+<blockquote>
+
+<details><summary>.github/workflows/ci.yml (11)</summary>
+
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `hashicorp/setup-terraform v4.0.1@dfe3c3f87815947d99a8997f908cb6525fc44e9e`
+ - `terraform-linters/setup-tflint v6.3.2@6ffdbaa3be476b3431f7275c26966ef32ff60337`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `hashicorp/setup-terraform v4.0.1@dfe3c3f87815947d99a8997f908cb6525fc44e9e`
+ - `python 3.15`
+ - `python 3.15`
+
+</details>
+
+<details><summary>.github/workflows/e2e.yml (4)</summary>
+
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `hashicorp/setup-terraform v4.0.1@dfe3c3f87815947d99a8997f908cb6525fc44e9e`
+ - `actions/setup-python v7.1.0@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`
+ - `python 3.15`
+
+</details>
+
+<details><summary>.github/workflows/release.yml (3)</summary>
+
+ - `actions/create-github-app-token v3.3.0@64ab729a6294000f5aa4a4bc0b73d1f32bc45510`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `cycjimmy/semantic-release-action v8.1.4@ad51787758d9654d5a75150a89a6fa9b3ccef95e`
+
+</details>
+
+</blockquote>
+</details>
+
+<details><summary>pip_requirements (1)</summary>
+<blockquote>
+
+<details><summary>requirements.txt (3)</summary>
+
+ - `pre-commit >=4.0.0`
+ - `checkov >=3.0.0`
+ - `pytest >=8.0.0`
+
+</details>
+
+</blockquote>
+</details>
+
+<details><summary>terraform (3)</summary>
+<blockquote>
+
+<details><summary>main.tf (2)</summary>
+
+ - `github >= 6.12.0`
+ - `hashicorp/terraform >= 1.5`
+
+</details>
+
+<details><summary>modules/repository/main.tf (2)</summary>
+
+ - `github >= 6.12.0`
+ - `hashicorp/terraform >= 1.0`
+
+</details>
+
+<details><summary>modules/team/main.tf (2)</summary>
+
+ - `github >= 6.12.0`
+ - `hashicorp/terraform >= 1.0`
+
+</details>
+
+</blockquote>
+</details>
+
