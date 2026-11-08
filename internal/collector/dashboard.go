@@ -21,6 +21,15 @@ var dashboardSectionRE = regexp.MustCompile(
 	`(?m)^## (Awaiting Schedule|Rate-Limited|Pending Approval|Open)\s*$`,
 )
 
+// dashboardMarkerRE matches text that Renovate always writes into a Dependency
+// Dashboard regardless of user configuration (see
+// lib/workers/repository/dependency-dashboard.ts in renovatebot/renovate 44.222.4):
+// the default dependencyDashboardHeader, the no-branches notice, the Detected
+// Dependencies heading, or a branch checkbox comment.
+var dashboardMarkerRE = regexp.MustCompile(
+	`This issue lists Renovate updates|This repository currently has no open or pending branches\.|(?m:^## Detected Dependencies\s*$)|<!-- [a-zA-Z]+-branch=\S+ -->`,
+)
+
 // anyH2RE matches any level-2 Markdown heading. Used as a generic boundary
 // so that unknown/future sections don't bleed into the previous known section.
 var anyH2RE = regexp.MustCompile(`(?m)^## .*$`)
@@ -56,7 +65,7 @@ type DashboardCollector struct {
 type dashboardStats struct {
 	// sections maps semconv section value → count of list items
 	sections   map[string]int64
-	parseError int64 // 1 if no sections found, 0 on success
+	parseError int64 // 1 if the body is not a Renovate dashboard, 0 otherwise
 }
 
 // DashboardCollectResult holds per-repo dashboard stats.
@@ -209,7 +218,9 @@ func isDashboardIssue(iss *github.Issue, botLogin string) bool {
 }
 
 // parseDashboard parses a Renovate Dependency Dashboard issue body and returns
-// queue counts per section. If no expected sections are found, parseError is set to 1.
+// queue counts per section. parseError is set to 1 only when the body carries no
+// Renovate dashboard marker. Every tracked section is reported; a section
+// absent from the body counts 0.
 //
 // Any `##` heading is treated as a section boundary. This prevents items under
 // unknown/future sections from leaking into a preceding known section's count.
@@ -218,10 +229,13 @@ func parseDashboard(body string) dashboardStats {
 		sections: make(map[string]int64),
 	}
 
-	// First check that at least one known section exists.
-	if !dashboardSectionRE.MatchString(body) {
+	if !dashboardMarkerRE.MatchString(body) {
 		stats.parseError = 1
 		return stats
+	}
+
+	for _, semconvVal := range sectionNameToSemconv {
+		stats.sections[semconvVal] = 0
 	}
 
 	// Collect all ## headings as boundaries (both known and unknown).

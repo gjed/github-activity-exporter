@@ -1,0 +1,34 @@
+This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.
+
+This repository currently has no open or pending branches.
+
+## Detected Dependencies
+
+<details><summary>pip_requirements (1)</summary>
+<blockquote>
+
+<details><summary>requirements.txt (3)</summary>
+
+ - `pre-commit >=4.0.0`
+ - `checkov >=3.0.0`
+ - `pytest >=8.0.0`
+
+</details>
+
+</blockquote>
+</details>
+
+<details><summary>terraform (1)</summary>
+<blockquote>
+
+<details><summary>terraform/main.tf (3)</summary>
+
+ - `github >= 6.12.0, < 7.0.0`
+ - `hashicorp/terraform >= 1.0`
+ - `gjed/config-as-yaml/github ~> 3.0`
+
+</details>
+
+</blockquote>
+</details>
+

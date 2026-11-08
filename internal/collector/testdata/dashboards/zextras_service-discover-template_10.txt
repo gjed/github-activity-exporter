@@ -1,0 +1,28 @@
+This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.
+
+## PR Edited (Blocked)
+
+The following updates have been manually edited so Renovate will no longer make changes. To discard all commits and start over, click on a checkbox below.
+
+ - [ ] <!-- rebase-branch=renovate/hashicorp-consul-template-0.x -->[chore(deps): update dependency hashicorp/consul-template to v0.43.1](../pull/9)
+
+## Detected Dependencies
+
+<details><summary>regex (2)</summary>
+<blockquote>
+
+<details><summary>Jenkinsfile (1)</summary>
+
+ - `zextras/jenkins-lib-common v5.4.0`
+
+</details>
+
+<details><summary>service-discover-template/PKGBUILD (1)</summary>
+
+ - `hashicorp/consul-template 0.36.0` → [Updates: `0.43.1`]
+
+</details>
+
+</blockquote>
+</details>
+

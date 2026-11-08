@@ -1,0 +1,50 @@
+This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.
+
+This repository currently has no open or pending branches.
+
+## Detected Dependencies
+
+<details><summary>github-actions (2)</summary>
+<blockquote>
+
+<details><summary>.github/workflows/ci.yml (3)</summary>
+
+ - `actions/checkout v7`
+ - `actions/setup-python v7`
+ - `codecov/codecov-action v7`
+
+</details>
+
+<details><summary>.github/workflows/release.yml (10)</summary>
+
+ - `actions/checkout v7`
+ - `actions/setup-python v7`
+ - `actions/checkout v7`
+ - `actions/setup-python v7`
+ - `actions/upload-artifact v7`
+ - `actions/checkout v7`
+ - `actions/download-artifact v8`
+ - `softprops/action-gh-release v3`
+ - `python 3.15`
+ - `python 3.15`
+
+</details>
+
+</blockquote>
+</details>
+
+<details><summary>poetry (1)</summary>
+<blockquote>
+
+<details><summary>pyproject.toml (4)</summary>
+
+ - `openpyxl >=3.1.0`
+ - `pytest >=7.0`
+ - `pytest-cov >=4.0`
+ - `pyinstaller >=6.0`
+
+</details>
+
+</blockquote>
+</details>
+
