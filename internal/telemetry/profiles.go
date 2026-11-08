@@ -94,8 +94,6 @@ func startProfiler(p config.Profiles, logger *slog.Logger) *profiler {
 
 func (p *profiler) run() {
 	defer close(p.done)
-	timer := time.NewTimer(p.interval)
-	defer timer.Stop()
 	for {
 		var cpu bytes.Buffer
 		cpuOn := true
@@ -104,9 +102,9 @@ func (p *profiler) run() {
 			cpuOn = false
 		}
 		stopped := false
+		// A fresh timer per window: slow pushes must not shorten the next one.
 		select {
-		case <-timer.C:
-			timer.Reset(p.interval)
+		case <-time.After(p.interval):
 		case <-p.stop:
 			stopped = true
 		}
