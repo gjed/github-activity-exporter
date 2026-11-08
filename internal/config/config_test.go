@@ -533,3 +533,123 @@ func TestLoad(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadHeadersEnv(t *testing.T) {
+	const secret = "s3cret"
+	tests := []struct {
+		name string
+		file string
+		env  *string // nil leaves TEST_OTLP_HEADERS unset
+		want map[string]string
+		// errContains, when set, means Load must fail with this substring.
+		errContains string
+	}{
+		{
+			name: "env only",
+			file: "testdata/headers_env_only.yaml",
+			env:  ptr("Authorization=Bearer " + secret),
+			want: map[string]string{"authorization": "Bearer " + secret},
+		},
+		{
+			name: "merged with file, env wins",
+			file: "testdata/headers_env.yaml",
+			env:  ptr("authorization=Bearer " + secret + ", x-extra = one "),
+			want: map[string]string{"x-scope-orgid": "tenant-a", "authorization": "Bearer " + secret, "x-extra": "one"},
+		},
+		{
+			name: "file headers kept when env does not overlap",
+			file: "testdata/headers_env.yaml",
+			env:  ptr("x-extra=one"),
+			want: map[string]string{"x-scope-orgid": "tenant-a", "authorization": "Bearer file", "x-extra": "one"},
+		},
+		{
+			name: "percent-decoded value and = in value",
+			file: "testdata/headers_env_only.yaml",
+			env:  ptr("x-token=a%2Cb,authorization=Basic dXNlcjpwYXNz=="),
+			want: map[string]string{"x-token": "a,b", "authorization": "Basic dXNlcjpwYXNz=="},
+		},
+		{
+			name: "trailing newline trimmed",
+			file: "testdata/headers_env_only.yaml",
+			env:  ptr("authorization=Bearer " + secret + "\n"),
+			want: map[string]string{"authorization": "Bearer " + secret},
+		},
+		{
+			name:        "unset",
+			file:        "testdata/headers_env_only.yaml",
+			errContains: `export.otlp.headers_env: env var "TEST_OTLP_HEADERS" is not set or empty`,
+		},
+		{
+			name:        "empty",
+			file:        "testdata/headers_env_only.yaml",
+			env:         ptr(" "),
+			errContains: `export.otlp.headers_env: env var "TEST_OTLP_HEADERS" is not set or empty`,
+		},
+		{
+			name:        "entry without =",
+			file:        "testdata/headers_env_only.yaml",
+			env:         ptr("authorization=Bearer " + secret + "," + secret),
+			errContains: `env var "TEST_OTLP_HEADERS", entry 2: not a name=value pair`,
+		},
+		{
+			name:        "trailing comma",
+			file:        "testdata/headers_env_only.yaml",
+			env:         ptr("authorization=Bearer " + secret + ","),
+			errContains: `env var "TEST_OTLP_HEADERS", entry 2: not a name=value pair`,
+		},
+		{
+			name:        "colon syntax",
+			file:        "testdata/headers_env_only.yaml",
+			env:         ptr("Authorization: Bearer " + secret + "=="),
+			errContains: `env var "TEST_OTLP_HEADERS", entry 1: invalid header name`,
+		},
+		{
+			name:        "empty name",
+			file:        "testdata/headers_env_only.yaml",
+			env:         ptr("=" + secret),
+			errContains: `env var "TEST_OTLP_HEADERS", entry 1: invalid header name`,
+		},
+		{
+			name:        "bad percent-encoding",
+			file:        "testdata/headers_env_only.yaml",
+			env:         ptr("authorization=Bearer " + secret + "%zz"),
+			errContains: `env var "TEST_OTLP_HEADERS", entry 1: invalid percent-encoding in value`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env != nil {
+				t.Setenv("TEST_OTLP_HEADERS", *tt.env)
+			}
+			cfg, err := config.Load(tt.file)
+			if tt.errContains != "" {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("expected error containing %q, got %q", tt.errContains, err)
+				}
+				// Header values never appear in an error.
+				if strings.Contains(err.Error(), secret) {
+					t.Errorf("error leaks the header value: %q", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := cfg.Export.OTLP.Headers
+			if len(got) != len(tt.want) {
+				t.Fatalf("headers = %v, want %v", got, tt.want)
+			}
+			for k, v := range tt.want {
+				if got[k] != v {
+					t.Errorf("header %q = %q, want %q", k, got[k], v)
+				}
+			}
+		})
+	}
+}
+
+func ptr(s string) *string { return &s }

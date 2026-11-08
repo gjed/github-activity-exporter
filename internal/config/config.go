@@ -70,7 +70,11 @@ type OTLP struct {
 	Protocol string `mapstructure:"protocol"`
 	// Headers are sent on every OTLP request. Keys are lower-cased by the config loader.
 	Headers map[string]string `mapstructure:"headers"`
-	TLS     TLS               `mapstructure:"tls"`
+	// HeadersEnv names an env var holding more headers as comma-separated
+	// name=value pairs, the OTEL_EXPORTER_OTLP_HEADERS format. Load merges them
+	// into Headers; they win over Headers for the same name.
+	HeadersEnv string `mapstructure:"headers_env"`
+	TLS        TLS    `mapstructure:"tls"`
 }
 
 // TLS holds the OTLP TLS settings.
@@ -238,6 +242,10 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	if err := resolveHeadersEnv(&cfg.Export.OTLP); err != nil {
+		return nil, err
+	}
+
 	if err := compileFilters(&cfg); err != nil {
 		return nil, err
 	}
@@ -318,6 +326,44 @@ func resolveEnvVars(cfg *Config) error {
 		}
 	}
 	return nil
+}
+
+// resolveHeadersEnv merges the headers from the env var named by
+// export.otlp.headers_env into Headers. Errors never carry a header value.
+func resolveHeadersEnv(o *OTLP) error {
+	if o.HeadersEnv == "" {
+		return nil
+	}
+	raw := os.Getenv(o.HeadersEnv)
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("export.otlp.headers_env: env var %q is not set or empty", o.HeadersEnv)
+	}
+	if o.Headers == nil {
+		o.Headers = make(map[string]string)
+	}
+	for i, pair := range strings.Split(raw, ",") {
+		name, value, found := strings.Cut(pair, "=")
+		name = strings.ToLower(strings.TrimSpace(name))
+		if !found {
+			return fmt.Errorf("export.otlp.headers_env: env var %q, entry %d: not a name=value pair", o.HeadersEnv, i+1)
+		}
+		if !validHeaderName(name) {
+			return fmt.Errorf("export.otlp.headers_env: env var %q, entry %d: invalid header name", o.HeadersEnv, i+1)
+		}
+		value, err := url.PathUnescape(value)
+		if err != nil {
+			return fmt.Errorf("export.otlp.headers_env: env var %q, entry %d: invalid percent-encoding in value", o.HeadersEnv, i+1)
+		}
+		o.Headers[name] = strings.TrimSpace(value)
+	}
+	return nil
+}
+
+// validHeaderName reports whether name is a non-empty RFC 9110 token.
+func validHeaderName(name string) bool {
+	return name != "" && !strings.ContainsFunc(name, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", r))
+	})
 }
 
 // validate checks the export settings and that each target has valid,
