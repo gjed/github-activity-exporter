@@ -185,7 +185,7 @@ func issueStates(states []string) *[]githubv4.IssueState {
 	}
 	out := []githubv4.IssueState{}
 	for _, st := range []githubv4.IssueState{githubv4.IssueStateOpen, githubv4.IssueStateClosed} {
-		if containsFold(states, string(st)) {
+		if slices.ContainsFunc(states, func(s string) bool { return strings.EqualFold(s, string(st)) }) {
 			out = append(out, st)
 		}
 	}
