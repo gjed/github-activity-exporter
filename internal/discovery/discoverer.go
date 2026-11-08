@@ -1,12 +1,16 @@
-// Package discovery implements GitHub repository discovery with org listing,
-// glob filtering, explicit repo lists, multi-org support, and incremental refresh.
+// Package discovery implements GitHub repository discovery with org and user
+// account listing, glob filtering, explicit repo lists, multi-org support, and
+// incremental refresh.
 package discovery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,21 +29,31 @@ type Repo struct {
 	FullName string
 }
 
-// RepoLister abstracts the GitHub REST API call for listing org repos (injectable in tests).
-type RepoLister interface {
-	ListByOrg(ctx context.Context, org string, opts *github.RepositoryListByOrgOptions) ([]*github.Repository, *github.Response, error)
-}
+// ownerType is the GitHub account type of an owner listed under orgs.
+type ownerType string
+
+const (
+	ownerOrganization ownerType = "Organization"
+	ownerUser         ownerType = "User"
+)
 
 // Discoverer discovers and maintains the list of monitored repositories for a target.
 type Discoverer struct {
 	target   config.Target
-	lister   RepoLister
+	client   *github.Client
 	logger   *slog.Logger
 	interval time.Duration
 
 	mu          sync.RWMutex
 	repos       []Repo
 	initialized bool // true after the first successful refresh
+
+	// Owner types and the PAT login are cached for the process lifetime.
+	// They are only touched from refresh, which never runs concurrently
+	// with itself in practice; ownerMu guards them anyway.
+	ownerMu    sync.Mutex
+	ownerTypes map[string]ownerType
+	selfLogin  string
 }
 
 // Option is a functional option for Discoverer.
@@ -55,13 +69,15 @@ func WithRefreshInterval(dur time.Duration) Option {
 	return func(d *Discoverer) { d.interval = dur }
 }
 
-// New creates a Discoverer for the given target. Call Start to begin background refresh.
-func New(target config.Target, lister RepoLister, opts ...Option) *Discoverer {
+// New creates a Discoverer for the given target. client may be nil when the
+// target lists explicit repos only. Call Start to begin background refresh.
+func New(target config.Target, client *github.Client, opts ...Option) *Discoverer {
 	d := &Discoverer{
-		target:   target,
-		lister:   lister,
-		logger:   slog.Default(),
-		interval: defaultRefreshInterval,
+		target:     target,
+		client:     client,
+		ownerTypes: make(map[string]ownerType),
+		logger:     slog.Default(),
+		interval:   defaultRefreshInterval,
 	}
 	if target.Discovery.RefreshInterval > 0 {
 		d.interval = target.Discovery.RefreshInterval
@@ -152,9 +168,9 @@ func (d *Discoverer) discoverOrgs(ctx context.Context) ([]Repo, error) {
 	var result []Repo
 
 	for _, orgCfg := range d.target.Orgs {
-		repos, err := d.listOrgRepos(ctx, orgCfg)
+		repos, err := d.listOwnerRepos(ctx, orgCfg)
 		if err != nil {
-			return nil, fmt.Errorf("listing repos for org %q: %w", orgCfg.Org, err)
+			return nil, fmt.Errorf("listing repos for owner %q: %w", orgCfg.Org, err)
 		}
 
 		for _, r := range repos {
@@ -168,27 +184,179 @@ func (d *Discoverer) discoverOrgs(ctx context.Context) ([]Repo, error) {
 	return result, nil
 }
 
-// listOrgRepos fetches all repos for one org and applies include/exclude filters.
-func (d *Discoverer) listOrgRepos(ctx context.Context, orgCfg config.OrgConfig) ([]Repo, error) {
-	var all []*github.Repository
+// listOwnerRepos fetches all repos of one orgs entry, organization or user
+// account, and applies archived/fork/include/exclude filters.
+func (d *Discoverer) listOwnerRepos(ctx context.Context, orgCfg config.OrgConfig) ([]Repo, error) {
+	typ, err := d.ownerType(ctx, orgCfg.Org)
+	if err != nil {
+		return nil, err
+	}
 
+	var all []*github.Repository
+	switch {
+	case typ == ownerOrganization:
+		all, err = d.listOrg(ctx, orgCfg.Org)
+	case d.target.Auth.App.AppID != 0:
+		all, err = d.listInstallation(ctx, orgCfg.Org)
+	default:
+		all, err = d.listUser(ctx, orgCfg.Org)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return d.filter(orgCfg, all), nil
+}
+
+// ownerType returns the cached account type of owner, looking it up with
+// GET /users/{owner} on first use. Failed lookups are not cached.
+func (d *Discoverer) ownerType(ctx context.Context, owner string) (ownerType, error) {
+	d.ownerMu.Lock()
+	typ, ok := d.ownerTypes[owner]
+	d.ownerMu.Unlock()
+	if ok {
+		return typ, nil
+	}
+
+	u, _, err := d.client.Users.Get(ctx, owner)
+	if err != nil {
+		var ghErr *github.ErrorResponse
+		if errors.As(err, &ghErr) && ghErr.Response != nil && ghErr.Response.StatusCode == http.StatusNotFound {
+			return "", fmt.Errorf("target %q: owner %q not found (GET /users/%s returned 404)", d.target.Name, owner, owner)
+		}
+		return "", fmt.Errorf("target %q: looking up owner %q: %w", d.target.Name, owner, err)
+	}
+
+	switch ownerType(u.GetType()) {
+	case ownerOrganization:
+		typ = ownerOrganization
+	case ownerUser:
+		typ = ownerUser
+	default:
+		return "", fmt.Errorf("target %q: owner %q has unsupported account type %q", d.target.Name, owner, u.GetType())
+	}
+
+	d.ownerMu.Lock()
+	d.ownerTypes[owner] = typ
+	d.ownerMu.Unlock()
+	return typ, nil
+}
+
+// listOrg pages GET /orgs/{org}/repos?type=all.
+func (d *Discoverer) listOrg(ctx context.Context, org string) ([]*github.Repository, error) {
+	var all []*github.Repository
 	opts := &github.RepositoryListByOrgOptions{
 		Type:        "all",
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
-
 	for {
-		page, resp, err := d.lister.ListByOrg(ctx, orgCfg.Org, opts)
+		page, resp, err := d.client.Repositories.ListByOrg(ctx, org, opts)
 		if err != nil {
 			return nil, err
 		}
 		all = append(all, page...)
 		if resp.NextPage == 0 {
+			return all, nil
+		}
+		opts.Page = resp.NextPage
+	}
+}
+
+// listUser lists a user account's repos with a PAT. When the PAT belongs to
+// the user, GET /user/repos?affiliation=owner includes private repos;
+// otherwise GET /users/{user}/repos returns public repos only.
+func (d *Discoverer) listUser(ctx context.Context, user string) ([]*github.Repository, error) {
+	self, err := d.patLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var all []*github.Repository
+	if strings.EqualFold(self, user) {
+		opts := &github.RepositoryListByAuthenticatedUserOptions{
+			Affiliation: "owner",
+			ListOptions: github.ListOptions{PerPage: 100},
+		}
+		for {
+			page, resp, err := d.client.Repositories.ListByAuthenticatedUser(ctx, opts)
+			if err != nil {
+				return nil, err
+			}
+			all = append(all, page...)
+			if resp.NextPage == 0 {
+				return all, nil
+			}
+			opts.Page = resp.NextPage
+		}
+	}
+
+	d.logger.Info("user account is not the token owner, discovering public repos only",
+		"target", d.target.Name, "owner", user, "token_owner", self)
+	opts := &github.RepositoryListByUserOptions{
+		Type:        "owner",
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	for {
+		page, resp, err := d.client.Repositories.ListByUser(ctx, user, opts)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		if resp.NextPage == 0 {
+			return all, nil
+		}
+		opts.Page = resp.NextPage
+	}
+}
+
+// patLogin returns the cached login of the PAT owner (GET /user).
+func (d *Discoverer) patLogin(ctx context.Context) (string, error) {
+	d.ownerMu.Lock()
+	login := d.selfLogin
+	d.ownerMu.Unlock()
+	if login != "" {
+		return login, nil
+	}
+
+	u, _, err := d.client.Users.Get(ctx, "")
+	if err != nil {
+		return "", fmt.Errorf("target %q: looking up token owner: %w", d.target.Name, err)
+	}
+
+	d.ownerMu.Lock()
+	d.selfLogin = u.GetLogin()
+	d.ownerMu.Unlock()
+	return u.GetLogin(), nil
+}
+
+// listInstallation lists the GitHub App installation's repos
+// (GET /installation/repositories) and keeps those owned by owner.
+func (d *Discoverer) listInstallation(ctx context.Context, owner string) ([]*github.Repository, error) {
+	var all []*github.Repository
+	opts := &github.ListOptions{PerPage: 100}
+	for {
+		page, resp, err := d.client.Apps.ListRepos(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range page.Repositories {
+			if strings.EqualFold(r.GetOwner().GetLogin(), owner) {
+				all = append(all, r)
+			}
+		}
+		if resp.NextPage == 0 {
 			break
 		}
 		opts.Page = resp.NextPage
 	}
+	if len(all) == 0 {
+		d.logger.Warn("GitHub App installation has no repos owned by this user account",
+			"target", d.target.Name, "owner", owner)
+	}
+	return all, nil
+}
 
+// filter applies archived/fork exclusion and the include/exclude globs.
+func (d *Discoverer) filter(orgCfg config.OrgConfig, all []*github.Repository) []Repo {
 	var repos []Repo
 	for _, r := range all {
 		// Skip archived (unless opted in) and forks.
@@ -221,8 +389,7 @@ func (d *Discoverer) listOrgRepos(ctx context.Context, orgCfg config.OrgConfig) 
 			FullName: r.GetFullName(),
 		})
 	}
-
-	return repos, nil
+	return repos
 }
 
 // parseExplicitRepos converts "owner/name" strings into Repo values.

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,10 +22,14 @@ import (
 // ---------------------------------------------------------------------------
 
 // buildOrgServer creates an httptest.Server responding to /orgs/{org}/repos.
-// It serves repos from the given map, keyed by org name.
+// It serves repos from the given map, keyed by org name, and answers the
+// owner-type lookup GET /users/{org} with type Organization.
 func buildOrgServer(t *testing.T, reposByOrg map[string][]*gogithub.Repository) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveOrgType(w, r) {
+			return
+		}
 		// URL shape: /api/v3/orgs/{org}/repos
 		org := extractOrg(r.URL.Path)
 		repos := reposByOrg[org]
@@ -54,22 +59,26 @@ func extractOrg(path string) string {
 	return rest
 }
 
-// httpRepoLister delegates to the real go-github REST client against a test server.
-type httpRepoLister struct {
-	client *gogithub.Client
+// serveOrgType answers GET /users/{name} with type Organization and reports
+// whether it handled the request.
+func serveOrgType(w http.ResponseWriter, r *http.Request) bool {
+	name, ok := strings.CutPrefix(r.URL.Path, "/api/v3/users/")
+	if !ok || strings.Contains(name, "/") {
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"login": name, "type": "Organization"})
+	return true
 }
 
-func newHTTPLister(t *testing.T, serverURL string) *httpRepoLister {
+// newHTTPLister returns a real go-github REST client pointed at a test server.
+func newHTTPLister(t *testing.T, serverURL string) *gogithub.Client {
 	t.Helper()
 	c, err := gogithub.NewClient(gogithub.WithEnterpriseURLs(serverURL+"/", serverURL+"/"))
 	if err != nil {
 		t.Fatalf("creating test GitHub client: %v", err)
 	}
-	return &httpRepoLister{client: c}
-}
-
-func (l *httpRepoLister) ListByOrg(ctx context.Context, org string, opts *gogithub.RepositoryListByOrgOptions) ([]*gogithub.Repository, *gogithub.Response, error) {
-	return l.client.Repositories.ListByOrg(ctx, org, opts)
+	return c
 }
 
 // makeRepo creates a minimal *github.Repository for testing.
@@ -354,7 +363,10 @@ func TestDiscoverer_IncrementalRefresh(t *testing.T) {
 	var mu sync.Mutex
 	apiRepos := []*gogithub.Repository{makeRepo("myorg/alpha", false, false)}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveOrgType(w, r) {
+			return
+		}
 		mu.Lock()
 		current := make([]*gogithub.Repository, len(apiRepos))
 		copy(current, apiRepos)
