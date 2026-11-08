@@ -34,8 +34,11 @@ var dashboardMarkerRE = regexp.MustCompile(
 // so that unknown/future sections don't bleed into the previous known section.
 var anyH2RE = regexp.MustCompile(`(?m)^## .*$`)
 
-// checkboxRE matches both checked and unchecked Markdown list items.
-var checkboxRE = regexp.MustCompile(`(?m)^\s*- \[[ x]\]`)
+// branchCheckboxRE matches a checked or unchecked dashboard item that references
+// a branch, mirroring Renovate's own `<!-- <type>-branch=<name> -->` markup.
+// Bulk actions (e.g. create-all-rate-limited-prs) carry no -branch= and are
+// not counted.
+var branchCheckboxRE = regexp.MustCompile(`(?m)^\s*- \[[ xX]\] <!-- [a-zA-Z]+-branch=\S+ -->`)
 
 // sectionNameToSemconv maps the Markdown section header to the semconv attribute value.
 var sectionNameToSemconv = map[string]string{
@@ -267,7 +270,7 @@ func parseDashboard(body string) dashboardStats {
 		}
 
 		sectionBody := body[sectionStart:sectionEnd]
-		count := int64(len(checkboxRE.FindAllString(sectionBody, -1)))
+		count := int64(len(branchCheckboxRE.FindAllString(sectionBody, -1)))
 		stats.sections[semconvVal] = count
 	}
 

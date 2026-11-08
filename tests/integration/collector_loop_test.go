@@ -40,16 +40,16 @@ func TestCollectionLoop_MockData(t *testing.T) {
 This issue lists Renovate updates and detected dependencies.
 
 ## Awaiting Schedule
-- [ ] foo
-- [ ] bar
+- [ ] <!-- unschedule-branch=renovate/foo -->foo
+- [ ] <!-- unschedule-branch=renovate/bar -->bar
 
 ## Rate-Limited
-- [x] baz
+- [x] <!-- unlimit-branch=renovate/baz -->baz
 
 ## Pending Approval
 
 ## Open
-- [ ] quux
+- [ ] <!-- rebase-branch=renovate/quux -->quux
 `
 
 	// Build a test meter provider with a manual reader for synchronous collection.

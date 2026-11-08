@@ -1,0 +1,106 @@
+This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.
+
+## Rate-Limited
+
+The following updates are currently rate-limited. To force their creation now, click on a checkbox below.
+
+ - [ ] <!-- unlimit-branch=renovate/node-26.x -->chore(deps): update dependency node to v26
+ - [ ] <!-- unlimit-branch=renovate/major-25-semantic-release-monorepo -->chore(deps): update dependency semantic-release to v25
+ - [ ] <!-- unlimit-branch=renovate/setuptools-76.x -->chore(deps): update dependency setuptools to v76
+ - [ ] <!-- unlimit-branch=renovate/setuptools-77.x -->chore(deps): update dependency setuptools to v77
+ - [ ] <!-- unlimit-branch=renovate/setuptools-78.x -->chore(deps): update dependency setuptools to v78
+ - [ ] <!-- unlimit-branch=renovate/setuptools-79.x -->chore(deps): update dependency setuptools to v79
+ - [ ] <!-- unlimit-branch=renovate/setuptools-80.x -->chore(deps): update dependency setuptools to v80
+ - [ ] <!-- unlimit-branch=renovate/setuptools-81.x -->chore(deps): update dependency setuptools to v81
+ - [ ] <!-- unlimit-branch=renovate/setuptools-82.x -->chore(deps): update dependency setuptools to v82
+ - [ ] <!-- unlimit-branch=renovate/setuptools-83.x -->chore(deps): update dependency setuptools to v83
+ - [ ] <!-- unlimit-branch=renovate/setuptools-84.x -->chore(deps): update dependency setuptools to v84
+ - [ ] <!-- create-all-rate-limited-prs -->🔐 **Create all rate-limited PRs at once** 🔐
+
+## PR Edited (Blocked)
+
+The following updates have been manually edited so Renovate will no longer make changes. To discard all commits and start over, click on a checkbox below.
+
+ - [ ] <!-- rebase-branch=renovate/gohugoio-hugo-0.x -->chore(deps): update dependency gohugoio/hugo to v0.169.0
+ - [ ] <!-- rebase-branch=renovate/cycjimmy-semantic-release-action-7.x -->chore(deps): update cycjimmy/semantic-release-action action to v7
+ - [ ] <!-- rebase-branch=renovate/cycjimmy-semantic-release-action-8.x -->chore(deps): update cycjimmy/semantic-release-action action to v8
+ - [ ] <!-- rebase-branch=renovate/numpy-2.x -->chore(deps): update dependency numpy to v2
+ - [ ] <!-- rebase-branch=renovate/setuptools-70.x -->chore(deps): update dependency setuptools to v70
+ - [ ] <!-- rebase-branch=renovate/setuptools-71.x -->chore(deps): update dependency setuptools to v71
+ - [ ] <!-- rebase-branch=renovate/setuptools-72.x -->chore(deps): update dependency setuptools to v72
+ - [ ] <!-- rebase-branch=renovate/setuptools-73.x -->chore(deps): update dependency setuptools to v73
+ - [ ] <!-- rebase-branch=renovate/setuptools-74.x -->chore(deps): update dependency setuptools to v74
+ - [ ] <!-- rebase-branch=renovate/setuptools-75.x -->chore(deps): update dependency setuptools to v75
+
+## Detected Dependencies
+
+<details><summary>github-actions (3)</summary>
+<blockquote>
+
+<details><summary>.github/workflows/pr-check.yml (7)</summary>
+
+ - `actions/checkout v7`
+ - `actions/checkout v7`
+ - `actions/setup-python v7`
+ - `actions/checkout v7`
+ - `actions/setup-python v7`
+ - `python 3.x`
+ - `python 3.x`
+
+</details>
+
+<details><summary>.github/workflows/release.yml (7)</summary>
+
+ - `actions/checkout v7`
+ - `actions/setup-node v7`
+ - `cycjimmy/semantic-release-action v6` → [Updates: `v7.1.2`, `v8.1.4`]
+ - `actions/upload-pages-artifact v5`
+ - `actions/deploy-pages v5`
+ - `node 24` → [Updates: `26`]
+ - `semantic-release 24` → [Updates: `25`]
+
+</details>
+
+<details><summary>.github/workflows/spotify-sync.yml (3)</summary>
+
+ - `actions/checkout v7`
+ - `actions/setup-python v7`
+ - `python 3.x`
+
+</details>
+
+</blockquote>
+</details>
+
+<details><summary>pip_requirements (1)</summary>
+<blockquote>
+
+<details><summary>scripts/chordify/requirements.txt (2)</summary>
+
+ - `numpy <2` → [Updates: `<3`]
+ - `setuptools <70` → [Updates: `<71`, `<72`, `<73`, `<74`, `<75`, `<76`, `<77`, `<78`, `<79`, `<80`, `<81`, `<82`, `<83`, `<84`, `<85`]
+
+</details>
+
+</blockquote>
+</details>
+
+<details><summary>regex (2)</summary>
+<blockquote>
+
+<details><summary>.github/workflows/pr-check.yml (1)</summary>
+
+ - `ChordPro/chordpro 6.101.0`
+
+</details>
+
+<details><summary>.github/workflows/release.yml (2)</summary>
+
+ - `ChordPro/chordpro 6.101.0`
+ - `gohugoio/hugo 0.165.0` → [Updates: `0.169.0`]
+
+</details>
+
+</blockquote>
+</details>
+
