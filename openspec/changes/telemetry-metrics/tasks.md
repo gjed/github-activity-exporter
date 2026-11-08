@@ -23,8 +23,8 @@
 
 ## 5. Dashboard
 
-- [ ] 5.1 Add the "Exporter internals" row to `templates/grafana/dashboard.json.j2` (memory by type with goal and limit, allocation rate, goroutines, GitHub API latency p50/p90 by `url.template` and status) and `per_target` on the quantile shape; `make generate`; verify the diff only adds the row
-- [ ] 5.2 Turn self-telemetry metrics on in the e2e config with a short `OTEL_METRIC_EXPORT_INTERVAL`; verify `make test-e2e` runs every query, new ones included, with data
+- [x] 5.1 Add the "Exporter internals" row to `templates/grafana/dashboard.json.j2` (memory by type with goal and limit, allocation rate, goroutines, GitHub API latency p50/p90 by `url.template` and status) and `per_target` on the quantile shape; `make generate`; verify the diff only adds the row
+- [x] 5.2 Turn self-telemetry metrics on in the e2e config with a short `OTEL_METRIC_EXPORT_INTERVAL`; verify `make test-e2e` runs every query, new ones included, with data
 
 ## 6. Chart and docs
 

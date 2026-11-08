@@ -40,8 +40,8 @@ func requireDocker(t *testing.T) {
 	}
 }
 
-// startPrometheus runs the pinned Prometheus with the OTLP receiver and
-// NoTranslation, and returns its base URL once /-/ready answers.
+// startPrometheus runs the pinned Prometheus with the OTLP receiver,
+// NoTranslation and an out-of-order window, and returns its base URL once /-/ready answers.
 func startPrometheus(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -49,7 +49,11 @@ func startPrometheus(t *testing.T) string {
 	if err := os.Chmod(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := "otlp:\n  translation_strategy: NoTranslation\n"
+	// The product and self-telemetry pipelines push the same resource on
+	// independent schedules, so their target_info samples interleave: without
+	// an out-of-order window Prometheus rejects pushes with "out of order
+	// sample" (README, backend requirements).
+	cfg := "otlp:\n  translation_strategy: NoTranslation\nstorage:\n  tsdb:\n    out_of_order_time_window: 10m\n"
 	if err := os.WriteFile(filepath.Join(dir, "prometheus.yml"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -107,9 +111,11 @@ func startOTLPProxy(t *testing.T, promURL string) string {
 
 // startExporter builds the exporter binary and runs it with a temp config that
 // uses apiURL (the mock REST root, .../api/v3) and pushes OTLP to otlpURL. Its output goes
-// to the test log.
+// to the test log. Self-telemetry metrics are on and go straight to
+// Prometheus at selfOTLPURL, every testCollectionInterval: through the proxy
+// they could take the rejected first push meant for github_exporter.otlp.errors.
 // The returned channel closes once the process has exited.
-func startExporter(t *testing.T, apiURL, otlpURL string) <-chan struct{} {
+func startExporter(t *testing.T, apiURL, otlpURL, selfOTLPURL string) <-chan struct{} {
 	t.Helper()
 	root := repoRoot()
 	bin := filepath.Join(t.TempDir(), "github-activity-exporter")
@@ -129,6 +135,14 @@ export:
     enabled: false
 health:
   listen_address: 127.0.0.1:%d
+telemetry:
+  enabled: true
+  traces:
+    enabled: false
+  logs:
+    enabled: false
+  profiles:
+    enabled: false
 targets:
   - name: acme
     base_url: %s
@@ -144,7 +158,14 @@ targets:
 	}
 
 	cmd := exec.Command(bin)
-	cmd.Env = append(os.Environ(), "CONFIG_FILE="+cfgPath)
+	cmd.Env = append(os.Environ(),
+		"CONFIG_FILE="+cfgPath,
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT="+selfOTLPURL,
+		"OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/protobuf",
+		fmt.Sprintf("OTEL_METRIC_EXPORT_INTERVAL=%d", testCollectionInterval.Milliseconds()),
+		// go.memory.limit is reported only under a memory limit.
+		"GOMEMLIMIT=512MiB",
+	)
 	pr, pw := io.Pipe()
 	cmd.Stdout, cmd.Stderr = pw, pw
 	logged := make(chan struct{})

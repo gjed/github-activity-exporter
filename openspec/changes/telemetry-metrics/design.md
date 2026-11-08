@@ -89,6 +89,7 @@ Panels, all `per_target=false` (no `exporter.target` on these metrics; `$job` st
 - [Contrib v0.72.0 records from semconv v1.43.0, the registry pins v1.41.1] → live-check with the signal on is the gate. If it reports a mismatch, the fix is bumping the pin in `registry/manifest.yaml` to the version contrib emits; that is a contract change, so it comes back for approval before landing in this PR.
 - \[`go.schedule.duration` uses the runtime's own bucket layout, many more buckets than the SDK default\] → larger `/metrics` and OTLP payloads on the self-telemetry interval only (60 s default); accepted, the issue asks for it.
 - [Weaver v2 refinements and imports are not yet stable in 0.28] → the contract tooling depends on them; the registry policy test and the generated-files check catch a behavior change on a weaver bump.
+- \[The product and self-telemetry pipelines share one resource (#73) and push on separate schedules, so both write the same `target_info` series with interleaved timestamps; Prometheus without an out-of-order window rejects pushes, product ones included, with `out of order sample` (found by the e2e)\] → documented as a backend requirement in `README.md` (Prometheus `storage.tsdb.out_of_order_time_window`, Mimir/Grafana Cloud `out_of_order_time_window`); the e2e Prometheus runs with a 10m window.
 - [A new GitHub route lands without a table row] → it is recorded without `url.template`, never with a raw path, so cardinality stays bounded.
 
 ## Migration Plan
