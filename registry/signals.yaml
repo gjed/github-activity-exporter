@@ -242,7 +242,10 @@ metrics:
     brief: Number of pull requests in each section of the Renovate dependency dashboard.
     note: >
       The dashboard issue sections (awaiting-schedule, rate-limited, etc.)
-      are parsed from the issue body and reported per section.
+      are parsed from the issue body and reported per section. Only
+      checkboxes that reference a branch (`<!-- <type>-branch=<name> -->`)
+      are counted; bulk-action checkboxes such as
+      create-all-rate-limited-prs are not.
     attributes:
       - ref: exporter.target
         requirement_level: required

@@ -39,19 +39,19 @@ const typicalDashboard = `
 This issue lists Renovate updates and detected dependencies.
 
 ## Awaiting Schedule
-- [ ] Update dependency foo to v2.0.0
-- [ ] Update dependency bar to v1.5.0
+- [ ] <!-- unschedule-branch=renovate/update-dependency-foo-to-v2-0-0 -->Update dependency foo to v2.0.0
+- [ ] <!-- unschedule-branch=renovate/update-dependency-bar-to-v1-5-0 -->Update dependency bar to v1.5.0
 
 ## Rate-Limited
-- [x] Update dependency baz to v3.0.0
+- [x] <!-- unlimit-branch=renovate/update-dependency-baz-to-v3-0-0 -->Update dependency baz to v3.0.0
 
 ## Pending Approval
-- [ ] Update dependency qux to v4.0.0
-- [ ] Update dependency quux to v5.0.0
-- [ ] Update dependency corge to v6.0.0
+- [ ] <!-- approve-branch=renovate/update-dependency-qux-to-v4-0-0 -->Update dependency qux to v4.0.0
+- [ ] <!-- approve-branch=renovate/update-dependency-quux-to-v5-0-0 -->Update dependency quux to v5.0.0
+- [ ] <!-- approve-branch=renovate/update-dependency-corge-to-v6-0-0 -->Update dependency corge to v6.0.0
 
 ## Open
-- [ ] Update group "node" packages
+- [ ] <!-- rebase-branch=renovate/update-group-node-packages -->Update group "node" packages
 `
 
 const emptyDashboard = `
@@ -73,14 +73,14 @@ Some text here.
 const extraSectionsDashboard = `
 This issue lists Renovate updates and detected dependencies.
 ## Awaiting Schedule
-- [ ] foo
+- [ ] <!-- unschedule-branch=renovate/foo -->foo
 
 ## Unknown Section
-- [ ] should not count
+- [ ] <!-- rebase-branch=renovate/should-not-count -->should not count
 
 ## Open
-- [ ] bar
-- [ ] baz
+- [ ] <!-- rebase-branch=renovate/bar -->bar
+- [ ] <!-- rebase-branch=renovate/baz -->baz
 `
 
 func TestDashboardCollector_TypicalDashboard(t *testing.T) {
