@@ -311,8 +311,11 @@ func buildTargetRunner(
 	}
 
 	// main runs the Runner with this ctx, so the repo list is refreshed for
-	// as long as the collection loop runs.
-	go disc.Start(ctx)
+	// as long as the collection loop runs. An explicit repo list bypasses
+	// org discovery and never changes, so it is not refreshed.
+	if len(t.Repos) == 0 {
+		go disc.Start(ctx)
+	}
 	return r, nil
 }
 
