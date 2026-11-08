@@ -44,6 +44,10 @@ type Discoverer struct {
 	logger   *slog.Logger
 	interval time.Duration
 
+	// refreshFailed is called after each failed background refresh; nil
+	// disables it.
+	refreshFailed func()
+
 	mu          sync.RWMutex
 	repos       []Repo
 	initialized bool // true after the first successful refresh
@@ -67,6 +71,12 @@ func WithLogger(l *slog.Logger) Option {
 // WithRefreshInterval overrides the default refresh interval (for testing).
 func WithRefreshInterval(dur time.Duration) Option {
 	return func(d *Discoverer) { d.interval = dur }
+}
+
+// WithRefreshFailed calls fn after each failed background refresh, for
+// example to count it as an API error.
+func WithRefreshFailed(fn func()) Option {
+	return func(d *Discoverer) { d.refreshFailed = fn }
 }
 
 // New creates a Discoverer for the given target. client may be nil when the
@@ -107,14 +117,11 @@ func (d *Discoverer) Repos(ctx context.Context) ([]Repo, error) {
 	return d.refresh(ctx)
 }
 
-// Start begins background periodic refresh. It blocks until ctx is cancelled.
-// Callers should run this in a goroutine.
+// Start refreshes the repo list every refresh interval until ctx is
+// cancelled. It does not perform the initial discovery: the first Repos call
+// does. A failed refresh keeps the last discovered list. Callers should run
+// this in a goroutine.
 func (d *Discoverer) Start(ctx context.Context) {
-	// Initial discovery.
-	if _, err := d.refresh(ctx); err != nil {
-		d.logger.Error("initial repo discovery failed", "target", d.target.Name, "err", err)
-	}
-
 	ticker := time.NewTicker(d.interval)
 	defer ticker.Stop()
 
@@ -123,8 +130,12 @@ func (d *Discoverer) Start(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if _, err := d.refresh(ctx); err != nil {
-				d.logger.Error("repo refresh failed", "target", d.target.Name, "err", err)
+			if _, err := d.refresh(ctx); err != nil && ctx.Err() == nil {
+				d.logger.Error("repo refresh failed, keeping the last discovered repos",
+					"target", d.target.Name, "err", err)
+				if d.refreshFailed != nil {
+					d.refreshFailed()
+				}
 			}
 		}
 	}

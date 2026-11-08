@@ -117,6 +117,8 @@ targets:
         include_archived: false
     repos:
       - other-owner/some-repo
+    discovery:
+      refresh_interval: 60m       # re-list orgs to pick up new and removed repos; a failed refresh keeps the last list
     filters:
       prs:                        # a PR is selected only if it passes every non-empty filter
         authors: []               # author logins, case-insensitive; GitHub App bots as "renovate[bot]"
