@@ -214,7 +214,7 @@ telemetry:
     enabled: false      # profiles are opt-in, see "Profiles"
 ```
 
-A signal is active only when `telemetry.enabled` and its own `enabled` are both true, `OTEL_SDK_DISABLED` is not `true`, and, for traces, metrics and logs, `OTEL_<SIGNAL>_EXPORTER` is not `none`. Environment variables can turn a signal off, never on. Every key can be overridden with `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_ENABLED` and `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_<SIGNAL>_ENABLED`; a value that is not a boolean is a startup error. The startup log lists the active signals under `self_telemetry`.
+A signal is active only when `telemetry.enabled` and its own `enabled` are both true, `OTEL_SDK_DISABLED` is not `true`, and, for traces, metrics and logs, `OTEL_<SIGNAL>_EXPORTER` is not `none`. Environment variables can turn a signal off, never on. Every key can be overridden with `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_ENABLED`, `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_<SIGNAL>_ENABLED` and `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_PROFILES_{ENDPOINT,INTERVAL,MUTEX_FRACTION,BLOCK_RATE}`; a value of the wrong type is a startup error. The startup log lists the active signals under `self_telemetry`.
 
 Metrics are described in [Self-telemetry metrics](#self-telemetry-metrics) and profiles in [Profiles](#profiles). The other signals come in [#75](https://github.com/gjed/github-activity-exporter/issues/75) (traces) and [#76](https://github.com/gjed/github-activity-exporter/issues/76) (OTLP logs).
 
@@ -273,7 +273,7 @@ telemetry:
 
 Every `interval` the exporter posts, to `<endpoint>/v1/pprof`, a CPU profile of that interval, then the heap profile (in use and allocated since start) and the goroutine profile. With `mutex_fraction` or `block_rate` above 0 it also sets that runtime rate and posts the mutex or block profile; both add overhead to every contended lock or blocking call, so leave them at 0 unless you are chasing contention. CPU profiling samples at 100 Hz for as long as profiles are on. On shutdown it posts the CPU profile of the last, partial interval.
 
-A missing or invalid `endpoint`, `interval`, `mutex_fraction` or `block_rate` does not stop the exporter: it logs an error naming the key and runs with profiles off. A failed push is logged as an error and the next interval pushes again. The push has no authentication: run the Collector next to the exporter, in the same cluster, and send on from there. There is no `/debug/pprof/` endpoint.
+A missing `endpoint`, an `endpoint` that is not an http(s) URL, a non-positive `interval`, or a negative `mutex_fraction` or `block_rate` does not stop the exporter: it logs an error naming the key and runs with profiles off. A value of the wrong type, such as an `interval` that is not a duration, fails startup like any other config key, even with profiles off. A failed push is logged as an error and the next interval pushes again. The push has no authentication: run the Collector next to the exporter, in the same cluster, and send on from there. There is no `/debug/pprof/` endpoint.
 
 A Collector that receives the profiles, names them and forwards them as OTLP, tested with `otel/opentelemetry-collector-contrib:0.165.0`. The `pprof` receiver is only in the contrib distribution. pprof carries no resource attributes, so the `resource` processor sets `service.name`:
 
