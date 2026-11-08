@@ -1,5 +1,9 @@
 templates:
   - template: dashboard.json.j2
-    filter: '.groups | map(select(.type == "metric"))'
+    # Generated from the v2 resolved registry (make generate passes --v2):
+    # refinements carry annotations.prometheus for metrics imported from the
+    # OTel semantic conventions. Every own metric is its own refinement; an
+    # imported metric is kept only through the refinement that annotates it.
+    filter: '.refinements.metrics | map(select(.annotations.prometheus))'
     application_mode: single
     file_name: github-activity.json

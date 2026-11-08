@@ -1,0 +1,100 @@
+# Self-telemetry metrics (https://github.com/gjed/github-activity-exporter/issues/74),
+# recorded by go.opentelemetry.io/contrib/instrumentation/runtime and otelhttp
+# on the self-telemetry MeterProvider when telemetry.enabled and
+# telemetry.metrics.enabled are true.
+#
+# They are imported from the OTel semantic conventions dependency pinned in
+# manifest.yaml, not redefined. Each refinement adds the Prometheus naming
+# contract (annotations.prometheus, see manifest.yaml) and removes upstream
+# attributes the instrumentation never sets.
+file_format: definition/2
+imports:
+  metrics:
+    - go.memory.used
+    - go.memory.limit
+    - go.memory.allocated
+    - go.memory.allocations
+    - go.memory.gc.goal
+    - go.goroutine.count
+    - go.processor.limit
+    - go.config.gogc
+    - go.schedule.duration
+    - http.client.request.duration
+    - http.client.request.body.size
+metric_refinements:
+  - id: github_activity_exporter.go.memory.used
+    ref: go.memory.used
+    attributes:
+      - unref: go.memory.detailed_type
+    annotations:
+      prometheus:
+        name: go.memory.used
+        type: gauge
+  - id: github_activity_exporter.go.memory.limit
+    ref: go.memory.limit
+    annotations:
+      prometheus:
+        name: go.memory.limit
+        type: gauge
+  - id: github_activity_exporter.go.memory.allocated
+    ref: go.memory.allocated
+    annotations:
+      prometheus:
+        name: go.memory.allocated
+        type: counter
+  - id: github_activity_exporter.go.memory.allocations
+    ref: go.memory.allocations
+    annotations:
+      prometheus:
+        name: go.memory.allocations
+        type: counter
+  - id: github_activity_exporter.go.memory.gc.goal
+    ref: go.memory.gc.goal
+    annotations:
+      prometheus:
+        name: go.memory.gc.goal
+        type: gauge
+  - id: github_activity_exporter.go.goroutine.count
+    ref: go.goroutine.count
+    annotations:
+      prometheus:
+        name: go.goroutine.count
+        type: gauge
+  - id: github_activity_exporter.go.processor.limit
+    ref: go.processor.limit
+    annotations:
+      prometheus:
+        name: go.processor.limit
+        type: gauge
+  - id: github_activity_exporter.go.config.gogc
+    ref: go.config.gogc
+    annotations:
+      prometheus:
+        name: go.config.gogc
+        type: gauge
+  - id: github_activity_exporter.go.schedule.duration
+    ref: go.schedule.duration
+    annotations:
+      prometheus:
+        name: go.schedule.duration
+        type: histogram
+  - id: github_activity_exporter.http.client.request.duration
+    ref: http.client.request.duration
+    attributes:
+      - ref: url.template
+        requirement_level:
+          conditionally_required: If the request path is one of the GitHub routes the exporter calls.
+    annotations:
+      prometheus:
+        name: http.client.request.duration
+        type: histogram
+  - id: github_activity_exporter.http.client.request.body.size
+    ref: http.client.request.body.size
+    attributes:
+      - ref: url.template
+        requirement_level:
+          conditionally_required: If the request path is one of the GitHub routes the exporter calls.
+    annotations:
+      prometheus:
+        name: http.client.request.body.size
+        type: histogram

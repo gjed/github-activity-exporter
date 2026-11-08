@@ -7,7 +7,7 @@ package semconv
 // Metric name constants generated from the OTel Weaver registry.
 // All metric instrumentation MUST reference these constants — no magic strings.
 const (
-{% for group in ctx %}
+{% for group in ctx | rejectattr("imported") %}
 {%- set id = group.metric_name | pascal_case_const
               | replace("Githubexporter", "GitHubExporter")
               | replace("Otlp", "OTLP")
@@ -40,6 +40,6 @@ var Metrics = []MetricDef{
               | replace("Parseerror", "ParseError")
               | replace("Ratelimit", "RateLimit")
               | replace("Github", "GitHub") %}
-	{Name: Metric{{ id }}, Instrument: "{{ group.instrument }}", Unit: "{{ group.unit }}"},
+	{Name: {% if group.imported %}"{{ group.metric_name }}"{% else %}Metric{{ id }}{% endif %}, Instrument: "{{ group.instrument }}", Unit: "{{ group.unit }}"},
 {%- endfor %}
 }

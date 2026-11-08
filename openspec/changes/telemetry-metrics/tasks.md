@@ -2,9 +2,9 @@
 
 ## 1. Registry contract
 
-- [ ] 1.1 Add `registry/telemetry.yaml`: import the nine `go.*` metrics, `http.client.request.duration` and `http.client.request.body.size` from the `otel` dependency, one refinement each with `annotations.prometheus` and `unref` for attributes never attached; verify `make check-schema` passes
-- [ ] 1.2 Update `policies/registry/prometheus.rego` to require the annotation on a refinement of every metric and check name/type on every annotated refinement; add a bad-registry fixture under `tests/integration/testdata/` with an import lacking a refinement and assert the violation in `registry_policy_test.go`; verify `go test -tags integration -run Policy ./tests/integration/...`
-- [ ] 1.3 Exclude imported groups from `templates/go/weaver.yaml`; switch `templates/grafana/` to `--v2` (`.refinements.metrics`, v2 keys) in the template, `weaver.yaml` and the `Makefile`; verify `make generate` leaves `internal/semconv/*.go` and the existing dashboard queries unchanged
+- [x] 1.1 Add `registry/telemetry.yaml`: import the nine `go.*` metrics, `http.client.request.duration` and `http.client.request.body.size` from the `otel` dependency, one refinement each with `annotations.prometheus` and `unref` for attributes never attached; verify `make check-schema` passes
+- [x] 1.2 Update `policies/registry/prometheus.rego` to require the annotation on a refinement of every metric and check name/type on every annotated refinement; add a bad-registry fixture under `tests/integration/testdata/` with an import lacking a refinement and assert the violation in `registry_policy_test.go`; verify `go test -tags integration -run Policy ./tests/integration/...`
+- [x] 1.3 Exclude imported groups from `templates/go/weaver.yaml`; switch `templates/grafana/` to `--v2` (`.refinements.metrics`, v2 keys) in the template, `weaver.yaml` and the `Makefile`; verify `make generate` leaves `internal/semconv/*.go` and the existing dashboard queries unchanged
 
 ## 2. Runtime metrics
 

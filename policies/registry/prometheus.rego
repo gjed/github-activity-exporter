@@ -16,25 +16,35 @@ prometheus_type := {
 	"histogram": "histogram",
 }
 
+# The annotation sits on the metric itself or, for a metric imported from a
+# dependency registry, on a metric_refinements entry. The resolved v2 schema
+# lists every own metric as its own refinement, so the rules read the
+# refinements and every metric must have one that declares the key.
 deny contains finding("prometheus_annotation_missing", m, msg) if {
 	some m in input.registry.metrics
 	some key in ["name", "type"]
-	not m.annotations.prometheus[key]
+	not annotated(m.name, key)
 	msg := sprintf("Metric '%s' does not declare annotations.prometheus.%s.", [m.name, key])
 }
 
 deny contains finding("prometheus_name_mismatch", m, msg) if {
-	some m in input.registry.metrics
+	some m in input.refinements.metrics
 	name := m.annotations.prometheus.name
 	name != m.name
 	msg := sprintf("Metric '%s' declares annotations.prometheus.name '%v'; it must equal the metric name.", [m.name, name])
 }
 
 deny contains finding("prometheus_type_mismatch", m, msg) if {
-	some m in input.registry.metrics
+	some m in input.refinements.metrics
 	type := m.annotations.prometheus.type
 	type != prometheus_type[m.instrument]
 	msg := sprintf("Metric '%s' (%s) declares annotations.prometheus.type '%v'; want '%s'.", [m.name, m.instrument, type, prometheus_type[m.instrument]])
+}
+
+annotated(name, key) if {
+	some r in input.refinements.metrics
+	r.name == name
+	r.annotations.prometheus[key]
 }
 
 finding(id, m, msg) := {
