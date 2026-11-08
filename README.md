@@ -89,6 +89,7 @@ export:
     headers:                      # sent on every OTLP request; names are lower-cased
       Authorization: Bearer <token>
       X-Scope-OrgID: my-tenant
+    headers_env: ""               # env var holding more headers as name=value pairs; see "OTLP headers from the environment"
     tls:
       insecure: false             # http: skip cert verification; grpc: no TLS. Not for production
   prometheus:
@@ -187,7 +188,17 @@ A partially filled `auth` block (for example `app` without `app_id`) is a startu
 
 PR, issue and Dependency Dashboard collection all use GraphQL and share the `graphql` rate-limit pool, which is billed in points. Per repo and per cycle, PR collection costs at least 2 points (the open-PR scan and the event scan), issue collection 1 point plus 1 per further 100 repo labels (with `exclude_title_patterns` set, 1 per 100 issues instead), and the Dependency Dashboard 1 point when enabled. A token gets 5,000 points per hour; a GitHub App installation gets 5,000 plus 50 per repo and per org member beyond 20, capped at 12,500, or 10,000 on a GitHub Enterprise Cloud organization ([GitHub rate limits](https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api)). Size `collection_interval` so that repos × points × cycles per hour stays below the limit: 389 repos with the dashboard enabled, at the default 5m, cost at least 389 × 4 × 12 ≈ 18,700 points per hour. When fewer than 200 points remain, the pool pauses until it resets and PR, issue and dashboard collection all wait.
 
-Scalar config keys can be overridden with `GITHUB_ACTIVITY_EXPORTER_` env vars, upper-cased with `.` replaced by `_` (for example `GITHUB_ACTIVITY_EXPORTER_EXPORT_OTLP_ENDPOINT`). Per-target settings, including `auth`, cannot be overridden this way.
+Scalar config keys can be overridden with `GITHUB_ACTIVITY_EXPORTER_` env vars, upper-cased with `.` replaced by `_` (for example `GITHUB_ACTIVITY_EXPORTER_EXPORT_OTLP_ENDPOINT`). Per-target settings, including `auth`, cannot be overridden this way, and neither can the `export.otlp.headers` map: use `export.otlp.headers_env`.
+
+### OTLP headers from the environment
+
+`export.otlp.headers_env` names an env var holding OTLP headers, so a token can come from a Secret instead of the config file. The format is the one of `OTEL_EXPORTER_OTLP_HEADERS`: `name=value` pairs separated by commas, for example `authorization=Bearer <token>,x-scope-orgid=my-tenant`. Names are lower-cased; values are trimmed and percent-decoded, so write a `,` in a value as `%2C` and a `%` as `%25`.
+
+The headers are merged into `export.otlp.headers`; for the same name the env var wins, so non-secret headers can stay in the file. If the variable is unset or empty, or an entry is not a valid `name=value` pair, startup fails with an error naming the variable and the entry position. Header values are never logged.
+
+`OTEL_EXPORTER_OTLP_HEADERS` does not reach the GitHub metrics push: it configures [self-telemetry](#self-telemetry) only.
+
+When the first OTLP push is rejected with HTTP 401 or 403, or gRPC `Unauthenticated` or `PermissionDenied`, the exporter logs a warning pointing at these settings. Every failed push is logged and counted in `github_exporter.otlp.errors`; `/healthz` and `/readyz` do not depend on OTLP pushes.
 
 ## Health endpoints
 
@@ -228,9 +239,9 @@ Metrics are described in [Self-telemetry metrics](#self-telemetry-metrics) and p
 
 Self-telemetry runs on its own OTel SDK providers. No `telemetry` key and no `OTEL_*` variable other than `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` changes what the GitHub metrics export, where, how or when: their OTLP push is configured by `export.otlp` only. The `github_exporter.*` metrics (`scrape.duration`, `scrape.overruns`, `api.errors`, `otlp.errors`, `api.rate_limit.*`) belong to the GitHub metrics and are always on; the dashboard uses all of them except `scrape.overruns`. When the Prometheus bridge is enabled, self-telemetry metrics are also served on `/metrics`.
 
-Traces, metrics and logs go over OTLP. With no OTLP endpoint in the environment, each signal uses `export.otlp`: same endpoint, protocol, headers and TLS. For `protocol: http` the endpoint is a base URL, and a trailing `/v1/metrics` is dropped, so `https://gw.example.com/otlp` and `https://gw.example.com/otlp/v1/metrics` both send traces to `https://gw.example.com/otlp/v1/traces`. Once `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` is set, that signal is configured from the `OTEL_EXPORTER_OTLP_*` variables only, and `export.otlp` headers are never sent to it.
+Traces, metrics and logs go over OTLP. With no OTLP endpoint in the environment, each signal uses `export.otlp`: same endpoint, protocol, headers (`export.otlp.headers_env` included) and TLS. For `protocol: http` the endpoint is a base URL, and a trailing `/v1/metrics` is dropped, so `https://gw.example.com/otlp` and `https://gw.example.com/otlp/v1/metrics` both send traces to `https://gw.example.com/otlp/v1/traces`. Once `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` is set, that signal is configured from the `OTEL_EXPORTER_OTLP_*` variables only, and `export.otlp` headers are never sent to it.
 
-The standard [OTel SDK variables](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/) apply, signal-specific before generic:
+The standard [OTel SDK variables](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/) configure self-telemetry, signal-specific before generic. Only `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` also apply to the GitHub metrics:
 
 | Env                                                                                | Effect                                                                                                           |
 | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -238,7 +249,7 @@ The standard [OTel SDK variables](https://opentelemetry.io/docs/specs/otel/confi
 | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER`              | `none` turns the signal off; `otlp` is the default. Other values log a warning and mean `otlp`                   |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_ENDPOINT` | Destination; replaces `export.otlp` for the signal                                                               |
 | `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_PROTOCOL` | `grpc` or `http/protobuf` (default) when an endpoint variable is set. Ignored when the signal uses `export.otlp` |
-| `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_HEADERS`   | Request headers; replace `export.otlp.headers`                                                                   |
+| `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_HEADERS`   | Request headers; replace the inherited `export.otlp` headers                                                     |
 | `OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_TIMEOUT`   | Export timeout in milliseconds                                                                                   |
 | `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`                                   | Trace sampler; default `parentbased_always_on`                                                                   |
 | `OTEL_METRIC_EXPORT_INTERVAL`                                                      | Self-telemetry metric push interval in milliseconds; default 60000                                               |
