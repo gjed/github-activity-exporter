@@ -36,15 +36,32 @@ Secret material comes from one Secret: `secret.existingSecret`, or a Secret the 
 - `secret.env` maps env var names to Secret keys.
 - `secret.files` lists Secret keys mounted read-only at `/etc/github-activity-exporter/secrets/<key>`, readable by the container user only.
 
-| Credential                 | Config                                                                   | Secret wiring                              |
-| -------------------------- | ------------------------------------------------------------------------ | ------------------------------------------ |
-| PAT, shared                | no `auth` block                                                          | `env: {GITHUB_TOKEN: <key>}`               |
-| PAT, per target            | `auth.token_env: ACME_TOKEN`                                             | `env: {ACME_TOKEN: <key>}`                 |
-| GitHub App key, file       | `auth.app.private_key_path: /etc/github-activity-exporter/secrets/<key>` | `files: [<key>]`                           |
-| GitHub App key, base64 PEM | `auth.app.private_key_env: GITHUB_APP_KEY`                               | `env: {GITHUB_APP_KEY: <key>}`             |
-| OTLP headers               | no `export.otlp.headers`                                                 | `env: {OTEL_EXPORTER_OTLP_HEADERS: <key>}` |
+| Credential                 | Config                                                                   | Secret wiring                  |
+| -------------------------- | ------------------------------------------------------------------------ | ------------------------------ |
+| PAT, shared                | no `auth` block                                                          | `env: {GITHUB_TOKEN: <key>}`   |
+| PAT, per target            | `auth.token_env: ACME_TOKEN`                                             | `env: {ACME_TOKEN: <key>}`     |
+| GitHub App key, file       | `auth.app.private_key_path: /etc/github-activity-exporter/secrets/<key>` | `files: [<key>]`               |
+| GitHub App key, base64 PEM | `auth.app.private_key_env: GITHUB_APP_KEY`                               | `env: {GITHUB_APP_KEY: <key>}` |
+| OTLP headers               | `export.otlp.headers_env: OTLP_HEADERS`                                  | `env: {OTLP_HEADERS: <key>}`   |
 
-`OTEL_EXPORTER_OTLP_HEADERS` holds `name=value` pairs separated by commas, for example `authorization=Bearer <token>,x-scope-orgid=my-tenant`. Headers set in `export.otlp.headers` replace it entirely, so set headers in one place only.
+The `export.otlp.headers_env` variable holds `name=value` pairs separated by commas, for example `authorization=Bearer <token>,x-scope-orgid=my-tenant`. They are merged into `export.otlp.headers`, the variable winning for the same name, so non-secret headers such as `x-scope-orgid` can stay in `config`. See [OTLP headers from the environment](https://github.com/gjed/github-activity-exporter#otlp-headers-from-the-environment). `OTEL_EXPORTER_OTLP_HEADERS` does not authenticate the GitHub metrics push: it configures self-telemetry only.
+
+When the Secret holds only the raw token and the backend needs `authorization: Bearer <token>`, build the header in `env` with a Kubernetes [dependent env var](https://kubernetes.io/docs/tasks/inject-data-application/define-interdependent-environment-variables/). The chart puts every `secret.env` var before the `env` entries, so `$(OTLP_TOKEN)` resolves; no second Secret is needed:
+
+```yaml
+config:
+  export:
+    otlp:
+      headers_env: OTLP_HEADERS
+secret:
+  env:
+    OTLP_TOKEN: otlp-token
+env:
+  - name: OTLP_HEADERS
+    value: authorization=Bearer $(OTLP_TOKEN)
+```
+
+[`examples/renovate-values.yaml`](examples/renovate-values.yaml) uses this form, [`examples/github-app-values.yaml`](examples/github-app-values.yaml) a Secret key holding the full header string.
 
 The checksum annotation covers a chart-managed Secret only. After rotating an existing Secret, run `kubectl rollout restart deployment/<release>-github-activity-exporter`.
 

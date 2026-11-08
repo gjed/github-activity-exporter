@@ -2,11 +2,16 @@
 #
 #   kubectl create secret generic github-activity-exporter \
 #     --from-literal=github-token="$GITHUB_TOKEN" \
-#     --from-literal=otlp-headers='authorization=Bearer <token>'
+#     --from-literal=otlp-token='<token>'
+#
+# The Secret holds the raw OTLP token; OTLP_HEADERS adds the Bearer prefix with
+# Kubernetes dependent env vars ($(OTLP_TOKEN)), which works because the chart
+# puts secret.env vars before env.
 config:
   export:
     otlp:
       endpoint: https://otlp.example.com:4318
+      headers_env: OTLP_HEADERS
   targets:
     - name: renovate
       orgs:
@@ -21,4 +26,8 @@ secret:
   existingSecret: github-activity-exporter
   env:
     GITHUB_TOKEN: github-token
-    OTEL_EXPORTER_OTLP_HEADERS: otlp-headers
+    OTLP_TOKEN: otlp-token
+
+env:
+  - name: OTLP_HEADERS
+    value: authorization=Bearer $(OTLP_TOKEN)
