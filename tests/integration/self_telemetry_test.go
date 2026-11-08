@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-github/v93/github"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
@@ -60,7 +59,7 @@ func newSelfTelemetry(t *testing.T, active bool, otlp config.OTLP, reg prometheu
 }
 
 // exerciseGitHub sends the exporter's kinds of GitHub request (credential
-// check, REST issue listing, GraphQL) to a fake GitHub through the transport
+// check, REST repo listing, GraphQL) to a fake GitHub through the transport
 // main.go builds: instrumented on tel's MeterProvider when metrics are active.
 func exerciseGitHub(t *testing.T, tel *telemetry.Telemetry) {
 	t.Helper()
@@ -69,7 +68,7 @@ func exerciseGitHub(t *testing.T, tel *telemetry.Telemetry) {
 		switch {
 		case r.URL.Path == "/graphql":
 			_, _ = w.Write([]byte(`{"data":{"viewer":{"login":"octocat"}}}`))
-		case strings.HasSuffix(r.URL.Path, "/issues"):
+		case strings.HasSuffix(r.URL.Path, "/repos"):
 			_, _ = w.Write([]byte(`[]`))
 		case r.URL.Path == "/repos/acme/missing":
 			w.WriteHeader(http.StatusNotFound)
@@ -97,8 +96,8 @@ func exerciseGitHub(t *testing.T, tel *telemetry.Telemetry) {
 	if err := auth.Ping(ctx); err != nil {
 		t.Fatalf("Ping: %v", err)
 	}
-	if _, _, err := c.REST().Issues.ListByRepo(ctx, "acme", "widgets", &github.IssueListByRepoOptions{}); err != nil {
-		t.Fatalf("ListByRepo: %v", err)
+	if _, _, err := c.REST().Repositories.ListByOrg(ctx, "acme", nil); err != nil {
+		t.Fatalf("ListByOrg: %v", err)
 	}
 	var q struct{ Viewer struct{ Login string } }
 	if err := c.GraphQL().Query(ctx, &q, nil); err != nil {

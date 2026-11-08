@@ -68,7 +68,6 @@ var restRoutes = [][]string{
 	strings.Split("/app", "/"),  // App credential check
 	strings.Split("/app/installations/{installation_id}/access_tokens", "/"), // App token exchange
 	strings.Split("/orgs/{org}/repos", "/"),                                  // discovery
-	strings.Split("/repos/{owner}/{repo}/issues", "/"),                       // issue and Dependency Dashboard collectors
 }
 
 // routeTransport adds url.template and error.type to the otelhttp Labeler of
