@@ -142,7 +142,7 @@ func (p *profiler) push(name string, body []byte) {
 		p.logger.Error("profiles: push failed", "profile", name, "err", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		p.logger.Error("profiles: push rejected", "profile", name, "status", resp.Status, "body", string(msg))
