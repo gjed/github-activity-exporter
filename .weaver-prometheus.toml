@@ -9,10 +9,12 @@ sample_type = "resource"
 when = 'attributes["service.name"] == "github-activity-exporter"'
 strict_attribute_groups = ["github_activity_exporter.resource"]
 
-# The Prometheus exposition carries no unit, and exposes updowncounters as
-# gauge. policies/live_check/ checks the exposed type against
-# annotations.prometheus.type instead; units stay verified on OTLP.
+# The Prometheus exposition carries no unit, exposes updowncounters as gauge,
+# and has only string label values, so an int attribute such as
+# http.response.status_code reads as a string. policies/live_check/ checks the
+# exposed type against annotations.prometheus.type instead; units and
+# attribute types stay verified on OTLP.
 [[live-check.finding_level_overrides]]
-ids = ["unexpected_instrument", "unit_mismatch"]
+ids = ["unexpected_instrument", "unit_mismatch", "type_mismatch"]
 level = "information"
 signal_type = "metric"

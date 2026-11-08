@@ -18,8 +18,8 @@
 
 ## 4. Live-checks
 
-- [ ] 4.1 `policies/live_check/prometheus.rego`: cover imported metrics (fallback to the instrument-derived type when `registry_group` has no annotation) after checking what live-check passes as `registry_group`
-- [ ] 4.2 `tests/integration`: run the OTLP and `/metrics` live-checks with self-telemetry metrics on (GitHub requests through a mock server and the instrumented client) and off; on: `go.*`/`http.client.*` seen, no violation, wrong exposed type on an imported metric detected; off: no `go.*`/`http.*`; the registry-name enumeration includes imported metrics; verify `make test-integration`
+- [x] 4.1 `policies/live_check/prometheus.rego`: cover imported metrics (fallback to the instrument-derived type when `registry_group` has no annotation) after checking what live-check passes as `registry_group`
+- [x] 4.2 `tests/integration`: run the OTLP and `/metrics` live-checks with self-telemetry metrics on (GitHub requests through a mock server and the instrumented client) and off; on: `go.*`/`http.client.*` seen, no violation, wrong exposed type on an imported metric detected; off: no `go.*`/`http.*`; the registry-name enumeration includes imported metrics; verify `make test-integration`
 
 ## 5. Dashboard
 
