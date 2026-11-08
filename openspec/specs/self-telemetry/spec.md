@@ -154,8 +154,8 @@ When self-telemetry metrics are active, every HTTP request the exporter sends to
 
 #### Scenario: REST and GraphQL calls recorded
 
-- **WHEN** self-telemetry metrics are active and a collection cycle lists issues over REST and queries pull requests over GraphQL
-- **THEN** `http.client.request.duration` has data points with `http.request.method`, `http.response.status_code`, `server.address`, `server.port` and `url.template` `/repos/{owner}/{repo}/issues` for the REST call and `/graphql` for the GraphQL call
+- **WHEN** self-telemetry metrics are active and a collection cycle lists the org's repositories over REST and queries pull requests and issues over GraphQL
+- **THEN** `http.client.request.duration` has data points with `http.request.method`, `http.response.status_code`, `server.address`, `server.port` and `url.template` `/orgs/{org}/repos` for the REST call and `/graphql` for the GraphQL calls
 
 #### Scenario: App token exchange recorded
 
@@ -174,12 +174,12 @@ When self-telemetry metrics are active, every HTTP request the exporter sends to
 
 ### Requirement: Bounded HTTP client attributes
 
-HTTP client metric attributes SHALL have bounded cardinality. `url.template` SHALL be set only for the routes the exporter calls, as an absolute path template under the target's API root (for example `/api/v3/repos/{owner}/{repo}/issues` on GitHub Enterprise Server), and omitted for any other path. No attribute SHALL carry a full URL, a query string, an org, user, repo or installation identifier, or a token.
+HTTP client metric attributes SHALL have bounded cardinality. `url.template` SHALL be set only for the routes the exporter calls, as an absolute path template under the target's API root (for example `/api/v3/orgs/{org}/repos` on GitHub Enterprise Server), and omitted for any other path. No attribute SHALL carry a full URL, a query string, an org, user, repo or installation identifier, or a token.
 
 #### Scenario: Repo names stay out of attributes
 
-- **WHEN** the exporter lists issues of `acme/widgets` with self-telemetry metrics active
-- **THEN** no `http.client.request.duration` attribute value contains `acme` or `widgets`, and `url.template` is `/repos/{owner}/{repo}/issues`
+- **WHEN** the exporter lists the repositories of `acme` and queries `acme/widgets` with self-telemetry metrics active
+- **THEN** no `http.client.request.duration` attribute value contains `acme` or `widgets`, and `url.template` is `/orgs/{org}/repos` or `/graphql`
 
 #### Scenario: Unknown route
 
