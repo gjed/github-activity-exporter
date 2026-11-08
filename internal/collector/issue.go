@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
-	"github.com/google/go-github/v93/github"
+	"github.com/shurcooL/githubv4"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
@@ -16,16 +18,63 @@ import (
 	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
-// IssueListClient abstracts the GitHub REST API issue listing call (injectable in tests).
-type IssueListClient interface {
-	ListByRepo(ctx context.Context, owner, repo string, opts *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error)
+// issueCountQuery reads a repo's issue counts without listing issues: the
+// per-state totals, the oldest open issue and one page of labels, each with
+// the number of issues carrying it. $states is nullable: nil means every state.
+type issueCountQuery struct {
+	Repository struct {
+		Open   struct{ TotalCount int64 } `graphql:"open: issues(states: OPEN)"`
+		Closed struct{ TotalCount int64 } `graphql:"closed: issues(states: CLOSED)"`
+		Oldest struct {
+			Nodes []struct{ CreatedAt time.Time }
+		} `graphql:"oldest: issues(first: 1, states: OPEN, orderBy: {field: CREATED_AT, direction: ASC})"`
+		Labels struct {
+			Nodes []struct {
+				Name   string
+				Issues struct{ TotalCount int64 } `graphql:"issues(states: $states)"`
+			}
+			PageInfo pageInfo
+		} `graphql:"labels(first: 100, after: $cursor)"`
+	} `graphql:"repository(owner: $owner, name: $name)"`
 }
 
-// IssueCollector fetches GitHub issues via the REST API and records OTel metrics.
+// issueListQuery pages a repo's issues for the title filter. GitHub caps an
+// issue at 100 labels, so labels(first: 100) reads all of them.
+type issueListQuery struct {
+	Repository struct {
+		Issues struct {
+			Nodes []struct {
+				State     string // "OPEN" or "CLOSED"
+				Title     string
+				CreatedAt time.Time
+				Labels    struct {
+					Nodes []struct{ Name string }
+				} `graphql:"labels(first: 100)"`
+			}
+			PageInfo pageInfo
+		} `graphql:"issues(first: 100, states: $states, after: $cursor)"`
+	} `graphql:"repository(owner: $owner, name: $name)"`
+}
+
+// pageInfo is the GraphQL connection paging state.
+type pageInfo struct {
+	HasNextPage bool
+	EndCursor   githubv4.String
+}
+
+// IssueCollector reads GitHub issues via GraphQL, which unlike the REST
+// issues list never returns pull requests, and records OTel metrics.
 type IssueCollector struct {
-	rest   IssueListClient
+	gql    GraphQLClient
 	filter *filter.IssueFilter
 	logger *slog.Logger
+
+	// states is the GraphQL $states variable for filters.issues.states:
+	// nil when unset (every state), empty when no valid state is listed.
+	states *[]githubv4.IssueState
+	// listIssues is set when title patterns are configured: counts then
+	// depend on titles, so the issues are paged instead of counted.
+	listIssues bool
 
 	// OTel instruments.
 	// issueCount matches the registry instrument (updowncounter) via its
@@ -65,7 +114,7 @@ func (c *IssueCollection) FailedRepos() []string { return c.failed }
 
 // NewIssueCollector creates an IssueCollector that records metrics on the given meter.
 func NewIssueCollector(
-	rest IssueListClient,
+	gql GraphQLClient,
 	filterCfg config.IssueFilters,
 	meter metric.Meter,
 	logger *slog.Logger,
@@ -75,9 +124,11 @@ func NewIssueCollector(
 	}
 
 	c := &IssueCollector{
-		rest:   rest,
-		filter: filter.NewIssueFilter(filterCfg),
-		logger: logger,
+		gql:        gql,
+		filter:     filter.NewIssueFilter(filterCfg),
+		logger:     logger,
+		states:     issueStates(filterCfg.States),
+		listIssues: len(filterCfg.ExcludeTitleRegexps) > 0,
 	}
 
 	var err error
@@ -127,85 +178,132 @@ func (c *IssueCollector) Collect(ctx context.Context, target string, repos []dis
 	return coll, nil
 }
 
-// collectRepo fetches and aggregates issues for a single repo.
-func (c *IssueCollector) collectRepo(ctx context.Context, _ string, repo discovery.Repo) (issueStats, error) {
-	issues, err := c.fetchIssues(ctx, repo)
-	if err != nil {
-		return issueStats{}, err
+// issueStates maps filters.issues.states to the GraphQL $states variable.
+func issueStates(states []string) *[]githubv4.IssueState {
+	if len(states) == 0 {
+		return nil
 	}
+	out := []githubv4.IssueState{}
+	for _, st := range []githubv4.IssueState{githubv4.IssueStateOpen, githubv4.IssueStateClosed} {
+		if containsFold(states, string(st)) {
+			out = append(out, st)
+		}
+	}
+	return &out
+}
 
+// stateAllowed reports whether filters.issues.states lets issues in st through.
+func (c *IssueCollector) stateAllowed(st githubv4.IssueState) bool {
+	return c.states == nil || slices.Contains(*c.states, st)
+}
+
+// collectRepo computes the issue stats of a single repo.
+func (c *IssueCollector) collectRepo(ctx context.Context, _ string, repo discovery.Repo) (issueStats, error) {
 	stats := issueStats{
 		countByState: make(map[string]int64),
 		countByLabel: make(map[string]int64),
 	}
+	if c.states != nil && len(*c.states) == 0 {
+		// No configured state is a valid issue state: nothing passes.
+		return stats, nil
+	}
+	if c.listIssues {
+		return stats, c.listRepo(ctx, repo, &stats)
+	}
+	return stats, c.countRepo(ctx, repo, &stats)
+}
 
-	var oldestOpenCreatedAt time.Time
-
-	for _, iss := range issues {
-		// The GitHub REST API returns pull requests in the issues list.
-		// Skip them — PR metrics are handled by PRCollector.
-		if iss.IsPullRequest() {
-			continue
+// countRepo fills stats from GraphQL totalCounts. Only valid without title
+// patterns, which totalCount cannot apply. A state or label with no issue is
+// left out, as when issues are listed.
+func (c *IssueCollector) countRepo(ctx context.Context, repo discovery.Repo, stats *issueStats) error {
+	var cursor *githubv4.String
+	for {
+		var q issueCountQuery
+		if err := c.gql.Query(ctx, &q, c.vars(repo, cursor)); err != nil {
+			return fmt.Errorf("graphql issue count query for %s: %w", repo.FullName, err)
 		}
+		r := &q.Repository
 
-		state := iss.GetState() // "open" or "closed"
-		title := iss.GetTitle()
-
-		labels := make([]string, 0, len(iss.Labels))
-		for _, l := range iss.Labels {
-			labels = append(labels, l.GetName())
-		}
-
-		fi := filter.Issue{State: state, Title: title, Labels: labels}
-		if !c.filter.Match(fi) {
-			continue
-		}
-
-		stats.countByState[state]++
-
-		for _, l := range labels {
-			stats.countByLabel[l]++
-		}
-
-		if state == "open" {
-			if iss.CreatedAt != nil {
-				createdAt := iss.CreatedAt.Time
-				if oldestOpenCreatedAt.IsZero() || createdAt.Before(oldestOpenCreatedAt) {
-					oldestOpenCreatedAt = createdAt
+		if cursor == nil {
+			if n := r.Open.TotalCount; n > 0 && c.stateAllowed(githubv4.IssueStateOpen) {
+				stats.countByState["open"] = n
+				if len(r.Oldest.Nodes) > 0 {
+					stats.oldestOpenAge = time.Since(r.Oldest.Nodes[0].CreatedAt).Seconds()
 				}
 			}
+			if n := r.Closed.TotalCount; n > 0 && c.stateAllowed(githubv4.IssueStateClosed) {
+				stats.countByState["closed"] = n
+			}
 		}
+
+		for _, l := range r.Labels.Nodes {
+			if l.Issues.TotalCount > 0 {
+				stats.countByLabel[l.Name] = l.Issues.TotalCount
+			}
+		}
+
+		if !r.Labels.PageInfo.HasNextPage {
+			return nil
+		}
+		end := r.Labels.PageInfo.EndCursor
+		cursor = &end
+	}
+}
+
+// listRepo pages the repo's issues and fills stats from those passing the
+// issue filters.
+func (c *IssueCollector) listRepo(ctx context.Context, repo discovery.Repo, stats *issueStats) error {
+	var oldestOpenCreatedAt time.Time
+	var cursor *githubv4.String
+	for {
+		var q issueListQuery
+		if err := c.gql.Query(ctx, &q, c.vars(repo, cursor)); err != nil {
+			return fmt.Errorf("graphql issue list query for %s: %w", repo.FullName, err)
+		}
+
+		for _, iss := range q.Repository.Issues.Nodes {
+			state := strings.ToLower(iss.State) // "open" or "closed"
+
+			labels := make([]string, 0, len(iss.Labels.Nodes))
+			for _, l := range iss.Labels.Nodes {
+				labels = append(labels, l.Name)
+			}
+
+			if !c.filter.Match(filter.Issue{State: state, Title: iss.Title, Labels: labels}) {
+				continue
+			}
+
+			stats.countByState[state]++
+			for _, l := range labels {
+				stats.countByLabel[l]++
+			}
+			if state == "open" && (oldestOpenCreatedAt.IsZero() || iss.CreatedAt.Before(oldestOpenCreatedAt)) {
+				oldestOpenCreatedAt = iss.CreatedAt
+			}
+		}
+
+		if !q.Repository.Issues.PageInfo.HasNextPage {
+			break
+		}
+		end := q.Repository.Issues.PageInfo.EndCursor
+		cursor = &end
 	}
 
 	if !oldestOpenCreatedAt.IsZero() {
 		stats.oldestOpenAge = time.Since(oldestOpenCreatedAt).Seconds()
 	}
-
-	return stats, nil
+	return nil
 }
 
-// fetchIssues paginates the REST issues endpoint for a repo.
-func (c *IssueCollector) fetchIssues(ctx context.Context, repo discovery.Repo) ([]*github.Issue, error) {
-	var all []*github.Issue
-
-	opts := &github.IssueListByRepoOptions{
-		State:       "all",
-		ListOptions: github.ListOptions{PerPage: 100},
+// vars returns the variables of the issue queries.
+func (c *IssueCollector) vars(repo discovery.Repo, cursor *githubv4.String) map[string]interface{} {
+	return map[string]interface{}{
+		"owner":  githubv4.String(repo.Owner),
+		"name":   githubv4.String(repo.Name),
+		"states": c.states,
+		"cursor": cursor,
 	}
-
-	for {
-		page, resp, err := c.rest.ListByRepo(ctx, repo.Owner, repo.Name, opts)
-		if err != nil {
-			return nil, fmt.Errorf("list issues for %s: %w", repo.FullName, err)
-		}
-		all = append(all, page...)
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.ListOptions.Page = resp.NextPage
-	}
-
-	return all, nil
 }
 
 // ObservableRegistration returns a metric.Callback for the issue gauge instruments.

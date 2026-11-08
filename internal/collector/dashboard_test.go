@@ -2,36 +2,29 @@ package collector_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
-
-	"github.com/google/go-github/v93/github"
 
 	"github.com/gjed/github-activity-exporter/internal/collector"
 	"github.com/gjed/github-activity-exporter/internal/discovery"
 	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
-// fakeDashboardClient implements DashboardIssueClient using fixture issues.
-type fakeDashboardClient struct {
-	issues []*github.Issue
-}
-
-func (f *fakeDashboardClient) ListByRepo(_ context.Context, _, _ string, _ *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error) {
-	return f.issues, &github.Response{}, nil
-}
-
-func dashboardIssue(title, body, author string) *github.Issue {
-	state := "open"
-	n := 1
-	ts := github.Timestamp{Time: time.Now()}
-	return &github.Issue{
-		Number:    &n,
-		State:     &state,
-		Title:     &title,
-		Body:      &body,
-		CreatedAt: &ts,
-		User:      &github.User{Login: &author},
+// dashboardIssue returns an open fixture issue. A REST-form bot author
+// ("renovate[bot]") is stored the way GraphQL returns it: login "renovate",
+// __typename Bot.
+func dashboardIssue(title, body, author string) collector.ExportedIssueNode {
+	login, isBot := strings.CutSuffix(author, "[bot]")
+	return collector.ExportedIssueNode{
+		State:       "OPEN",
+		Title:       title,
+		Body:        body,
+		CreatedAt:   time.Now(),
+		Author:      login,
+		AuthorIsBot: isBot,
 	}
 }
 
@@ -84,7 +77,7 @@ This issue lists Renovate updates and detected dependencies.
 `
 
 func TestDashboardCollector_TypicalDashboard(t *testing.T) {
-	issues := []*github.Issue{
+	issues := []collector.ExportedIssueNode{
 		dashboardIssue("Dependency Dashboard", typicalDashboard, "renovate[bot]"),
 	}
 
@@ -92,7 +85,7 @@ func TestDashboardCollector_TypicalDashboard(t *testing.T) {
 	meter := mp.Meter("test")
 
 	coll, err := collector.NewDashboardCollector(
-		&fakeDashboardClient{issues: issues},
+		&collector.FixtureIssueClient{Issues: issues},
 		"renovate[bot]",
 		meter,
 		nil,
@@ -146,7 +139,7 @@ func TestDashboardCollector_TypicalDashboard(t *testing.T) {
 }
 
 func TestDashboardCollector_EmptySections(t *testing.T) {
-	issues := []*github.Issue{
+	issues := []collector.ExportedIssueNode{
 		dashboardIssue("Dependency Dashboard", emptyDashboard, "renovate[bot]"),
 	}
 
@@ -154,7 +147,7 @@ func TestDashboardCollector_EmptySections(t *testing.T) {
 	meter := mp.Meter("test")
 
 	coll, err := collector.NewDashboardCollector(
-		&fakeDashboardClient{issues: issues},
+		&collector.FixtureIssueClient{Issues: issues},
 		"renovate[bot]",
 		meter,
 		nil,
@@ -184,7 +177,7 @@ func TestDashboardCollector_EmptySections(t *testing.T) {
 }
 
 func TestDashboardCollector_NoSections_ParseError(t *testing.T) {
-	issues := []*github.Issue{
+	issues := []collector.ExportedIssueNode{
 		dashboardIssue("Dependency Dashboard", noSectionsDashboard, "renovate[bot]"),
 	}
 
@@ -192,7 +185,7 @@ func TestDashboardCollector_NoSections_ParseError(t *testing.T) {
 	meter := mp.Meter("test")
 
 	coll, err := collector.NewDashboardCollector(
-		&fakeDashboardClient{issues: issues},
+		&collector.FixtureIssueClient{Issues: issues},
 		"renovate[bot]",
 		meter,
 		nil,
@@ -226,7 +219,7 @@ func TestDashboardCollector_NoSections_ParseError(t *testing.T) {
 }
 
 func TestDashboardCollector_ExtraSections_IgnoredGracefully(t *testing.T) {
-	issues := []*github.Issue{
+	issues := []collector.ExportedIssueNode{
 		dashboardIssue("Dependency Dashboard", extraSectionsDashboard, "renovate[bot]"),
 	}
 
@@ -234,7 +227,7 @@ func TestDashboardCollector_ExtraSections_IgnoredGracefully(t *testing.T) {
 	meter := mp.Meter("test")
 
 	coll, err := collector.NewDashboardCollector(
-		&fakeDashboardClient{issues: issues},
+		&collector.FixtureIssueClient{Issues: issues},
 		"renovate[bot]",
 		meter,
 		nil,
@@ -276,7 +269,7 @@ func TestDashboardCollector_ExtraSections_IgnoredGracefully(t *testing.T) {
 
 func TestDashboardCollector_NonDashboardIssue_Skipped(t *testing.T) {
 	// Issue has wrong title — should not trigger dashboard collection
-	issues := []*github.Issue{
+	issues := []collector.ExportedIssueNode{
 		dashboardIssue("Not the dashboard", typicalDashboard, "renovate[bot]"),
 	}
 
@@ -284,7 +277,7 @@ func TestDashboardCollector_NonDashboardIssue_Skipped(t *testing.T) {
 	meter := mp.Meter("test")
 
 	coll, err := collector.NewDashboardCollector(
-		&fakeDashboardClient{issues: issues},
+		&collector.FixtureIssueClient{Issues: issues},
 		"renovate[bot]",
 		meter,
 		nil,
@@ -312,7 +305,7 @@ func TestDashboardCollector_NonDashboardIssue_Skipped(t *testing.T) {
 }
 
 func TestDashboardCollector_WrongBotAuthor_Skipped(t *testing.T) {
-	issues := []*github.Issue{
+	issues := []collector.ExportedIssueNode{
 		dashboardIssue("Dependency Dashboard", typicalDashboard, "other-user"),
 	}
 
@@ -320,7 +313,7 @@ func TestDashboardCollector_WrongBotAuthor_Skipped(t *testing.T) {
 	meter := mp.Meter("test")
 
 	coll, err := collector.NewDashboardCollector(
-		&fakeDashboardClient{issues: issues},
+		&collector.FixtureIssueClient{Issues: issues},
 		"renovate[bot]",
 		meter,
 		nil,
@@ -343,5 +336,130 @@ func TestDashboardCollector_WrongBotAuthor_Skipped(t *testing.T) {
 	dps := findGaugeInt(t, rm, semconv.MetricRenovateDashboardQueue)
 	if len(dps) != 0 {
 		t.Errorf("expected no data points for wrong bot author, got %d", len(dps))
+	}
+}
+
+// collectDashboard runs the dashboard collector once and returns the emitted
+// queue per section and the failed repos.
+func collectDashboard(t *testing.T, gql collector.GraphQLClient, botLogin string) (map[string]int64, []string) {
+	t.Helper()
+	mp, reader := newTestMeterProvider()
+	meter := mp.Meter("test")
+
+	coll, err := collector.NewDashboardCollector(gql, botLogin, meter, nil)
+	if err != nil {
+		t.Fatalf("NewDashboardCollector: %v", err)
+	}
+	result, err := coll.Collect(context.Background(), "tgt", []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if _, err := meter.RegisterCallback(coll.ObservableRegistration(result), coll.ObservableInstruments()...); err != nil {
+		t.Fatalf("RegisterCallback: %v", err)
+	}
+
+	queue := map[string]int64{}
+	for _, dp := range findGaugeInt(t, collectMetrics(t, reader), semconv.MetricRenovateDashboardQueue) {
+		v, _ := dp.Attributes.Value(semconv.AttrRenovateDashboardSection)
+		queue[v.AsString()] = dp.Value
+	}
+	return queue, result.FailedRepos()
+}
+
+func TestDashboardCollector_OneRequestWithManyPRs(t *testing.T) {
+	prs := make([]collector.ExportedPRNode, 500)
+	for i := range prs {
+		prs[i] = collector.ExportedPRNode{Number: i + 1, State: "OPEN", CreatedAt: time.Now(), Author: "renovate", AuthorIsBot: true}
+	}
+	issues := []collector.ExportedIssueNode{
+		dashboardIssue("Action Required: Fix Renovate Configuration", "", "renovate[bot]"),
+		dashboardIssue("Dependency Dashboard", typicalDashboard, "someone-else"),
+		dashboardIssue("Dependency Dashboard", typicalDashboard, "renovate[bot]"),
+	}
+	for i := range 300 {
+		issues = append(issues, dashboardIssue(fmt.Sprintf("Bug %d", i), "", "user"))
+	}
+	gql := &collector.FixtureIssueClient{Issues: issues, PullRequests: prs}
+
+	queue, failed := collectDashboard(t, gql, "renovate[bot]")
+
+	want := []collector.FixtureIssueRequest{{Query: "dashboard", CreatedBy: "renovate[bot]"}}
+	if got := gql.Requests(); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("requests = %+v, want %+v", got, want)
+	}
+	if len(failed) != 0 || queue[semconv.AttrRenovateDashboardSectionPendingApproval] != 3 {
+		t.Errorf("queue = %v, failed = %v, want pending-approval 3 and no failure", queue, failed)
+	}
+}
+
+// TestDashboardCollector_BotLoginFormats covers the REST/GraphQL login
+// difference: the configured login is the REST form, sent as-is to createdBy;
+// GraphQL returns a GitHub App bot as "renovate" with __typename Bot.
+func TestDashboardCollector_BotLoginFormats(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured string
+		author     string // REST form, see dashboardIssue
+		found      bool
+	}{
+		{"app bot", "renovate[bot]", "renovate[bot]", true},
+		{"app bot, other case", "Renovate[bot]", "renovate[bot]", true},
+		{"user account", "zxbot", "ZxBot", true},
+		{"bare app login", "renovate", "renovate[bot]", false},
+		{"user named like the app", "renovate[bot]", "renovate", false},
+		{"no login configured", "", "anyone", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gql := &collector.FixtureIssueClient{Issues: []collector.ExportedIssueNode{
+				dashboardIssue("Dependency Dashboard", typicalDashboard, tt.author),
+			}}
+			queue, failed := collectDashboard(t, gql, tt.configured)
+
+			reqs := gql.Requests()
+			if len(reqs) != 1 || reqs[0].CreatedBy != tt.configured {
+				t.Errorf("requests = %+v, want one with createdBy %q", reqs, tt.configured)
+			}
+			if got := len(queue) > 0; got != tt.found || len(failed) != 0 {
+				t.Errorf("found = %v (failed %v), want %v", got, failed, tt.found)
+			}
+		})
+	}
+}
+
+func TestDashboardCollector_NoDashboardIssue(t *testing.T) {
+	gql := &collector.FixtureIssueClient{Issues: []collector.ExportedIssueNode{
+		dashboardIssue("Action Required: Fix Renovate Configuration", "", "renovate[bot]"),
+	}}
+	queue, failed := collectDashboard(t, gql, "renovate[bot]")
+	if len(queue) != 0 || len(failed) != 0 {
+		t.Errorf("queue = %v, failed = %v, want neither", queue, failed)
+	}
+}
+
+func TestDashboardCollector_QueryError(t *testing.T) {
+	gql := &collector.FixtureIssueClient{Err: errors.New("boom")}
+	queue, failed := collectDashboard(t, gql, "renovate[bot]")
+	if len(queue) != 0 || fmt.Sprint(failed) != "[org/repo]" {
+		t.Errorf("queue = %v, failed = %v, want no queue and [org/repo]", queue, failed)
+	}
+}
+
+func TestDashboardCollector_Pages(t *testing.T) {
+	gql := &collector.FixtureIssueClient{
+		Issues: []collector.ExportedIssueNode{
+			dashboardIssue("Action Required: Fix Renovate Configuration", "", "renovate[bot]"),
+			dashboardIssue("Dependency Dashboard", typicalDashboard, "renovate[bot]"),
+		},
+		PageSize: 1,
+	}
+	queue, _ := collectDashboard(t, gql, "renovate[bot]")
+
+	reqs := gql.Requests()
+	if len(reqs) != 2 || reqs[1].Cursor != "1" {
+		t.Errorf("requests = %+v, want 2 pages", reqs)
+	}
+	if len(queue) == 0 {
+		t.Error("dashboard on the second page not found")
 	}
 }

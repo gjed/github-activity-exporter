@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/google/go-github/v93/github"
+	"github.com/shurcooL/githubv4"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
@@ -48,14 +48,35 @@ var sectionNameToSemconv = map[string]string{
 	"Open":              semconv.AttrRenovateDashboardSectionPending, // "Open" section maps to "pending"
 }
 
-// DashboardIssueClient abstracts the GitHub REST API issue listing for the dashboard collector.
-type DashboardIssueClient interface {
-	ListByRepo(ctx context.Context, owner, repo string, opts *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error)
+// dashboardTitle is the title Renovate gives the Dependency Dashboard issue.
+const dashboardTitle = "Dependency Dashboard"
+
+// dashboardNode is the GraphQL response shape for one candidate issue.
+type dashboardNode struct {
+	Title string
+	Body  string
+	// Author is nil when the author account was deleted.
+	Author *struct {
+		Typename string `graphql:"__typename"`
+		Login    string
+	}
+}
+
+// dashboardQuery pages the open issues created by $filterBy.createdBy, which
+// takes the REST login ("renovate[bot]" for a GitHub App bot). $filterBy is
+// nullable: nil means any author.
+type dashboardQuery struct {
+	Repository struct {
+		Issues struct {
+			Nodes    []dashboardNode
+			PageInfo pageInfo
+		} `graphql:"issues(first: 100, states: OPEN, filterBy: $filterBy, after: $cursor)"`
+	} `graphql:"repository(owner: $owner, name: $name)"`
 }
 
 // DashboardCollector fetches the Renovate Dependency Dashboard issue and records queue metrics.
 type DashboardCollector struct {
-	rest     DashboardIssueClient
+	gql      GraphQLClient
 	botLogin string
 	logger   *slog.Logger
 
@@ -91,9 +112,9 @@ type DashboardCollection struct {
 func (c *DashboardCollection) FailedRepos() []string { return c.failed }
 
 // NewDashboardCollector creates a DashboardCollector.
-// botLogin is the GitHub username of the Renovate bot account (e.g., "renovate[bot]").
+// botLogin is the REST login of the Renovate bot account (e.g., "renovate[bot]").
 func NewDashboardCollector(
-	rest DashboardIssueClient,
+	gql GraphQLClient,
 	botLogin string,
 	meter metric.Meter,
 	logger *slog.Logger,
@@ -103,7 +124,7 @@ func NewDashboardCollector(
 	}
 
 	c := &DashboardCollector{
-		rest:     rest,
+		gql:      gql,
 		botLogin: botLogin,
 		logger:   logger,
 	}
@@ -170,50 +191,56 @@ func (c *DashboardCollector) collectRepo(ctx context.Context, repo discovery.Rep
 		return nil, nil
 	}
 
-	stats := parseDashboard(issue.GetBody())
+	stats := parseDashboard(issue.Body)
 	return &stats, nil
 }
 
-// findDashboardIssue scans open issues for the repo looking for the Renovate
-// Dependency Dashboard: title == "Dependency Dashboard" AND author == botLogin.
-func (c *DashboardCollector) findDashboardIssue(ctx context.Context, repo discovery.Repo) (*github.Issue, error) {
-	opts := &github.IssueListByRepoOptions{
-		State:       "open",
-		ListOptions: github.ListOptions{PerPage: 100},
+// findDashboardIssue looks for the Renovate Dependency Dashboard among the
+// open issues the bot created: title == "Dependency Dashboard" AND author ==
+// botLogin. Filtering by creator at the source keeps pull requests and other
+// authors' issues out, so this is one request in practice.
+func (c *DashboardCollector) findDashboardIssue(ctx context.Context, repo discovery.Repo) (*dashboardNode, error) {
+	var filterBy *githubv4.IssueFilters
+	if c.botLogin != "" {
+		login := githubv4.String(c.botLogin)
+		filterBy = &githubv4.IssueFilters{CreatedBy: &login}
 	}
 
+	var cursor *githubv4.String
 	for {
-		page, resp, err := c.rest.ListByRepo(ctx, repo.Owner, repo.Name, opts)
-		if err != nil {
-			return nil, fmt.Errorf("list issues for %s: %w", repo.FullName, err)
+		vars := map[string]interface{}{
+			"owner":    githubv4.String(repo.Owner),
+			"name":     githubv4.String(repo.Name),
+			"filterBy": filterBy,
+			"cursor":   cursor,
+		}
+		var q dashboardQuery
+		if err := c.gql.Query(ctx, &q, vars); err != nil {
+			return nil, fmt.Errorf("graphql dashboard query for %s: %w", repo.FullName, err)
 		}
 
-		for _, iss := range page {
-			if isDashboardIssue(iss, c.botLogin) {
+		for i := range q.Repository.Issues.Nodes {
+			if iss := &q.Repository.Issues.Nodes[i]; isDashboardIssue(iss, c.botLogin) {
 				return iss, nil
 			}
 		}
 
-		if resp.NextPage == 0 {
-			break
+		if !q.Repository.Issues.PageInfo.HasNextPage {
+			return nil, nil
 		}
-		opts.ListOptions.Page = resp.NextPage
+		end := q.Repository.Issues.PageInfo.EndCursor
+		cursor = &end
 	}
-
-	return nil, nil
 }
 
 // isDashboardIssue returns true if the issue is the Renovate Dependency Dashboard.
-func isDashboardIssue(iss *github.Issue, botLogin string) bool {
-	if iss == nil {
-		return false
-	}
-	if iss.GetTitle() != "Dependency Dashboard" {
+func isDashboardIssue(iss *dashboardNode, botLogin string) bool {
+	if iss.Title != dashboardTitle {
 		return false
 	}
 	// Check author if botLogin is configured.
 	if botLogin != "" {
-		if iss.User == nil || !strings.EqualFold(iss.User.GetLogin(), botLogin) {
+		if iss.Author == nil || !strings.EqualFold(restLogin(iss.Author.Typename, iss.Author.Login), botLogin) {
 			return false
 		}
 	}

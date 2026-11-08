@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -23,15 +24,13 @@ import (
 // The mock serves exactly what the exporter calls for one target over
 // base_url <mock>/api/v3: GET /user (PAT check), GET /users/{org} (owner
 // type lookup), GET /orgs/{org}/repos,
-// GET /repos/{owner}/{repo}/issues and POST /api/graphql (the PR query, whose
-// GraphQL response shape mirrors the prNode/prQuery struct tags in
-// internal/collector/pr.go). Any other request is recorded and answered 404;
+// and POST /api/graphql (the PR query, the issue count query and the
+// Dependency Dashboard query, whose response shapes mirror the struct tags of
+// prQuery in internal/collector/pr.go, issueCountQuery in issue.go and
+// dashboardQuery in dashboard.go). Any other request is recorded and answered 404;
 // the test fails on recorded requests.
 
-const (
-	e2eOrg    = "acme"
-	e2eDashNo = 3 // issue number of the Dependency Dashboard in repo-a
-)
+const e2eOrg = "acme"
 
 // dependencyDashboardBody mirrors the sections the Renovate dashboard collector parses.
 const dependencyDashboardBody = `This issue lists Renovate updates and detected dependencies.
@@ -66,6 +65,16 @@ type gqlReviewState struct {
 	State string `json:"state"`
 }
 
+// gqlIssue is a fixture issue as GitHub's GraphQL API describes it.
+type gqlIssue struct {
+	State     string // "OPEN" or "CLOSED"
+	Title     string
+	Body      string
+	Author    *gqlAuthor
+	CreatedAt time.Time
+	Labels    []string
+}
+
 // gqlPR is the PR node of the GraphQL response, with the field names of prNode.
 type gqlPR struct {
 	Number         int                      `json:"number"`
@@ -87,7 +96,7 @@ type mockGitHub struct {
 	URL string
 
 	fixturePRs map[string][]gqlPR
-	fixtureIss map[string][]*github.Issue
+	fixtureIss map[string][]gqlIssue
 
 	mu           sync.Mutex
 	nextNumber   int
@@ -97,7 +106,7 @@ type mockGitHub struct {
 }
 
 // newMockGitHub starts the mock with one org (acme) and two repos. The first
-// issue listing of repo-b returns HTTP 500 once.
+// issue query of repo-b returns HTTP 500 once.
 func newMockGitHub(t *testing.T) *mockGitHub {
 	t.Helper()
 	now := time.Now().UTC()
@@ -112,7 +121,6 @@ func newMockGitHub(t *testing.T) *mockGitHub {
 	mux.HandleFunc("GET /api/v3/user", m.user)
 	mux.HandleFunc("GET /api/v3/users/{name}", m.owner)
 	mux.HandleFunc("GET /api/v3/orgs/{org}/repos", m.orgRepos)
-	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/issues", m.issues)
 	mux.HandleFunc("POST /api/graphql", m.graphql)
 	mux.HandleFunc("/", m.unhandledRequest)
 
@@ -186,36 +194,7 @@ func (m *mockGitHub) orgRepos(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, repos)
 }
 
-func (m *mockGitHub) issues(w http.ResponseWriter, r *http.Request) {
-	fullName := r.PathValue("owner") + "/" + r.PathValue("repo")
-	all, ok := m.fixtureIss[fullName]
-	if !ok {
-		m.unhandledRequest(w, r)
-		return
-	}
-
-	// Fail the first issue listing of repo-b once, so github_exporter.api.errors gets a series.
-	if fullName == e2eOrg+"/repo-b" {
-		m.mu.Lock()
-		fail := !m.issuesFailed
-		m.issuesFailed = true
-		m.mu.Unlock()
-		if fail {
-			http.Error(w, `{"message":"e2e: injected failure"}`, http.StatusInternalServerError)
-			return
-		}
-	}
-
-	var out []*github.Issue
-	for _, iss := range all {
-		if s := r.URL.Query().Get("state"); s == "all" || s == iss.GetState() {
-			out = append(out, iss)
-		}
-	}
-	writeJSON(w, out)
-}
-
-// graphql serves the PR query. The open scan (CREATED_AT ASC, states [OPEN])
+// graphql serves the PR, issue count and dashboard queries. The PR open scan (CREATED_AT ASC, states [OPEN])
 // returns the fixture PRs. The event scan (UPDATED_AT DESC, states null) first
 // records a fresh merged PR without approval and a fresh closed PR, both
 // stamped with this request's time. The exporter counts an event in the
@@ -231,13 +210,25 @@ func (m *mockGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 			OrderBy struct {
 				Field string `json:"field"`
 			} `json:"orderBy"`
+			FilterBy *struct {
+				CreatedBy string `json:"createdBy"`
+			} `json:"filterBy"`
 		} `json:"variables"`
 	}
 	fullName := ""
 	if err := json.Unmarshal(body, &req); err == nil {
 		fullName = req.Variables.Owner + "/" + req.Variables.Name
 	}
-	if _, ok := m.fixturePRs[fullName]; !ok || !strings.Contains(req.Query, "pullRequests") {
+	_, known := m.fixturePRs[fullName]
+	switch {
+	case known && strings.Contains(req.Query, "pullRequests("):
+	case known && strings.Contains(req.Query, "oldest: issues("):
+		m.issueCounts(w, fullName, req.Variables.States)
+		return
+	case known && req.Variables.FilterBy != nil && strings.Contains(req.Query, "issues(first: 100, states: OPEN, filterBy: $filterBy"):
+		m.dashboard(w, fullName, req.Variables.FilterBy.CreatedBy)
+		return
+	default:
 		r.Body = io.NopCloser(strings.NewReader(string(body)))
 		m.unhandledRequest(w, r)
 		return
@@ -265,6 +256,78 @@ func (m *mockGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"data": map[string]any{"repository": map[string]any{
 		"pullRequests": map[string]any{
 			"nodes":    out,
+			"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""},
+		},
+	}}})
+}
+
+// issueCounts answers the issue count query: per-state totals, the oldest
+// open issue and every label with its issue count in states. The first query
+// for repo-b fails once, so github_exporter.api.errors gets a series.
+func (m *mockGitHub) issueCounts(w http.ResponseWriter, fullName string, states []string) {
+	if fullName == e2eOrg+"/repo-b" {
+		m.mu.Lock()
+		fail := !m.issuesFailed
+		m.issuesFailed = true
+		m.mu.Unlock()
+		if fail {
+			http.Error(w, `{"message":"e2e: injected failure"}`, http.StatusInternalServerError)
+			return
+		}
+	}
+
+	total := map[string]int{}
+	var oldestAt time.Time
+	labels := map[string]int{} // every repo label, with its issue count in states
+	for _, iss := range m.fixtureIss[fullName] {
+		total[iss.State]++
+		if iss.State == "OPEN" && (oldestAt.IsZero() || iss.CreatedAt.Before(oldestAt)) {
+			oldestAt = iss.CreatedAt
+		}
+		in := states == nil || slices.Contains(states, iss.State)
+		for _, l := range iss.Labels {
+			if in {
+				labels[l]++
+			} else if _, ok := labels[l]; !ok {
+				labels[l] = 0
+			}
+		}
+	}
+	oldest := []map[string]any{}
+	if !oldestAt.IsZero() {
+		oldest = append(oldest, map[string]any{"createdAt": oldestAt})
+	}
+	var labelNodes []map[string]any
+	for _, name := range slices.Sorted(maps.Keys(labels)) {
+		labelNodes = append(labelNodes, map[string]any{"name": name, "issues": map[string]any{"totalCount": labels[name]}})
+	}
+	writeJSON(w, map[string]any{"data": map[string]any{"repository": map[string]any{
+		"open":   map[string]any{"totalCount": total["OPEN"]},
+		"closed": map[string]any{"totalCount": total["CLOSED"]},
+		"oldest": map[string]any{"nodes": oldest},
+		"labels": map[string]any{
+			"nodes":    labelNodes,
+			"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""},
+		},
+	}}})
+}
+
+// dashboard answers the Dependency Dashboard query: the open issues created by
+// createdBy, a REST login ("renovate[bot]" for the Renovate app).
+func (m *mockGitHub) dashboard(w http.ResponseWriter, fullName, createdBy string) {
+	nodes := []map[string]any{}
+	for _, iss := range m.fixtureIss[fullName] {
+		login := iss.Author.Login
+		if iss.Author.Typename == "Bot" {
+			login += "[bot]"
+		}
+		if iss.State == "OPEN" && login == createdBy {
+			nodes = append(nodes, map[string]any{"title": iss.Title, "body": iss.Body, "author": iss.Author})
+		}
+	}
+	writeJSON(w, map[string]any{"data": map[string]any{"repository": map[string]any{
+		"issues": map[string]any{
+			"nodes":    nodes,
 			"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""},
 		},
 	}}})
@@ -329,30 +392,18 @@ func fixturePRs(now time.Time) map[string][]gqlPR {
 }
 
 // fixtureIssues are the issues per repo. repo-a carries the Renovate Dependency Dashboard.
-func fixtureIssues(now time.Time) map[string][]*github.Issue {
-	issue := func(number int, state, title, body, login string, created time.Duration, labels ...string) *github.Issue {
-		iss := &github.Issue{
-			Number:    github.Ptr(number),
-			State:     github.Ptr(state),
-			Title:     github.Ptr(title),
-			Body:      github.Ptr(body),
-			User:      &github.User{Login: github.Ptr(login)},
-			CreatedAt: &github.Timestamp{Time: now.Add(-created)},
-		}
-		for _, l := range labels {
-			iss.Labels = append(iss.Labels, &github.Label{Name: l})
-		}
-		return iss
-	}
-	return map[string][]*github.Issue{
+func fixtureIssues(now time.Time) map[string][]gqlIssue {
+	dev := &gqlAuthor{Typename: "User", Login: "dev"}
+	bot := &gqlAuthor{Typename: "Bot", Login: "renovate"} // GraphQL omits [bot].
+	return map[string][]gqlIssue{
 		e2eOrg + "/repo-a": {
-			issue(1, "open", "Flaky lint rule", "", "dev", 72*time.Hour, "bug", "help wanted"),
-			issue(2, "closed", "Old cleanup", "", "dev", 240*time.Hour),
-			issue(e2eDashNo, "open", "Dependency Dashboard", dependencyDashboardBody, "renovate[bot]", 360*time.Hour, "renovate"),
+			{State: "OPEN", Title: "Flaky lint rule", Author: dev, CreatedAt: now.Add(-72 * time.Hour), Labels: []string{"bug", "help wanted"}},
+			{State: "CLOSED", Title: "Old cleanup", Author: dev, CreatedAt: now.Add(-240 * time.Hour)},
+			{State: "OPEN", Title: "Dependency Dashboard", Body: dependencyDashboardBody, Author: bot, CreatedAt: now.Add(-360 * time.Hour), Labels: []string{"renovate"}},
 		},
 		e2eOrg + "/repo-b": {
-			issue(1, "open", "Docs typo", "", "dev", 12*time.Hour, "documentation"),
-			issue(2, "closed", "Done thing", "", "dev", 96*time.Hour),
+			{State: "OPEN", Title: "Docs typo", Author: dev, CreatedAt: now.Add(-12 * time.Hour), Labels: []string{"documentation"}},
+			{State: "CLOSED", Title: "Done thing", Author: dev, CreatedAt: now.Add(-96 * time.Hour)},
 		},
 	}
 }

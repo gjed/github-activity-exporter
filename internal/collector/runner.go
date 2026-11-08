@@ -362,10 +362,10 @@ func (r *Runner) collect(ctx context.Context) bool {
 		r.recordAPIErrors(ctx, len(prColl.FailedRepos()), semconv.AttrGitHubApiEndpointGraphQL)
 	}
 	if issColl != nil {
-		r.recordAPIErrors(ctx, len(issColl.FailedRepos()), semconv.AttrGitHubApiEndpointRestIssues)
+		r.recordAPIErrors(ctx, len(issColl.FailedRepos()), semconv.AttrGitHubApiEndpointGraphQL)
 	}
 	if dashColl != nil {
-		r.recordAPIErrors(ctx, len(dashColl.FailedRepos()), semconv.AttrGitHubApiEndpointRestIssues)
+		r.recordAPIErrors(ctx, len(dashColl.FailedRepos()), semconv.AttrGitHubApiEndpointGraphQL)
 	}
 	if r.self != nil {
 		r.self.RecordScrapeDuration(ctx, r.target, start)

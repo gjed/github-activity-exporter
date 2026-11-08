@@ -117,6 +117,35 @@ func TestRunner_FailedRepoKeepsEventWindow(t *testing.T) {
 	}
 }
 
+// Issue and dashboard failures are GraphQL errors.
+func TestRunner_IssueAndDashboardErrorsAreGraphQL(t *testing.T) {
+	meter := metric.NewMeterProvider().Meter("test")
+	self := &fakeSelfMetrics{}
+	gql := &collector.FixtureIssueClient{Err: errors.New("graphql: 502 bad gateway")}
+
+	issColl, err := collector.NewIssueCollector(gql, config.IssueFilters{}, meter, nil)
+	if err != nil {
+		t.Fatalf("NewIssueCollector: %v", err)
+	}
+	dashColl, err := collector.NewDashboardCollector(gql, "renovate[bot]", meter, nil)
+	if err != nil {
+		t.Fatalf("NewDashboardCollector: %v", err)
+	}
+	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
+	r, err := collector.NewRunner(config.Target{Name: "tgt"}, staticRepoSource{repos: repos},
+		collector.RunnerCollectors{Issue: issColl, Dashboard: dashColl}, meter, nil, collector.WithSelfMetrics(self))
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+
+	r.RunOnce(context.Background())
+
+	want := []string{semconv.AttrGitHubApiEndpointGraphQL, semconv.AttrGitHubApiEndpointGraphQL}
+	if fmt.Sprint(self.apiErrors) != fmt.Sprint(want) {
+		t.Errorf("api errors = %v, want %v", self.apiErrors, want)
+	}
+}
+
 // Consecutive cycles over the same PRs record each event once.
 func TestRunner_ConsecutiveCyclesCountEventsOnce(t *testing.T) {
 	ctx := context.Background()

@@ -682,8 +682,14 @@ func authorLogin(pr *prNode) string {
 	if pr.Author == nil {
 		return ""
 	}
-	if pr.Author.Typename == "Bot" && !strings.HasSuffix(pr.Author.Login, "[bot]") {
-		return pr.Author.Login + "[bot]"
+	return restLogin(pr.Author.Typename, pr.Author.Login)
+}
+
+// restLogin converts a GraphQL author login to its REST form: GraphQL reports
+// a GitHub App bot as "renovate" with __typename Bot, REST as "renovate[bot]".
+func restLogin(typename, login string) string {
+	if typename == "Bot" && !strings.HasSuffix(login, "[bot]") {
+		return login + "[bot]"
 	}
-	return pr.Author.Login
+	return login
 }

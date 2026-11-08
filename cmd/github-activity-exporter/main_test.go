@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/go-github/v93/github"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -17,14 +16,6 @@ import (
 	"github.com/gjed/github-activity-exporter/internal/telemetry"
 )
 
-// countingIssueClient counts dashboard issue requests.
-type countingIssueClient struct{ calls int }
-
-func (c *countingIssueClient) ListByRepo(context.Context, string, string, *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error) {
-	c.calls++
-	return nil, &github.Response{}, nil
-}
-
 type oneRepoSource struct{}
 
 func (oneRepoSource) Repos(context.Context) ([]discovery.Repo, error) {
@@ -34,7 +25,7 @@ func (oneRepoSource) Repos(context.Context) ([]discovery.Repo, error) {
 func TestDashboardCollectorRunsOnlyWhenEnabled(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		meter := sdkmetric.NewMeterProvider().Meter("test")
-		issues := &countingIssueClient{}
+		issues := &collector.FixtureIssueClient{}
 		target := config.Target{Name: "tgt", RenovateDashboard: config.RenovateDashboard{Enabled: enabled}}
 
 		dash, err := newDashboardCollector(target, issues, meter, nil)
@@ -51,18 +42,17 @@ func TestDashboardCollectorRunsOnlyWhenEnabled(t *testing.T) {
 		}
 		r.RunOnce(context.Background())
 
-		if got := issues.calls > 0; got != enabled {
-			t.Errorf("enabled=%v: dashboard issues requested = %v (%d calls)", enabled, got, issues.calls)
+		if got := len(issues.Requests()) > 0; got != enabled {
+			t.Errorf("enabled=%v: dashboard issues requested = %v (%d calls)", enabled, got, len(issues.Requests()))
 		}
 	}
 }
 
-// dashboardIssueClient returns one Renovate Dependency Dashboard issue.
-type dashboardIssueClient struct{}
-
-func (dashboardIssueClient) ListByRepo(context.Context, string, string, *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error) {
-	title, body, login, state := "Dependency Dashboard", "## Open\n- [ ] dep\n", "renovate[bot]", "open"
-	return []*github.Issue{{Title: &title, Body: &body, State: &state, User: &github.User{Login: &login}}}, &github.Response{}, nil
+// dashboardIssueClient serves one Renovate Dependency Dashboard issue.
+func dashboardIssueClient() *collector.FixtureIssueClient {
+	return &collector.FixtureIssueClient{Issues: []collector.ExportedIssueNode{{
+		State: "OPEN", Title: "Dependency Dashboard", Body: "## Open\n- [ ] dep\n", Author: "renovate", AuthorIsBot: true,
+	}}}
 }
 
 // TestTargetsShareOneMeter runs two targets on one meter, as main does, and
@@ -74,7 +64,7 @@ func TestTargetsShareOneMeter(t *testing.T) {
 
 	for _, name := range []string{"a", "b"} {
 		target := config.Target{Name: name, RenovateDashboard: config.RenovateDashboard{Enabled: true}}
-		dash, err := newDashboardCollector(target, dashboardIssueClient{}, meter, nil)
+		dash, err := newDashboardCollector(target, dashboardIssueClient(), meter, nil)
 		if err != nil {
 			t.Fatalf("target %s: newDashboardCollector: %v", name, err)
 		}
