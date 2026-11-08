@@ -2,6 +2,7 @@ package exporter_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -194,4 +195,43 @@ func TestSelfMetrics_InitOverruns_ExportsZero(t *testing.T) {
 		}
 	}
 	t.Fatalf("metric %s not collected", sc.MetricGitHubExporterScrapeOverruns)
+}
+
+// TestSelfMetrics_ScrapeDurationBuckets asserts the bucket boundaries and that
+// a 1040 s cycle lands in the 1800 bucket, not +Inf.
+func TestSelfMetrics_ScrapeDurationBuckets(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	sm, err := exporter.NewSelfMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test"))
+	if err != nil {
+		t.Fatalf("NewSelfMetrics: %v", err)
+	}
+	sm.RecordScrapeDuration(context.Background(), "tgt", time.Now().Add(-1040*time.Second))
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	want := []float64{1, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600}
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name != sc.MetricGitHubExporterScrapeDuration {
+				continue
+			}
+			h, ok := m.Data.(metricdata.Histogram[float64])
+			if !ok || len(h.DataPoints) != 1 {
+				t.Fatalf("unexpected data %#v", m.Data)
+			}
+			dp := h.DataPoints[0]
+			if !slices.Equal(dp.Bounds, want) {
+				t.Fatalf("bounds = %v, want %v", dp.Bounds, want)
+			}
+			// BucketCounts[i] counts values in (Bounds[i-1], Bounds[i]].
+			i := slices.Index(dp.Bounds, 1800)
+			if dp.BucketCounts[i] != 1 {
+				t.Errorf("bucket counts = %v, want the observation in (900, 1800]", dp.BucketCounts)
+			}
+			return
+		}
+	}
+	t.Fatalf("metric %s not collected", sc.MetricGitHubExporterScrapeDuration)
 }

@@ -28,8 +28,10 @@ func NewSelfMetrics(meter metric.Meter) (*SelfMetrics, error) {
 		sc.MetricGitHubExporterScrapeDuration,
 		metric.WithDescription("Duration of a complete collection cycle in seconds."),
 		metric.WithUnit("s"),
+		// Seconds for small orgs, tens of minutes for large ones, up to the
+		// 1 h GitHub rate limit window for a cycle that waits one out.
 		metric.WithExplicitBucketBoundaries(
-			0.1, 0.5, 1, 5, 10, 30, 60, 120, 300,
+			1, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600,
 		),
 	)
 	if err != nil {

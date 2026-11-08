@@ -19,7 +19,7 @@
 
 ## 3. Scrape duration buckets (#94)
 
-- [ ] 3.1 `selfmetrics.go` boundaries `1, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600`; unit test that a 1040 s observation lands in the 1800 bucket.
+- [x] 3.1 `selfmetrics.go` boundaries `1, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600`; unit test that a 1040 s observation lands in the 1800 bucket.
 
 ## 4. api.errors initialisation (#103)
 
