@@ -152,7 +152,7 @@ func TestBaseURL_TargetsIsolated(t *testing.T) {
 		token string
 	}{{srvA, "ghp_a"}, {srvB, "ghp_b"}} {
 		base := tg.srv.URL + "/api/v3"
-		auth := internalgithub.NewPATAuthenticatorWithBase(tg.token, base)
+		auth := internalgithub.NewPATAuthenticatorWithBase(tg.token, base, nil)
 		if err := auth.Ping(context.Background()); err != nil {
 			t.Fatalf("Ping %s: %v", tg.token, err)
 		}

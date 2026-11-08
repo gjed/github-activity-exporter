@@ -45,16 +45,21 @@ type Authenticator interface {
 type PATAuthenticator struct {
 	token   string
 	baseURL string // REST API root, e.g. https://ghes.example.com/api/v3
+	client  *http.Client
 }
 
 // NewPATAuthenticator creates a PAT authenticator with the given token.
 func NewPATAuthenticator(token string) *PATAuthenticator {
-	return &PATAuthenticator{token: token, baseURL: defaultGitHubAPIURL}
+	return &PATAuthenticator{token: token, baseURL: defaultGitHubAPIURL, client: http.DefaultClient}
 }
 
-// NewPATAuthenticatorWithBase creates a PAT authenticator against the given REST API root.
-func NewPATAuthenticatorWithBase(token, baseURL string) *PATAuthenticator {
-	return &PATAuthenticator{token: token, baseURL: baseURL}
+// NewPATAuthenticatorWithBase creates a PAT authenticator against the given
+// REST API root. client sends the credential check; nil means http.DefaultClient.
+func NewPATAuthenticatorWithBase(token, baseURL string, client *http.Client) *PATAuthenticator {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	return &PATAuthenticator{token: token, baseURL: baseURL, client: client}
 }
 
 // Token returns the PAT directly (no refresh required).
@@ -64,7 +69,7 @@ func (p *PATAuthenticator) Token(_ context.Context) (string, error) {
 
 // Ping calls GET /user to validate the PAT.
 func (p *PATAuthenticator) Ping(ctx context.Context) error {
-	return pingURL(ctx, p.baseURL+"/user", p.token)
+	return pingURL(ctx, p.client, p.baseURL+"/user", p.token)
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +86,9 @@ type AppAuthOptions struct {
 	PrivateKeyPath   string
 	PrivateKeyBase64 string // base64-encoded PEM (from env var)
 	BaseURL          string // REST API root; defaults to https://api.github.com
+	// HTTPClient sends the credential check and the installation token
+	// exchange; defaults to http.DefaultClient.
+	HTTPClient *http.Client
 }
 
 // AppAuthenticator authenticates as a GitHub App using JWT + installation token.
@@ -97,6 +105,9 @@ type AppAuthenticator struct {
 func NewAppAuthenticator(opts AppAuthOptions) (*AppAuthenticator, error) {
 	if opts.BaseURL == "" {
 		opts.BaseURL = defaultGitHubAPIURL
+	}
+	if opts.HTTPClient == nil {
+		opts.HTTPClient = http.DefaultClient
 	}
 
 	pem, err := loadPrivateKeyPEM(opts)
@@ -136,7 +147,7 @@ func (a *AppAuthenticator) Ping(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("generating JWT for Ping: %w", err)
 	}
-	return pingURL(ctx, a.opts.BaseURL+"/app", jwtToken)
+	return pingURL(ctx, a.opts.HTTPClient, a.opts.BaseURL+"/app", jwtToken)
 }
 
 // generateJWT creates a signed JWT for GitHub App authentication.
@@ -168,7 +179,7 @@ func (a *AppAuthenticator) fetchInstallationToken(ctx context.Context) (string, 
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := a.opts.HTTPClient.Do(req)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("requesting installation token: %w", err)
 	}
@@ -213,7 +224,7 @@ func (a *AppAuthenticator) fetchInstallationToken(ctx context.Context) (string, 
 // ---------------------------------------------------------------------------
 
 // pingURL makes an authenticated GET request and returns an error if non-2xx.
-func pingURL(ctx context.Context, url, token string) error {
+func pingURL(ctx context.Context, client *http.Client, url, token string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("creating ping request: %w", err)
@@ -221,7 +232,7 @@ func pingURL(ctx context.Context, url, token string) error {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("ping request failed: %w", err)
 	}
