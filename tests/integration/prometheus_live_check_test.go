@@ -80,6 +80,17 @@ func TestPrometheusLiveCheck_WrongTypeDetected(t *testing.T) {
 	requireViolation(t, out, err, "Metric 'github.pr.automerged' is exposed as Prometheus type 'gauge'; annotations.prometheus.type is 'counter'.")
 }
 
+// TestPrometheusLiveCheck_ImportedWrongTypeDetected exposes go.goroutine.count,
+// imported from the OTel semantic conventions with its annotations.prometheus
+// on a refinement, as a counter and asserts live-check rejects it.
+func TestPrometheusLiveCheck_ImportedWrongTypeDetected(t *testing.T) {
+	families := scrapeAllRegistryMetrics(t, scrapeAccept["text"])
+	families["go.goroutine.count"].Type = dto.MetricType_COUNTER.Enum()
+
+	out, err := runPrometheusLiveCheck(t, families)
+	requireViolation(t, out, err, "Metric 'go.goroutine.count' is exposed as Prometheus type 'counter'; annotations.prometheus.type is 'gauge'.")
+}
+
 // scrapeAllRegistryMetrics records every registry metric on an exporter with
 // the Prometheus bridge enabled and returns the parsed /metrics scrape.
 func scrapeAllRegistryMetrics(t *testing.T, accept string) map[string]*dto.MetricFamily {

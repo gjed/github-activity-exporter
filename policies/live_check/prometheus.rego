@@ -9,9 +9,29 @@ package live_check_advice
 
 import rego.v1
 
+# Prometheus type each OTel instrument is exposed as (same table as
+# policies/registry/prometheus.rego).
+prometheus_type := {
+	"counter": "counter",
+	"updowncounter": "gauge",
+	"gauge": "gauge",
+	"histogram": "histogram",
+}
+
+# A metric imported from the OTel semantic conventions declares its
+# annotations.prometheus on a refinement, but live-check matches the sample to
+# the imported base metric, which has none. For those the expected type is the
+# one derived from the instrument: policies/registry/ already requires the
+# refinement's annotations.prometheus.type to equal it.
+expected_type := input.registry_group.annotations.prometheus.type
+
+expected_type := prometheus_type[input.registry_group.instrument] if {
+	not input.registry_group.annotations.prometheus.type
+}
+
 deny contains finding if {
 	metric := input.sample.metric
-	want := input.registry_group.annotations.prometheus.type
+	want := expected_type
 	metric.instrument != want
 	finding := {
 		"id": "prometheus_type_mismatch",

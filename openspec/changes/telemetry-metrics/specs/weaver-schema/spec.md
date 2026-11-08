@@ -162,7 +162,7 @@ Every registry metric SHALL declare its Prometheus exposure as `annotations.prom
 
 ### Requirement: Prometheus exposition verified by live-check
 
-The integration tests SHALL scrape `/metrics`, convert the exposition to live-check samples and run `weaver registry live-check` on them with a policy that fails when a family's exposed type differs from `annotations.prometheus.type`, including for imported metrics. The run SHALL use its own weaver configuration that downgrades the built-in `unexpected_instrument` and `unit_mismatch` findings, since the exposition carries no unit and exposes updowncounters as `gauge`. The `/metrics` run SHALL be made with self-telemetry metrics active and inactive.
+The integration tests SHALL scrape `/metrics`, convert the exposition to live-check samples and run `weaver registry live-check` on them with a policy that fails when a family's exposed type differs from `annotations.prometheus.type`, including for imported metrics. The run SHALL use its own weaver configuration that downgrades the built-in `unexpected_instrument`, `unit_mismatch` and attribute `type_mismatch` findings, since the exposition carries no unit, exposes updowncounters as `gauge` and has only string label values. The `/metrics` run SHALL be made with self-telemetry metrics active and inactive.
 
 #### Scenario: Exposition conforms to the contract
 

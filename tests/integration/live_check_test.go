@@ -221,6 +221,14 @@ func requireViolation(t *testing.T, out string, err error, msg string) {
 // returns the live-check report (stdout) and exit error once it stops.
 func runLiveCheck(t *testing.T, emit func(*testing.T, *exporter.Provider)) (string, error) {
 	t.Helper()
+	return runLiveCheckWithSelfTelemetry(t, emit, nil)
+}
+
+// runLiveCheckWithSelfTelemetry is runLiveCheck that also runs self before
+// stopping live-check. self gets the receiver address (OTLP/gRPC, plaintext)
+// and must have flushed everything it sends when it returns.
+func runLiveCheckWithSelfTelemetry(t *testing.T, emit func(*testing.T, *exporter.Provider), self func(t *testing.T, addr string)) (string, error) {
+	t.Helper()
 	runner := requireWeaverRunner(t)
 
 	grpcPort := freePort(t)
@@ -269,6 +277,10 @@ func runLiveCheck(t *testing.T, emit func(*testing.T, *exporter.Provider)) (stri
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	_ = p.Shutdown(shutdownCtx)
+
+	if self != nil {
+		self(t, addr)
+	}
 
 	// Ask live-check to stop and render its report now that all telemetry
 	// has been delivered.
