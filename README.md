@@ -216,7 +216,7 @@ telemetry:
 
 A signal is active only when `telemetry.enabled` and its own `enabled` are both true, `OTEL_SDK_DISABLED` is not `true`, and, for traces, metrics and logs, `OTEL_<SIGNAL>_EXPORTER` is not `none`. Environment variables can turn a signal off, never on. Every key can be overridden with `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_ENABLED` and `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_<SIGNAL>_ENABLED`; a value that is not a boolean is a startup error. The startup log lists the active signals that have a provider under `self_telemetry`; profiles join the list with [#77](https://github.com/gjed/github-activity-exporter/issues/77).
 
-This release adds the configuration, the providers and the resource. The signals themselves come in [#74](https://github.com/gjed/github-activity-exporter/issues/74) (runtime and HTTP client metrics), [#75](https://github.com/gjed/github-activity-exporter/issues/75) (traces), [#76](https://github.com/gjed/github-activity-exporter/issues/76) (OTLP logs) and [#77](https://github.com/gjed/github-activity-exporter/issues/77) (profiles).
+Metrics are described in [Self-telemetry metrics](#self-telemetry-metrics). The other signals come in [#75](https://github.com/gjed/github-activity-exporter/issues/75) (traces), [#76](https://github.com/gjed/github-activity-exporter/issues/76) (OTLP logs) and [#77](https://github.com/gjed/github-activity-exporter/issues/77) (profiles).
 
 Self-telemetry runs on its own OTel SDK providers. No `telemetry` key and no `OTEL_*` variable other than `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` changes what the GitHub metrics export, where, how or when: their OTLP push is configured by `export.otlp` only. The `github_exporter.*` metrics (`scrape.duration`, `api.errors`, `otlp.errors`, `api.rate_limit.*`) belong to the GitHub metrics and are always on; the dashboard needs them. When the Prometheus bridge is enabled, self-telemetry metrics are also served on `/metrics`.
 
@@ -239,6 +239,22 @@ The standard [OTel SDK variables](https://opentelemetry.io/docs/specs/otel/confi
 Every provider, the GitHub metrics included, shares one resource: `service.name` (default `github-activity-exporter`), `service.version` (the build version), `service.instance.id` (a random UUID per process) and the host, OS, process and container attributes. `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` override them. The instance ID changes on every restart; set a stable one, such as the pod name, with `OTEL_RESOURCE_ATTRIBUTES=service.instance.id=<id>` if your backend derives `instance` from it. Every meter, tracer and logger uses the instrumentation scope `github.com/gjed/github-activity-exporter` with the build version.
 
 On SIGTERM or SIGINT the exporter flushes and shuts down every self-telemetry provider after the GitHub metrics, within the same 30 s deadline.
+
+### Self-telemetry metrics
+
+With self-telemetry metrics active ([#74](https://github.com/gjed/github-activity-exporter/issues/74)), the exporter records, on the self-telemetry push interval (`OTEL_METRIC_EXPORT_INTERVAL`) and on `/metrics` when the bridge is enabled:
+
+- Go runtime metrics, per the [Go runtime semantic conventions](https://opentelemetry.io/docs/specs/semconv/runtime/go-metrics/): `go.memory.used` (by `go.memory.type`), `go.memory.limit` (only when a memory limit such as `GOMEMLIMIT` is set), `go.memory.allocated`, `go.memory.allocations`, `go.memory.gc.goal`, `go.goroutine.count`, `go.processor.limit`, `go.config.gogc` and `go.schedule.duration`.
+- `http.client.request.duration` and `http.client.request.body.size` for every GitHub request (REST, GraphQL, the startup credential check and the GitHub App token exchange), per the [HTTP client semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-metrics/#http-client). Attributes: `http.request.method`, `http.response.status_code`, `server.address`, `server.port`, `url.scheme`, `network.protocol.name`, `network.protocol.version`, `error.type` (the status code for 4xx and 5xx, the error type when no response arrives) and `url.template`.
+
+`url.template` is set only for the routes the exporter calls, under the target's API root (`/api/v3` on GitHub Enterprise Server): `/graphql` (`/api/graphql` on GHES), `/repos/{owner}/{repo}/issues`, `/orgs/{org}/repos`, `/user`, `/app` and `/app/installations/{installation_id}/access_tokens`. Other paths get no `url.template`. No attribute carries a full URL, an org, repo or installation, or a token. A request's duration is one round trip to GitHub: it does not include the wait on a rate limit pool paused below its threshold, or the wait for a token.
+
+With self-telemetry metrics inactive, no `go.*` or `http.*` metric is exported and the GitHub client is not instrumented. The registry imports these metrics from the OTel semantic conventions in [`registry/telemetry.yaml`](registry/telemetry.yaml).
+
+The GitHub metrics and the self-telemetry metrics share one resource but are pushed on separate schedules, so both pushes write the same `target_info` series with interleaved timestamps. A backend that ingests OTLP needs out-of-order ingestion of at least the longer of the two push intervals, or it rejects pushes, GitHub metric pushes included, with `out of order sample`:
+
+- Prometheus: `storage.tsdb.out_of_order_time_window` (for example `10m`).
+- Mimir and Grafana Cloud Metrics: the per-tenant limit `out_of_order_time_window` (`-ingester.out-of-order-time-window`).
 
 ## Metrics
 
@@ -297,9 +313,9 @@ With any other setting the backend stores escaped or suffixed names (for example
 
 `dashboards/github-activity.json` is generated from the registry by `make generate` ([#19](https://github.com/gjed/github-activity-exporter/issues/19)). Every query uses the name and type each metric declares in `annotations.prometheus`, in UTF-8 PromQL syntax (`{"github.pr.count", job=~"$job"}`): counters through `rate`, histograms through `histogram_quantile` over `_bucket`, gauges through `last_over_time`. Every panel has a Min interval of 10m, twice the default `collection_interval`, so each window holds at least two pushes; raise it in the template for a longer `collection_interval`. It needs the backend settings from [Metric naming](#metric-naming).
 
-Variables: data source, `job` (the exporter's `service.name`, `github-activity-exporter`, optionally prefixed with `service.namespace/`), `exporter.target`, `github.org` and `github.repo`. The Dependency Dashboard row shows no data unless a target enables `renovate_dashboard`.
+Variables: data source, `job` (the exporter's `service.name`, `github-activity-exporter`, optionally prefixed with `service.namespace/`), `exporter.target`, `github.org` and `github.repo`. The Dependency Dashboard row shows no data unless a target enables `renovate_dashboard`. The Exporter internals row (Go memory, heap allocation rate, goroutines, GitHub API latency p50 and p90 by `url.template` and status) shows no data unless [self-telemetry metrics](#self-telemetry-metrics) are active.
 
-`make test-e2e` (Docker required) runs the exporter against a mock GitHub API, pushes OTLP into Prometheus 3.x, and fails if any dashboard query errors or returns no data.
+`make test-e2e` (Docker required) runs the exporter, with self-telemetry metrics on, against a mock GitHub API, pushes OTLP into Prometheus 3.x, and fails if any dashboard query errors or returns no data.
 
 ## Development
 
