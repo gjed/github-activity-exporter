@@ -13,7 +13,7 @@ Issue collection SHALL request issues only. It SHALL NOT fetch pull requests, so
 #### Scenario: Repo with many PRs and few issues
 
 - **WHEN** a repo has thousands of pull requests and a handful of issues, and no title pattern is configured
-- **THEN** the collector makes one request for the repo and no pull request is returned by any request
+- **THEN** the collector makes one request for the repo, plus one per further 100 repo labels, and no pull request is returned by any request
 
 ### Requirement: Issue counts and age
 
