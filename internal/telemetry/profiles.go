@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 	"sync"
 	"time"
 
@@ -76,7 +77,7 @@ func startProfiler(p config.Profiles, logger *slog.Logger) *profiler {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	pr := &profiler{
-		url:      p.Endpoint + pprofPath,
+		url:      strings.TrimRight(p.Endpoint, "/") + pprofPath,
 		interval: p.Interval,
 		lookups:  lookups,
 		cfg:      p,

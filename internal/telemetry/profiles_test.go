@@ -97,6 +97,16 @@ func TestProfiles_PushedOnShutdown(t *testing.T) {
 	checkPushes(t, rcv.pushes(), "cpu", "inuse_space", "goroutine")
 }
 
+func TestProfiles_EndpointTrailingSlash(t *testing.T) {
+	clearEnv(t, nil)
+	rcv := newPprofReceiver(t, http.StatusNoContent)
+	tel := newTelemetry(t, profilesOn(rcv.URL+"/", time.Hour), config.OTLP{}, nil, nil)
+	if err := tel.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	checkPushes(t, rcv.pushes(), "cpu", "inuse_space", "goroutine")
+}
+
 func TestProfiles_PushedEveryInterval(t *testing.T) {
 	clearEnv(t, nil)
 	rcv := newPprofReceiver(t, http.StatusNoContent)
