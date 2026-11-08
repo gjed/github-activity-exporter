@@ -610,6 +610,18 @@ func TestLoadHeadersEnv(t *testing.T) {
 			errContains: `env var "TEST_OTLP_HEADERS", entry 1: invalid header name`,
 		},
 		{
+			name:        "one header per line",
+			file:        "testdata/headers_env_only.yaml",
+			env:         ptr("authorization=Bearer " + secret + "\nx-scope-orgid=tenant-a"),
+			errContains: `env var "TEST_OTLP_HEADERS", entry 1: control character in value`,
+		},
+		{
+			name:        "percent-encoded newline",
+			file:        "testdata/headers_env_only.yaml",
+			env:         ptr("authorization=Bearer " + secret + "%0Ax"),
+			errContains: `env var "TEST_OTLP_HEADERS", entry 1: control character in value`,
+		},
+		{
 			name:        "bad percent-encoding",
 			file:        "testdata/headers_env_only.yaml",
 			env:         ptr("authorization=Bearer " + secret + "%zz"),
