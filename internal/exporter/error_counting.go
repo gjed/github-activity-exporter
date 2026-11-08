@@ -29,7 +29,7 @@ type errorCountingExporter struct {
 
 	once       sync.Once
 	otlpErrors metric.Int64Counter // initialised lazily on first export
-	firstPush  sync.Once
+	authWarned sync.Once           // the auth-rejection hint is logged once per process
 }
 
 var _ sdkmetric.Exporter = (*errorCountingExporter)(nil)
@@ -52,13 +52,13 @@ func (e *errorCountingExporter) initCounter() {
 
 func (e *errorCountingExporter) Export(ctx context.Context, rm *metricdata.ResourceMetrics) error {
 	err := e.inner.Export(ctx, rm)
-	e.firstPush.Do(func() {
-		if err != nil && isAuthRejection(err) {
-			e.logger.Warn("OTLP endpoint rejected the first push as unauthorized; check export.otlp.headers and export.otlp.headers_env",
-				"target", e.target)
-		}
-	})
 	if err != nil {
+		if isAuthRejection(err) {
+			e.authWarned.Do(func() {
+				e.logger.Warn("OTLP endpoint rejected a push as unauthorized; check export.otlp.headers and export.otlp.headers_env",
+					"target", e.target)
+			})
+		}
 		e.logger.Warn("OTLP export failed — will retry next cycle", "err", err)
 		e.initCounter()
 		if e.otlpErrors != nil {

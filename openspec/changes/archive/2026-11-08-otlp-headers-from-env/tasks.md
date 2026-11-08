@@ -6,7 +6,7 @@
 
 ## 2. Exporter
 
-- [x] 2.1 Log one auth-rejection warning on the first failed push when it is HTTP 401/403 or gRPC Unauthenticated/PermissionDenied (`SIMPLIFIED:` note on HTTP text matching); tests against an `httptest` OTLP server returning 401 assert exactly one warning across two pushes, the counter still increments per failure, and no captured log line contains the header value; verify `go test ./internal/exporter/...`
+- [x] 2.1 Log one auth-rejection warning on the first push rejected with HTTP 401/403 or gRPC Unauthenticated/PermissionDenied (`SIMPLIFIED:` note on HTTP text matching); tests against an `httptest` OTLP server returning 401 assert exactly one warning across two pushes, the counter still increments per failure, and no captured log line contains the header value; verify `go test ./internal/exporter/...`
 
 ## 3. Docs and chart
 

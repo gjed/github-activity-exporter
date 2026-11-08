@@ -22,7 +22,7 @@ import (
 
 const (
 	authSecret  = "s3cret-token"
-	authWarning = "OTLP endpoint rejected the first push as unauthorized"
+	authWarning = "OTLP endpoint rejected a push as unauthorized"
 )
 
 // syncBuffer is a bytes.Buffer safe for the concurrent writes of slog.
@@ -96,6 +96,30 @@ func TestAuthRejection_HTTP(t *testing.T) {
 				t.Errorf("Authorization on requests = %q, want the configured header twice", auth)
 			}
 		})
+	}
+}
+
+// TestAuthRejection_AfterOtherFailure: a first push failing for another reason,
+// such as a collector not ready yet, does not use up the warning.
+func TestAuthRejection_AfterOtherFailure(t *testing.T) {
+	var mu sync.Mutex
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		n++
+		first := n == 1
+		mu.Unlock()
+		if first {
+			http.Error(w, "not ready", http.StatusBadRequest)
+			return
+		}
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	logs := pushTwiceRejected(t, exporter.Config{OTLPEndpoint: srv.URL + "/v1/metrics"})
+	if c := strings.Count(logs, authWarning); c != 1 {
+		t.Errorf("got %d auth rejection warnings, want 1:\n%s", c, logs)
 	}
 }
 

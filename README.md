@@ -198,7 +198,7 @@ The headers are merged into `export.otlp.headers`; for the same name the env var
 
 `OTEL_EXPORTER_OTLP_HEADERS` does not reach the GitHub metrics push: it configures [self-telemetry](#self-telemetry) only.
 
-When the first OTLP push is rejected with HTTP 401 or 403, or gRPC `Unauthenticated` or `PermissionDenied`, the exporter logs a warning pointing at these settings. Every failed push is logged and counted in `github_exporter.otlp.errors`; `/healthz` and `/readyz` do not depend on OTLP pushes.
+The first time an OTLP push is rejected with HTTP 401 or 403, or gRPC `Unauthenticated` or `PermissionDenied`, the exporter logs a warning pointing at these settings. Every failed push is logged and counted in `github_exporter.otlp.errors`; `/healthz` and `/readyz` do not depend on OTLP pushes.
 
 ## Health endpoints
 

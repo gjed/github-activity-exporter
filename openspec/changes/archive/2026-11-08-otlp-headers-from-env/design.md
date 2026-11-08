@@ -64,7 +64,7 @@ No template change; the ordering becomes a spec guarantee. The example uses a va
 
 ### Auth-rejection warning
 
-In `errorCountingExporter`, on the first failed export only, if the error is an auth rejection, log one extra warning naming `export.otlp.headers` / `headers_env`. gRPC: `status.Code` is `Unauthenticated` or `PermissionDenied`. HTTP: the SDK returns a plain `fmt.Errorf` with `resp.Status` and no typed status, so it matches `" 401 Unauthorized"` / `" 403 Forbidden"` in the error text, marked `SIMPLIFIED:` with that ceiling. Existing per-failure warning and counter unchanged.
+In `errorCountingExporter`, on the first export that fails with an auth rejection, log one extra warning naming `export.otlp.headers` / `headers_env`. gRPC: `status.Code` is `Unauthenticated` or `PermissionDenied`. HTTP: the SDK returns a plain `fmt.Errorf` with `resp.Status` and no typed status, so it matches `" 401 Unauthorized"` / `" 403 Forbidden"` in the error text, marked `SIMPLIFIED:` with that ceiling. Existing per-failure warning and counter unchanged.
 
 ## Risks / Trade-offs
 
