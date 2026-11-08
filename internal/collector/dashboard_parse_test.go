@@ -78,6 +78,26 @@ func TestParseDashboard_NotADashboard(t *testing.T) {
 	}
 }
 
+// TestParseDashboard_CustomHeader covers repos that override
+// dependencyDashboardHeader: each remaining marker alone must be enough.
+func TestParseDashboard_CustomHeader(t *testing.T) {
+	for name, body := range map[string]string{
+		"no-branches notice": "Custom header.\n\nThis repository currently has no open or pending branches.\n",
+		"detected deps":      "Custom header.\n\n## Detected Dependencies\n",
+		"branch checkbox":    "Custom header.\n\n## PR Edited (Blocked)\n\n - [ ] <!-- rebase-branch=renovate/foo -->foo\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := parseDashboard(body)
+			if got.parseError != 0 {
+				t.Errorf("parseError = %d, want 0", got.parseError)
+			}
+			if !maps.Equal(got.sections, noQueue) {
+				t.Errorf("sections = %v, want %v", got.sections, noQueue)
+			}
+		})
+	}
+}
+
 // TestParseDashboard_CategorizedSection uses the layout Renovate writes when
 // branches carry dependencyDashboardCategory: ### subheadings inside the ##
 // section, with the bulk action under "### All".
