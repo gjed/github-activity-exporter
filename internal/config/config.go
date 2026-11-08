@@ -354,7 +354,11 @@ func resolveHeadersEnv(o *OTLP) error {
 		if err != nil {
 			return fmt.Errorf("export.otlp.headers_env: env var %q, entry %d: invalid percent-encoding in value", o.HeadersEnv, i+1)
 		}
-		o.Headers[name] = strings.TrimSpace(value)
+		value = strings.TrimSpace(value)
+		if strings.ContainsFunc(value, func(r rune) bool { return r < ' ' && r != '\t' || r == 0x7f }) {
+			return fmt.Errorf("export.otlp.headers_env: env var %q, entry %d: control character in value", o.HeadersEnv, i+1)
+		}
+		o.Headers[name] = value
 	}
 	return nil
 }

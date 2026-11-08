@@ -194,7 +194,7 @@ Scalar config keys can be overridden with `GITHUB_ACTIVITY_EXPORTER_` env vars, 
 
 `export.otlp.headers_env` names an env var holding OTLP headers, so a token can come from a Secret instead of the config file. The format is the one of `OTEL_EXPORTER_OTLP_HEADERS`: `name=value` pairs separated by commas, for example `authorization=Bearer <token>,x-scope-orgid=my-tenant`. Names are lower-cased; values are trimmed and percent-decoded, so write a `,` in a value as `%2C` and a `%` as `%25`.
 
-The headers are merged into `export.otlp.headers`; for the same name the env var wins, so non-secret headers can stay in the file. If the variable is unset or empty, or an entry is not a valid `name=value` pair, startup fails with an error naming the variable and the entry position. Header values are never logged.
+The headers are merged into `export.otlp.headers`; for the same name the env var wins, so non-secret headers can stay in the file. If the variable is unset or empty, or an entry is not a valid `name=value` pair or its value holds a control character such as a newline, startup fails with an error naming the variable and the entry position. Header values are never logged.
 
 `OTEL_EXPORTER_OTLP_HEADERS` does not reach the GitHub metrics push: it configures [self-telemetry](#self-telemetry) only.
 
