@@ -16,7 +16,7 @@
 
 ## 3. Validation
 
-- [ ] 3.1 `go build ./... && go test -race ./... && make check-schema`; `make generate` leaves no diff; integration live-check (`make test-integration`) passes with the new metric
+- [x] 3.1 `go build ./... && go test -race ./... && make check-schema`; `make generate` leaves no diff; integration live-check (`make test-integration`) passes with the new metric
 
 ## Workflow follow-up
 
