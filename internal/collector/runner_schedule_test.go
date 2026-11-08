@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -83,18 +84,6 @@ func offsets(t0 time.Time, ts []time.Time) []time.Duration {
 	return out
 }
 
-func equalDurations(a, b []time.Duration) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func TestRunner_StartsCyclesEveryInterval(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		t0 := time.Now()
@@ -105,7 +94,7 @@ func TestRunner_StartsCyclesEveryInterval(t *testing.T) {
 		runFor(t, 5*time.Minute, 16*time.Minute, src, self, &logs)
 
 		want := []time.Duration{0, 5 * time.Minute, 10 * time.Minute, 15 * time.Minute}
-		if got := offsets(t0, src.starts); !equalDurations(got, want) {
+		if got := offsets(t0, src.starts); !slices.Equal(got, want) {
 			t.Errorf("cycle starts = %v, want %v", got, want)
 		}
 		if len(self.overruns) != 0 {
@@ -127,7 +116,7 @@ func TestRunner_OverrunStartsNextCycleAtOnce(t *testing.T) {
 		runFor(t, 5*time.Minute, 13*time.Minute, src, self, &logs)
 
 		want := []time.Duration{0, 7 * time.Minute, 12 * time.Minute}
-		if got := offsets(t0, src.starts); !equalDurations(got, want) {
+		if got := offsets(t0, src.starts); !slices.Equal(got, want) {
 			t.Errorf("cycle starts = %v, want %v", got, want)
 		}
 		if src.maxInFlight != 1 {
@@ -160,7 +149,7 @@ func TestRunner_NoCatchUpAfterOverrun(t *testing.T) {
 		runFor(t, 15*time.Minute, 56*time.Minute, src, self, &logs)
 
 		want := []time.Duration{0, 40 * time.Minute, 55 * time.Minute}
-		if got := offsets(t0, src.starts); !equalDurations(got, want) {
+		if got := offsets(t0, src.starts); !slices.Equal(got, want) {
 			t.Errorf("cycle starts = %v, want %v", got, want)
 		}
 		if len(self.overruns) != 1 {
