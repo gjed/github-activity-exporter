@@ -37,6 +37,11 @@
       "allowedVersions": "<10.0.0"
     },
     {
+      "description": ["Hold github.com/prometheus/common below v0.73.0: v0.73.0 (https://github.com/prometheus/common/pull/1008) takes the escaping scheme only from the Accept clause that matched, and expfmt negotiates only Prometheus text 0.0.4, so the Prometheus 3.x default scrape (text/plain;version=1.0.0;escaping=allow-utf-8) gets escaping=underscores and /metrics serves github_pr_count instead of github.pr.count. Remove once text format 1.0.0 negotiation lands upstream: https://github.com/prometheus/common/pull/1035"],
+      "matchPackageNames": ["github.com/prometheus/common"],
+      "allowedVersions": "<0.73.0"
+    },
+    {
       "description": ["Never automerge major updates of the release toolchain: CI does not exercise semantic-release on PRs, so a breaking major only fails in release.yml after merge (see #65)."],
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["major"],
