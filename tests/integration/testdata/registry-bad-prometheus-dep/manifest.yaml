@@ -1,0 +1,5 @@
+# Dependency of the registry-bad-prometheus fixture: an upstream metric to import.
+file_format: definition_manifest/2.0
+name: registry-bad-prometheus-dep
+description: Upstream registry imported by registry-bad-prometheus.
+schema_url: https://github.com/gjed/github-activity-exporter/schemas/test-dep/0.1.0

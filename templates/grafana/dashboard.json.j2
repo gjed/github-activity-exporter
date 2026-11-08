@@ -28,14 +28,14 @@
 
 {#- check_metric(name): fails generation unless the registry defines exactly one metric with that name. -#}
 {%- macro check_metric(name) -%}
-{%- if (ctx | selectattr("metric_name", "equalto", name) | list | length) != 1 -%}{{ dashboard_metric_not_in_registry(name) }}{%- endif -%}
+{%- if (ctx | selectattr("name", "equalto", name) | list | length) != 1 -%}{{ dashboard_metric_not_in_registry(name) }}{%- endif -%}
 {%- endmacro -%}
 
 {#- sel(m, suffix, matchers, per_target): UTF-8 selector filtered by the dashboard
     variables. The org/repo filters are added only when the metric declares the
     attribute; per_target=false drops the $target filter. -#}
 {%- macro sel(m, suffix="", matchers=[], per_target=true) -%}
-{%- set attrs = m.attributes | map(attribute="name") | list -%}
+{%- set attrs = m.attributes | map(attribute="key") | list -%}
 {\"{{ m.annotations.prometheus.name }}{{ suffix }}\", job=~\"$job\"
 {%- if per_target %}, \"exporter.target\"=~\"$target\"{% endif -%}
 {%- if "github.org" in attrs %}, \"github.org\"=~\"$org\"{% endif -%}
@@ -48,7 +48,7 @@
 {%- endmacro -%}
 
 {%- macro by_clause(m, labels) -%}
-{%- set attrs = m.attributes | map(attribute="name") | list -%}
+{%- set attrs = m.attributes | map(attribute="key") | list -%}
 {%- for l in labels -%}
 {%- if l not in attrs and l != "le" %}{{ dashboard_label_not_on_metric(l) }}{% endif -%}
 {%- if loop.first %} by ({% endif -%}
@@ -66,7 +66,7 @@
     pushes that are one collection_interval apart. -#}
 {%- macro expr(name, shape, by=[], q="0.5", matchers=[], scale="", offset="", per_target=true) -%}
 {{- check_metric(name) -}}
-{%- set m = ctx | selectattr("metric_name", "equalto", name) | first -%}
+{%- set m = ctx | selectattr("name", "equalto", name) | first -%}
 {%- set type = m.annotations.prometheus.type -%}
 {%- if shape == "rate" -%}
 {%- if type != "counter" %}{{ dashboard_wrong_prometheus_type(name) }}{% endif -%}
@@ -86,7 +86,7 @@ histogram_quantile({{ q }}, sum{{ by_clause(m, ["le"] + by) }} (rate({{ sel(m, "
 {%- set out = namespace(briefs=[]) -%}
 {%- for name in names -%}
 {{- check_metric(name) -}}
-{%- set out.briefs = out.briefs + [(ctx | selectattr("metric_name", "equalto", name) | first).brief | trim] -%}
+{%- set out.briefs = out.briefs + [(ctx | selectattr("name", "equalto", name) | first).brief | trim] -%}
 {%- endfor -%}
 {{- out.briefs | join(" ") | tojson -}}
 {%- endmacro -%}
@@ -231,7 +231,7 @@ histogram_quantile({{ q }}, sum{{ by_clause(m, ["le"] + by) }} (rate({{ sel(m, "
 {#- job: Prometheus derives job from service.namespace/service.name; the
     exporter's service.name is github-activity-exporter. -#}
 {{- check_metric("github_exporter.scrape.duration") }}
-{%- set cycles = ctx | selectattr("metric_name", "equalto", "github_exporter.scrape.duration") | first -%}
+{%- set cycles = ctx | selectattr("name", "equalto", "github_exporter.scrape.duration") | first -%}
 {%- if cycles.annotations.prometheus.type != "histogram" %}{{ dashboard_wrong_prometheus_type("github_exporter.scrape.duration") }}{% endif %}
 {%- set cycles_count = '"' ~ cycles.annotations.prometheus.name ~ '_count"' %}
 {{ variable("job", "Job", "{" ~ cycles_count ~ ', job=~"(.+/)?github-activity-exporter"}', "job") }},

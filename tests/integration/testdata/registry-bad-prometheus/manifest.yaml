@@ -4,3 +4,8 @@ file_format: definition_manifest/2.0
 name: registry-bad-prometheus
 description: Registry that violates the annotations.prometheus contract.
 schema_url: https://github.com/gjed/github-activity-exporter/schemas/test/0.1.0
+dependencies:
+  - name: dep
+    schema_url: https://github.com/gjed/github-activity-exporter/schemas/test-dep/0.1.0
+    # Relative to the working directory, which registryCheckCmd sets to this fixture.
+    registry_path: ../registry-bad-prometheus-dep

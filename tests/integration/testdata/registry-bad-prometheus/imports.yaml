@@ -1,0 +1,5 @@
+file_format: definition/2
+# Imported with no refinement declaring annotations.prometheus.
+imports:
+  metrics:
+    - test.imported

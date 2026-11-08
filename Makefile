@@ -82,14 +82,14 @@ ifeq ($(WEAVER_USE_DOCKER),1)
 		--mount type=bind,source=$(PWD)/dashboards,target=/workspace/dashboards \
 		--workdir /workspace \
 		$(WEAVER_IMAGE) \
-		registry generate -r registry/ --templates templates/ grafana dashboards/
+		registry generate --v2 -r registry/ --templates templates/ grafana dashboards/
 else
 	weaver registry generate \
 		-r registry/ \
 		--templates templates/ \
 		go \
 		internal/semconv/
-	weaver registry generate \
+	weaver registry generate --v2 \
 		-r registry/ \
 		--templates templates/ \
 		grafana \

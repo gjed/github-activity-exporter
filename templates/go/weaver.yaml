@@ -1,6 +1,9 @@
 templates:
   - template: metrics.go.j2
-    filter: '.groups | map(select(.type == "metric"))'
+    # Metrics imported from the OTel semantic conventions (registry/telemetry.yaml)
+    # get no constant: the instrumentation libraries own their names. They stay
+    # in the Metrics list so the live-check tests cover their names.
+    filter: '.groups | map(select(.type == "metric") | . + {imported: (.lineage.provenance.schema_url | startswith("https://opentelemetry.io/"))})'
     application_mode: single
     file_name: metrics.go
 
