@@ -2,12 +2,13 @@ package collector_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"math"
 	"regexp"
 	"testing"
 	"time"
-
-	"github.com/google/go-github/v93/github"
-	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/gjed/github-activity-exporter/internal/collector"
 	"github.com/gjed/github-activity-exporter/internal/config"
@@ -15,318 +16,227 @@ import (
 	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
-// fakeIssueClient implements IssueListClient using fixture data.
-type fakeIssueClient struct {
-	issues []*github.Issue
+var issueRepo = discovery.Repo{Owner: "org", Name: "repo", FullName: "org/repo"}
+
+func fixtureIssue(state, title string, createdAt time.Time, labels ...string) collector.ExportedIssueNode {
+	return collector.ExportedIssueNode{State: state, Title: title, CreatedAt: createdAt, Labels: labels}
 }
 
-func (f *fakeIssueClient) ListByRepo(_ context.Context, _, _ string, _ *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error) {
-	return f.issues, &github.Response{}, nil
+// issueSnapshot is what the issue collector emitted for one repo.
+type issueSnapshot struct {
+	// counts maps "state=<s>" and "label=<l>" to github.issue.count.
+	counts map[string]int64
+	// age is github.issue.age, -1 when not emitted.
+	age float64
+	// failed lists the repos whose collection failed.
+	failed []string
 }
 
-func githubIssue(number int, state, title string, createdAt time.Time, labels ...string) *github.Issue {
-	ls := make([]*github.Label, 0, len(labels))
-	for _, l := range labels {
-		ls = append(ls, &github.Label{Name: l})
-	}
-	ts := github.Timestamp{Time: createdAt}
-	n := number
-	return &github.Issue{
-		Number:    &n,
-		State:     &state,
-		Title:     &title,
-		Labels:    ls,
-		CreatedAt: &ts,
-	}
-}
-
-func TestIssueCollector_StateCount(t *testing.T) {
-	now := time.Now()
-	issues := []*github.Issue{
-		githubIssue(1, "open", "Bug: something broken", now.Add(-24*time.Hour), "bug"),
-		githubIssue(2, "open", "Feature request", now.Add(-48*time.Hour)),
-		githubIssue(3, "closed", "Fixed bug", now.Add(-72*time.Hour)),
-	}
-
+// collectIssues runs the issue collector once against gql and returns its output.
+func collectIssues(t *testing.T, gql collector.GraphQLClient, filters config.IssueFilters) issueSnapshot {
+	t.Helper()
 	mp, reader := newTestMeterProvider()
 	meter := mp.Meter("test")
 
-	coll, err := collector.NewIssueCollector(
-		&fakeIssueClient{issues: issues},
-		config.IssueFilters{},
-		meter,
-		nil,
-	)
+	coll, err := collector.NewIssueCollector(gql, filters, meter, nil)
 	if err != nil {
 		t.Fatalf("NewIssueCollector: %v", err)
 	}
-
-	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	result, err := coll.Collect(context.Background(), "tgt", repos)
+	result, err := coll.Collect(context.Background(), "tgt", []discovery.Repo{issueRepo})
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
-	_, err = mp.Meter("test").RegisterCallback(coll.ObservableRegistration(result), coll.ObservableInstruments()...)
-	if err != nil {
+	if _, err := meter.RegisterCallback(coll.ObservableRegistration(result), coll.ObservableInstruments()...); err != nil {
 		t.Fatalf("RegisterCallback: %v", err)
 	}
 
 	rm := collectMetrics(t, reader)
-	dps := findGaugeInt(t, rm, semconv.MetricGitHubIssueCount)
-
-	stateMap := make(map[string]int64)
-	for _, dp := range dps {
+	snap := issueSnapshot{counts: map[string]int64{}, age: -1, failed: result.FailedRepos()}
+	for _, dp := range findGaugeInt(t, rm, semconv.MetricGitHubIssueCount) {
 		if v, ok := dp.Attributes.Value(semconv.AttrGitHubIssueState); ok {
-			stateMap[v.AsString()] += dp.Value
+			snap.counts["state="+v.AsString()] = dp.Value
+		}
+		if v, ok := dp.Attributes.Value(semconv.AttrGitHubIssueLabel); ok {
+			snap.counts["label="+v.AsString()] = dp.Value
 		}
 	}
-
-	if stateMap["open"] != 2 {
-		t.Errorf("open issue count = %d, want 2", stateMap["open"])
+	if dps := findGaugeFloat(t, rm, semconv.MetricGitHubIssueAge); len(dps) > 0 {
+		snap.age = dps[0].Value
 	}
-	if stateMap["closed"] != 1 {
-		t.Errorf("closed issue count = %d, want 1", stateMap["closed"])
+	return snap
+}
+
+// requestKinds returns the Query field of every request the fixture received.
+func requestKinds(f *collector.FixtureIssueClient) []string {
+	var kinds []string
+	for _, r := range f.Requests() {
+		kinds = append(kinds, r.Query)
+	}
+	return kinds
+}
+
+// assertAge checks that age is the age of createdAt, give or take a minute.
+func assertAge(t *testing.T, age float64, createdAt time.Time) {
+	t.Helper()
+	want := time.Since(createdAt).Seconds()
+	if math.Abs(age-want) > 60 {
+		t.Errorf("github.issue.age = %v, want about %v", age, want)
 	}
 }
 
-func TestIssueCollector_OldestOpenAge(t *testing.T) {
+func TestIssueCollector_ManyPRsFewIssues(t *testing.T) {
 	now := time.Now()
-	older := now.Add(-48 * time.Hour)
-
-	issues := []*github.Issue{
-		githubIssue(1, "open", "Recent issue", now.Add(-24*time.Hour)),
-		githubIssue(2, "open", "Older issue", older),
+	prs := make([]collector.ExportedPRNode, 2000)
+	for i := range prs {
+		prs[i] = collector.ExportedPRNode{Number: i + 1, State: "MERGED", CreatedAt: now.Add(-time.Duration(i) * time.Hour), Author: "renovate", AuthorIsBot: true}
+	}
+	oldest := now.Add(-72 * time.Hour)
+	issues := []collector.ExportedIssueNode{
+		fixtureIssue("OPEN", "Bug: something broken", now.Add(-24*time.Hour), "bug"),
+		fixtureIssue("OPEN", "Dependency Dashboard", oldest),
+		fixtureIssue("CLOSED", "Fixed bug", now.Add(-96*time.Hour), "bug", "wontfix"),
 	}
 
-	mp, reader := newTestMeterProvider()
-	meter := mp.Meter("test")
+	t.Run("counted", func(t *testing.T) {
+		gql := &collector.FixtureIssueClient{Issues: issues, PullRequests: prs}
+		snap := collectIssues(t, gql, config.IssueFilters{})
 
-	coll, err := collector.NewIssueCollector(
-		&fakeIssueClient{issues: issues},
-		config.IssueFilters{},
-		meter,
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("NewIssueCollector: %v", err)
-	}
+		if got, want := requestKinds(gql), []string{"issue-count"}; fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("requests = %v, want %v", got, want)
+		}
+		want := map[string]int64{"state=open": 2, "state=closed": 1, "label=bug": 2, "label=wontfix": 1}
+		if !maps.Equal(snap.counts, want) {
+			t.Errorf("counts = %v, want %v", snap.counts, want)
+		}
+		assertAge(t, snap.age, oldest)
+	})
 
-	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	result, err := coll.Collect(context.Background(), "tgt", repos)
-	if err != nil {
-		t.Fatalf("Collect: %v", err)
-	}
-	_, err = mp.Meter("test").RegisterCallback(coll.ObservableRegistration(result), coll.ObservableInstruments()...)
-	if err != nil {
-		t.Fatalf("RegisterCallback: %v", err)
-	}
+	t.Run("listed for title patterns", func(t *testing.T) {
+		gql := &collector.FixtureIssueClient{Issues: issues, PullRequests: prs}
+		re := regexp.MustCompile(`(?i)dependency dashboard`)
+		snap := collectIssues(t, gql, config.IssueFilters{ExcludeTitleRegexps: []*regexp.Regexp{re}})
 
-	rm := collectMetrics(t, reader)
-	dps := findGaugeFloat(t, rm, semconv.MetricGitHubIssueAge)
-	if len(dps) == 0 {
-		t.Fatal("no github.issue.age data points")
-	}
+		if got, want := requestKinds(gql), []string{"issue-list"}; fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("requests = %v, want %v", got, want)
+		}
+		want := map[string]int64{"state=open": 1, "state=closed": 1, "label=bug": 2, "label=wontfix": 1}
+		if !maps.Equal(snap.counts, want) {
+			t.Errorf("counts = %v, want %v", snap.counts, want)
+		}
+		assertAge(t, snap.age, now.Add(-24*time.Hour))
+	})
+}
 
-	wantMin := (48*time.Hour - 60*time.Second).Seconds()
-	if dps[0].Value < wantMin {
-		t.Errorf("issue.age = %v, want >= %v", dps[0].Value, wantMin)
+// TestIssueCollector_CountsMatchListing checks that the totalCount path emits
+// exactly what counting the listed issues emits, for every state filter.
+func TestIssueCollector_CountsMatchListing(t *testing.T) {
+	now := time.Now()
+	issues := []collector.ExportedIssueNode{
+		fixtureIssue("OPEN", "a", now.Add(-1*time.Hour), "bug", "p1"),
+		fixtureIssue("OPEN", "b", now.Add(-5*time.Hour), "bug"),
+		fixtureIssue("OPEN", "c", now.Add(-3*time.Hour)),
+		fixtureIssue("CLOSED", "d", now.Add(-9*time.Hour), "bug", "closed-only"),
+		fixtureIssue("CLOSED", "e", now.Add(-7*time.Hour), "p1"),
+	}
+	// A pattern that matches no title forces the listing path without
+	// excluding anything.
+	noMatch := []*regexp.Regexp{regexp.MustCompile(`^never$`)}
+
+	tests := []struct {
+		name   string
+		states []string
+		want   map[string]int64
+		age    bool
+	}{
+		{"all states", nil, map[string]int64{"state=open": 3, "state=closed": 2, "label=bug": 3, "label=p1": 2, "label=closed-only": 1}, true},
+		{"open", []string{"open"}, map[string]int64{"state=open": 3, "label=bug": 2, "label=p1": 1}, true},
+		{"closed", []string{"closed"}, map[string]int64{"state=closed": 2, "label=bug": 1, "label=p1": 1, "label=closed-only": 1}, false},
+		{"upper case", []string{"OPEN", "Closed"}, map[string]int64{"state=open": 3, "state=closed": 2, "label=bug": 3, "label=p1": 2, "label=closed-only": 1}, true},
+		{"no valid state", []string{"draft"}, map[string]int64{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, path := range []struct {
+				name    string
+				filters config.IssueFilters
+			}{
+				{"counted", config.IssueFilters{States: tt.states}},
+				{"listed", config.IssueFilters{States: tt.states, ExcludeTitleRegexps: noMatch}},
+			} {
+				gql := &collector.FixtureIssueClient{Issues: issues, ExtraLabels: []string{"unused"}, PageSize: 2}
+				snap := collectIssues(t, gql, path.filters)
+				if !maps.Equal(snap.counts, tt.want) {
+					t.Errorf("%s: counts = %v, want %v", path.name, snap.counts, tt.want)
+				}
+				if tt.age {
+					assertAge(t, snap.age, now.Add(-5*time.Hour))
+				} else if snap.age != -1 {
+					t.Errorf("%s: github.issue.age = %v, want none", path.name, snap.age)
+				}
+				if tt.name == "no valid state" && len(gql.Requests()) != 0 {
+					t.Errorf("%s: requests = %v, want none", path.name, gql.Requests())
+				}
+			}
+		})
+	}
+}
+
+func TestIssueCollector_LabelPages(t *testing.T) {
+	now := time.Now()
+	gql := &collector.FixtureIssueClient{
+		Issues: []collector.ExportedIssueNode{
+			fixtureIssue("OPEN", "a", now, "l1", "l2", "l3", "l4", "l5"),
+		},
+		PageSize: 2,
+	}
+	snap := collectIssues(t, gql, config.IssueFilters{})
+
+	if got := len(gql.Requests()); got != 3 {
+		t.Errorf("requests = %d, want 3 label pages", got)
+	}
+	want := map[string]int64{"state=open": 1, "label=l1": 1, "label=l2": 1, "label=l3": 1, "label=l4": 1, "label=l5": 1}
+	if !maps.Equal(snap.counts, want) {
+		t.Errorf("counts = %v, want %v", snap.counts, want)
 	}
 }
 
 func TestIssueCollector_TitlePatternExclusion(t *testing.T) {
 	now := time.Now()
-	issues := []*github.Issue{
-		githubIssue(1, "open", "Dependency Dashboard", now.Add(-1*time.Hour)),
-		githubIssue(2, "open", "Real bug report", now.Add(-2*time.Hour)),
-	}
-
-	mp, reader := newTestMeterProvider()
-	meter := mp.Meter("test")
-
-	coll, err := collector.NewIssueCollector(
-		&fakeIssueClient{issues: issues},
-		config.IssueFilters{
-			ExcludeTitleRegexps: []*regexp.Regexp{
-				regexp.MustCompile(`(?i)dependency dashboard`),
-			},
+	gql := &collector.FixtureIssueClient{
+		Issues: []collector.ExportedIssueNode{
+			fixtureIssue("OPEN", "Dependency Dashboard", now.Add(-48*time.Hour), "renovate"),
+			fixtureIssue("OPEN", "Real bug report", now.Add(-24*time.Hour), "bug"),
+			fixtureIssue("OPEN", "Another bug", now.Add(-2*time.Hour), "bug"),
+			fixtureIssue("CLOSED", "Renovate bot report", now.Add(-72*time.Hour), "bug"),
+			fixtureIssue("CLOSED", "Old bug", now.Add(-96*time.Hour)),
 		},
-		meter,
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("NewIssueCollector: %v", err)
+		PageSize: 2,
 	}
+	filters := config.IssueFilters{ExcludeTitleRegexps: []*regexp.Regexp{
+		regexp.MustCompile(`(?i)dependency dashboard`),
+		regexp.MustCompile(`(?i)renovate bot`),
+	}}
+	snap := collectIssues(t, gql, filters)
 
-	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	result, err := coll.Collect(context.Background(), "tgt", repos)
-	if err != nil {
-		t.Fatalf("Collect: %v", err)
+	if got := len(gql.Requests()); got != 3 {
+		t.Errorf("requests = %d, want 3 issue pages", got)
 	}
-	_, err = mp.Meter("test").RegisterCallback(coll.ObservableRegistration(result), coll.ObservableInstruments()...)
-	if err != nil {
-		t.Fatalf("RegisterCallback: %v", err)
+	want := map[string]int64{"state=open": 2, "state=closed": 1, "label=bug": 2}
+	if !maps.Equal(snap.counts, want) {
+		t.Errorf("counts = %v, want %v", snap.counts, want)
 	}
-
-	rm := collectMetrics(t, reader)
-	dps := findGaugeInt(t, rm, semconv.MetricGitHubIssueCount)
-
-	var total int64
-	for _, dp := range dps {
-		if _, ok := dp.Attributes.Value(semconv.AttrGitHubIssueState); ok {
-			total += dp.Value
-		}
-	}
-	// Only 1 issue should be counted (Dependency Dashboard excluded)
-	if total != 1 {
-		t.Errorf("issue count after title filter = %d, want 1", total)
-	}
+	// The excluded dashboard is the oldest open issue: age comes from the next one.
+	assertAge(t, snap.age, now.Add(-24*time.Hour))
 }
 
-func TestIssueCollector_LabelCount(t *testing.T) {
-	now := time.Now()
-	issues := []*github.Issue{
-		githubIssue(1, "open", "Issue A", now.Add(-1*time.Hour), "bug", "priority"),
-		githubIssue(2, "open", "Issue B", now.Add(-2*time.Hour), "bug"),
+func TestIssueCollector_QueryError(t *testing.T) {
+	gql := &collector.FixtureIssueClient{Err: errors.New("boom")}
+	snap := collectIssues(t, gql, config.IssueFilters{})
+
+	if fmt.Sprint(snap.failed) != "[org/repo]" {
+		t.Errorf("failed = %v, want [org/repo]", snap.failed)
 	}
-
-	mp, reader := newTestMeterProvider()
-	meter := mp.Meter("test")
-
-	coll, err := collector.NewIssueCollector(
-		&fakeIssueClient{issues: issues},
-		config.IssueFilters{},
-		meter,
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("NewIssueCollector: %v", err)
-	}
-
-	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	result, err := coll.Collect(context.Background(), "tgt", repos)
-	if err != nil {
-		t.Fatalf("Collect: %v", err)
-	}
-	_, err = mp.Meter("test").RegisterCallback(coll.ObservableRegistration(result), coll.ObservableInstruments()...)
-	if err != nil {
-		t.Fatalf("RegisterCallback: %v", err)
-	}
-
-	rm := collectMetrics(t, reader)
-	dps := findGaugeInt(t, rm, semconv.MetricGitHubIssueCount)
-
-	labelMap := make(map[string]int64)
-	for _, dp := range dps {
-		if v, ok := dp.Attributes.Value(semconv.AttrGitHubIssueLabel); ok {
-			labelMap[v.AsString()] += dp.Value
-		}
-	}
-
-	if labelMap["bug"] != 2 {
-		t.Errorf("bug label count = %d, want 2", labelMap["bug"])
-	}
-	if labelMap["priority"] != 1 {
-		t.Errorf("priority label count = %d, want 1", labelMap["priority"])
-	}
-}
-
-func TestIssueCollector_StateFilter(t *testing.T) {
-	now := time.Now()
-	issues := []*github.Issue{
-		githubIssue(1, "open", "Open issue", now.Add(-1*time.Hour)),
-		githubIssue(2, "closed", "Closed issue", now.Add(-2*time.Hour)),
-	}
-
-	mp, reader := newTestMeterProvider()
-	meter := mp.Meter("test")
-
-	coll, err := collector.NewIssueCollector(
-		&fakeIssueClient{issues: issues},
-		config.IssueFilters{States: []string{"open"}},
-		meter,
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("NewIssueCollector: %v", err)
-	}
-
-	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	result, err := coll.Collect(context.Background(), "tgt", repos)
-	if err != nil {
-		t.Fatalf("Collect: %v", err)
-	}
-	_, err = mp.Meter("test").RegisterCallback(coll.ObservableRegistration(result), coll.ObservableInstruments()...)
-	if err != nil {
-		t.Fatalf("RegisterCallback: %v", err)
-	}
-
-	rm := collectMetrics(t, reader)
-	dps := findGaugeInt(t, rm, semconv.MetricGitHubIssueCount)
-
-	var total int64
-	for _, dp := range dps {
-		if v, ok := dp.Attributes.Value(semconv.AttrGitHubIssueState); ok {
-			if v.AsString() == "closed" {
-				t.Error("closed issue should have been filtered out")
-			}
-			total += dp.Value
-		}
-	}
-	if total != 1 {
-		t.Errorf("state-filtered issue count = %d, want 1 (open only)", total)
-	}
-}
-
-func TestIssueCollector_NoPullRequests(t *testing.T) {
-	now := time.Now()
-	// GitHub REST returns PRs as issues too; ensure they are filtered by checking
-	// IsPullRequest field — but the fake doesn't set PullRequestLinks, which is
-	// fine since we don't filter PRs here (that's the PR collector's job).
-	// This test just ensures PRs in the issue list don't cause panics.
-	issues := []*github.Issue{
-		githubIssue(1, "open", "Real issue", now.Add(-1*time.Hour)),
-	}
-
-	mp, reader := newTestMeterProvider()
-	meter := mp.Meter("test")
-
-	coll, err := collector.NewIssueCollector(
-		&fakeIssueClient{issues: issues},
-		config.IssueFilters{},
-		meter,
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("NewIssueCollector: %v", err)
-	}
-
-	repos := []discovery.Repo{{Owner: "org", Name: "repo", FullName: "org/repo"}}
-	result, err := coll.Collect(context.Background(), "tgt", repos)
-	if err != nil {
-		t.Fatalf("Collect: %v", err)
-	}
-	_, err = mp.Meter("test").RegisterCallback(coll.ObservableRegistration(result), coll.ObservableInstruments()...)
-	if err != nil {
-		t.Fatalf("RegisterCallback: %v", err)
-	}
-
-	rm := collectMetrics(t, reader)
-	dps := findGaugeInt(t, rm, semconv.MetricGitHubIssueCount)
-	if len(dps) == 0 {
-		t.Error("expected at least one data point")
-	}
-
-	// Ensure no panic on nil DataPoints field
-	_ = dps
-
-	// Verify no histogram data was accidentally created
-	for _, sm := range rm.ScopeMetrics {
-		for _, m := range sm.Metrics {
-			if m.Name == semconv.MetricGitHubIssueCount {
-				if _, ok := m.Data.(metricdata.Histogram[float64]); ok {
-					t.Error("github.issue.count should be an updowncounter (Sum), not a histogram")
-				}
-			}
-		}
+	if len(snap.counts) != 0 || snap.age != -1 {
+		t.Errorf("emitted %v, age %v for a failed repo, want nothing", snap.counts, snap.age)
 	}
 }

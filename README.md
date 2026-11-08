@@ -164,11 +164,11 @@ targets:
 
 ### Environment variables
 
-| Env                  | Default         | Description                                                  |
-| -------------------- | --------------- | ------------------------------------------------------------ |
-| `CONFIG_FILE`        | `config.yaml`   | Path to the config file                                      |
-| `GITHUB_TOKEN`       |                 | PAT for targets with an empty or omitted `auth` block        |
-| `RENOVATE_BOT_LOGIN` | `renovate[bot]` | Login of the Renovate bot that owns the Dependency Dashboard |
+| Env                  | Default         | Description                                                                                               |
+| -------------------- | --------------- | --------------------------------------------------------------------------------------------------------- |
+| `CONFIG_FILE`        | `config.yaml`   | Path to the config file                                                                                   |
+| `GITHUB_TOKEN`       |                 | PAT for targets with an empty or omitted `auth` block                                                     |
+| `RENOVATE_BOT_LOGIN` | `renovate[bot]` | Login of the Renovate bot that owns the Dependency Dashboard, in REST form: `<app>[bot]` for a GitHub App |
 
 A target's credential is resolved in this order:
 

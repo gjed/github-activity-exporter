@@ -64,7 +64,6 @@ const (
 
 // Values for github.api.endpoint
 AttrGitHubApiEndpointGraphQL = "graphql"
-AttrGitHubApiEndpointRestIssues = "rest.issues"
 AttrGitHubApiEndpointRestRepos = "rest.repos"
 
 

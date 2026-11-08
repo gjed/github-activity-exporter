@@ -126,18 +126,14 @@ attributes:
         - id: graphql
           value: "graphql"
           stability: development
-          brief: GitHub GraphQL API (pull request query).
-        - id: rest_issues
-          value: "rest.issues"
-          stability: development
-          brief: GitHub REST issues list endpoint (issues and Renovate dashboard).
+          brief: GitHub GraphQL API (pull request, issue and Renovate dashboard queries).
         - id: rest_repos
           value: "rest.repos"
           stability: development
           brief: GitHub REST organization repositories list endpoint (repo discovery).
     stability: development
     brief: GitHub API endpoint whose call failed.
-    examples: ["graphql", "rest.issues", "rest.repos"]
+    examples: ["graphql", "rest.repos"]
 
   - key: github.api.rate_limit.resource
     type:

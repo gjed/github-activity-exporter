@@ -6,62 +6,22 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/go-github/v93/github"
-
+	"github.com/gjed/github-activity-exporter/internal/collector"
 	"github.com/gjed/github-activity-exporter/internal/discovery"
 )
 
-// fakeIssueListClient serves pre-baked issues for both the issue and dashboard collectors.
-type fakeIssueListClient struct {
-	issues []*github.Issue
-}
-
-func newFakeIssueListClient(issues []*github.Issue) *fakeIssueListClient {
-	return &fakeIssueListClient{issues: issues}
-}
-
-func (f *fakeIssueListClient) ListByRepo(_ context.Context, _, _ string, _ *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error) {
-	return f.issues, &github.Response{}, nil
-}
-
 // makeIssues returns a simple set of non-dashboard open issues.
-func makeIssues(now time.Time) []*github.Issue {
-	return []*github.Issue{
-		makeIssue(1, "open", "Real bug", now.Add(-24*time.Hour), "renovate[bot]"),
+func makeIssues(now time.Time) []collector.ExportedIssueNode {
+	return []collector.ExportedIssueNode{
+		{State: "OPEN", Title: "Real bug", CreatedAt: now.Add(-24 * time.Hour), Author: "renovate", AuthorIsBot: true},
 	}
 }
 
-func makeIssue(number int, state, title string, createdAt time.Time, authorLogin string) *github.Issue {
-	n := number
-	body := ""
-	ts := github.Timestamp{Time: createdAt}
-	return &github.Issue{
-		Number:    &n,
-		State:     &state,
-		Title:     &title,
-		Body:      &body,
-		CreatedAt: &ts,
-		User:      &github.User{Login: &authorLogin},
-	}
-}
-
-// makeDashboardIssueWithBody returns a single dashboard issue with the given body.
-// This is exported for use in TestCollectionLoop_MockData.
-func makeDashboardIssueWithBody(body string) []*github.Issue {
-	n := 1
-	state := "open"
-	title := "Dependency Dashboard"
-	author := "renovate[bot]"
-	ts := github.Timestamp{Time: time.Now().Add(-time.Hour)}
-	return []*github.Issue{
-		{
-			Number:    &n,
-			State:     &state,
-			Title:     &title,
-			Body:      &body,
-			CreatedAt: &ts,
-			User:      &github.User{Login: &author},
-		},
+// makeDashboardIssueWithBody returns a single dashboard issue by renovate[bot]
+// with the given body.
+func makeDashboardIssueWithBody(body string) []collector.ExportedIssueNode {
+	return []collector.ExportedIssueNode{
+		{State: "OPEN", Title: "Dependency Dashboard", Body: body, CreatedAt: time.Now().Add(-time.Hour), Author: "renovate", AuthorIsBot: true},
 	}
 }
 

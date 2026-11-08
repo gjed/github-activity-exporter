@@ -73,7 +73,7 @@ This issue lists Renovate updates and detected dependencies.
 	}
 
 	issColl, err := collector.NewIssueCollector(
-		newFakeIssueListClient(openIssues),
+		&collector.FixtureIssueClient{Issues: openIssues},
 		config.IssueFilters{},
 		meter,
 		nil,
@@ -84,7 +84,7 @@ This issue lists Renovate updates and detected dependencies.
 
 	dashIssues := makeDashboardIssueWithBody(dashBody)
 	dashColl, err := collector.NewDashboardCollector(
-		newFakeIssueListClient(dashIssues),
+		&collector.FixtureIssueClient{Issues: dashIssues},
 		"renovate[bot]",
 		meter,
 		nil,
