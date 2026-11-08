@@ -280,11 +280,11 @@ func TestIssueAndDashboard_GraphQLPool(t *testing.T) {
 		page := `"pageInfo":{"hasNextPage":false,"endCursor":"x"}`
 		switch {
 		case strings.Contains(req.Query, "filterBy"):
-			fmt.Fprintf(w, `{"data":{"repository":{"issues":{"nodes":[{"title":"Dependency Dashboard","body":%q,"author":{"__typename":"Bot","login":"renovate"}}],%s}}}}`, typicalDashboard, page)
+			_, _ = fmt.Fprintf(w, `{"data":{"repository":{"issues":{"nodes":[{"title":"Dependency Dashboard","body":%q,"author":{"__typename":"Bot","login":"renovate"}}],%s}}}}`, typicalDashboard, page)
 		case strings.Contains(req.Query, "oldest:"):
-			fmt.Fprintf(w, `{"data":{"repository":{"open":{"totalCount":2},"closed":{"totalCount":1},"oldest":{"nodes":[{"createdAt":"2026-01-01T00:00:00Z"}]},"labels":{"nodes":[{"name":"bug","issues":{"totalCount":2}}],%s}}}}`, page)
+			_, _ = fmt.Fprintf(w, `{"data":{"repository":{"open":{"totalCount":2},"closed":{"totalCount":1},"oldest":{"nodes":[{"createdAt":"2026-01-01T00:00:00Z"}]},"labels":{"nodes":[{"name":"bug","issues":{"totalCount":2}}],%s}}}}`, page)
 		default:
-			fmt.Fprintf(w, `{"data":{"repository":{"issues":{"nodes":[{"state":"OPEN","title":"bug","createdAt":"2026-01-01T00:00:00Z","labels":{"nodes":[{"name":"bug"}]}}],%s}}}}`, page)
+			_, _ = fmt.Fprintf(w, `{"data":{"repository":{"issues":{"nodes":[{"state":"OPEN","title":"bug","createdAt":"2026-01-01T00:00:00Z","labels":{"nodes":[{"name":"bug"}]}}],%s}}}}`, page)
 		}
 	}))
 	defer srv.Close()
