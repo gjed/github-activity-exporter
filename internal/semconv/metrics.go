@@ -67,6 +67,10 @@ const (
 	// Duration of a complete collection cycle in seconds.
 	// Instrument: histogram, Unit: s, Stability: development
 	MetricGitHubExporterScrapeDuration = "github_exporter.scrape.duration"
+// MetricGitHubExporterScrapeOverruns is the metric name for github_exporter.scrape.overruns.
+	// Number of collection cycles that ran longer than the collection interval.
+	// Instrument: counter, Unit: {cycle}, Stability: development
+	MetricGitHubExporterScrapeOverruns = "github_exporter.scrape.overruns"
 // MetricRenovateDashboardParseError is the metric name for renovate.dashboard.parse_error.
 	// Set to 1 when the Renovate dependency dashboard cannot be parsed, 0 on success.
 	// Instrument: gauge, Unit: {error}, Stability: development
@@ -103,6 +107,7 @@ var Metrics = []MetricDef{
 	{Name: MetricGitHubExporterApiRateLimitReset, Instrument: "gauge", Unit: "s"},
 	{Name: MetricGitHubExporterOTLPErrors, Instrument: "counter", Unit: "{error}"},
 	{Name: MetricGitHubExporterScrapeDuration, Instrument: "histogram", Unit: "s"},
+	{Name: MetricGitHubExporterScrapeOverruns, Instrument: "counter", Unit: "{cycle}"},
 	{Name: "go.config.gogc", Instrument: "updowncounter", Unit: "%"},
 	{Name: "go.goroutine.count", Instrument: "updowncounter", Unit: "{goroutine}"},
 	{Name: "go.memory.allocated", Instrument: "counter", Unit: "By"},

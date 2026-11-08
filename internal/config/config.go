@@ -14,7 +14,8 @@ import (
 
 // Config is the top-level configuration.
 type Config struct {
-	// CollectionInterval is how often metrics are collected and pushed. Defaults to 5m.
+	// CollectionInterval is the period between the starts of consecutive
+	// collection cycles of a target. Defaults to 5m.
 	CollectionInterval time.Duration `mapstructure:"collection_interval"`
 	Export             Export        `mapstructure:"export"`
 	Health             Health        `mapstructure:"health"`
@@ -75,7 +76,9 @@ type Health struct {
 	ListenAddress string `mapstructure:"listen_address"`
 	// StallTimeout is how long a target may go without completing a
 	// collection cycle before /healthz fails. Load resolves 0 to
-	// 2 × CollectionInterval + 1h.
+	// 2 × CollectionInterval + 1h: a cycle completes at most
+	// CollectionInterval plus its own duration after the previous one, so
+	// the default allows a cycle of up to CollectionInterval + 1h.
 	StallTimeout time.Duration `mapstructure:"stall_timeout"`
 	// UnauthorizedCycles is how many consecutive cycles answered only with
 	// HTTP 401 fail /healthz. Defaults to 3.

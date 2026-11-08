@@ -297,6 +297,23 @@ metrics:
       - ref: exporter.target
         requirement_level: required
 
+  - name: github_exporter.scrape.overruns
+    instrument: counter
+    annotations:
+      prometheus:
+        name: github_exporter.scrape.overruns
+        type: counter
+    unit: "{cycle}"
+    stability: development
+    requirement_level: recommended
+    brief: Number of collection cycles that ran longer than the collection interval.
+    note: >
+      Incremented once per cycle that ends after the next cycle was due. The
+      next cycle then starts at once; cycles never overlap.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+
   - name: github_exporter.api.errors
     instrument: counter
     annotations:
