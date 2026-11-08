@@ -241,7 +241,7 @@ With self-telemetry metrics active ([#74](https://github.com/gjed/github-activit
 
 With self-telemetry metrics inactive, no `go.*` or `http.*` metric is exported and the GitHub client is not instrumented. The registry imports these metrics from the OTel semantic conventions in [`registry/telemetry.yaml`](registry/telemetry.yaml).
 
-The GitHub metrics and the self-telemetry metrics share one resource but are pushed on separate schedules, so both pushes write the same `target_info` series with interleaved timestamps. A backend that ingests OTLP needs out-of-order ingestion of at least the longer of the two push intervals, or it rejects pushes, GitHub metric pushes included, with `out of order sample`:
+The GitHub metrics and the self-telemetry metrics share one resource but are pushed on separate schedules, so both pushes write the same `target_info` series with interleaved timestamps. A backend that ingests OTLP needs out-of-order ingestion enabled, or it rejects pushes, GitHub metric pushes included, with `out of order sample`. The e2e runs Prometheus with a 10m window:
 
 - Prometheus: `storage.tsdb.out_of_order_time_window` (for example `10m`).
 - Mimir and Grafana Cloud Metrics: the per-tenant limit `out_of_order_time_window` (`-ingester.out-of-order-time-window`).
