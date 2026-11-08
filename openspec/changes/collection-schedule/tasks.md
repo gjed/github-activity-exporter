@@ -9,10 +9,10 @@
 
 ## 2. Discovery refresh in production ([#97](https://github.com/gjed/github-activity-exporter/issues/97))
 
-- [ ] 2.1 `Discoverer.Start` ticks only (no initial refresh); add `WithRefreshFailed(func())` called on a failed refresh; update the existing `Start` tests; verify `go test ./internal/discovery/...`
-- [ ] 2.2 `buildTargetRunner`: `go disc.Start(ctx)` with the hook wired to `RecordAPIError(target, rest.repos)`; verify `go build ./...`
-- [ ] 2.3 `testing/synctest` tests with an in-process GitHub fake: a repo created after startup is collected by the first cycle after `refresh_interval`; a failed refresh keeps the old list, logs and calls the hook; a removed repo stops being collected; startup lists repos once; verify `go test -race ./internal/...`
-- [ ] 2.4 README: document per-target `discovery.refresh_interval`; markdown lint on README
+- [x] 2.1 `Discoverer.Start` ticks only (no initial refresh); add `WithRefreshFailed(func())` called on a failed refresh; update the existing `Start` tests; verify `go test ./internal/discovery/...`
+- [x] 2.2 `buildTargetRunner`: `go disc.Start(ctx)` with the hook wired to `RecordAPIError(target, rest.repos)`; verify `go build ./...`
+- [x] 2.3 `testing/synctest` tests with an in-process GitHub fake: a repo created after startup is collected by the first cycle after `refresh_interval`; a failed refresh keeps the old list, logs and calls the hook; a removed repo stops being collected; startup lists repos once; verify `go test -race ./internal/...`
+- [x] 2.4 README: document per-target `discovery.refresh_interval`; markdown lint on README
 
 ## 3. Validation
 

@@ -24,6 +24,7 @@ import (
 	"github.com/gjed/github-activity-exporter/internal/exporter"
 	ghclient "github.com/gjed/github-activity-exporter/internal/github"
 	"github.com/gjed/github-activity-exporter/internal/health"
+	"github.com/gjed/github-activity-exporter/internal/semconv"
 	"github.com/gjed/github-activity-exporter/internal/telemetry"
 )
 
@@ -273,7 +274,12 @@ func buildTargetRunner(
 	}
 	tracker.CredentialChecked(t.Name)
 
-	disc := discovery.New(t, ghc.REST(), discovery.WithLogger(logger))
+	disc := discovery.New(t, ghc.REST(),
+		discovery.WithLogger(logger),
+		discovery.WithRefreshFailed(func() {
+			selfMetrics.RecordAPIError(context.Background(), t.Name, semconv.AttrGitHubApiEndpointRestRepos)
+		}),
+	)
 
 	prCfg := collector.PRCollectorConfig{LookbackDays: 30}
 	prColl, err := collector.NewPRCollector(ghc.GraphQL(), t.Filters.PRs, prCfg, otelMeter, logger)
@@ -296,11 +302,19 @@ func buildTargetRunner(
 		return nil, fmt.Errorf("build dashboard collector: %w", err)
 	}
 
-	return collector.NewRunner(t, disc, collector.RunnerCollectors{
+	r, err := collector.NewRunner(t, disc, collector.RunnerCollectors{
 		PR:        prColl,
 		Issue:     issColl,
 		Dashboard: dashColl,
 	}, otelMeter, logger, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	// main runs the Runner with this ctx, so the repo list is refreshed for
+	// as long as the collection loop runs.
+	go disc.Start(ctx)
+	return r, nil
 }
 
 // newDashboardCollector builds the Renovate Dependency Dashboard collector,
