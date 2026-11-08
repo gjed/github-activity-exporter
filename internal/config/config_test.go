@@ -410,7 +410,7 @@ func TestLoad(t *testing.T) {
 					Metrics:  config.Signal{Enabled: true},
 					Traces:   config.Signal{Enabled: true},
 					Logs:     config.Signal{Enabled: true},
-					Profiles: config.Signal{Enabled: true},
+					Profiles: config.Profiles{Interval: time.Minute},
 				}
 				if cfg.Telemetry != want {
 					t.Errorf("telemetry = %+v, want %+v", cfg.Telemetry, want)
@@ -423,7 +423,7 @@ func TestLoad(t *testing.T) {
 			check: func(t *testing.T, cfg *config.Config) {
 				t.Helper()
 				tel := cfg.Telemetry
-				if !tel.Enabled || tel.Traces.Enabled || !tel.Metrics.Enabled || !tel.Logs.Enabled || !tel.Profiles.Enabled {
+				if !tel.Enabled || tel.Traces.Enabled || !tel.Metrics.Enabled || !tel.Logs.Enabled || tel.Profiles.Enabled {
 					t.Errorf("telemetry = %+v, want enabled with traces off", tel)
 				}
 			},
@@ -435,13 +435,41 @@ func TestLoad(t *testing.T) {
 				"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_ENABLED":          "false",
 				"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_TRACES_ENABLED":   "true",
 				"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_LOGS_ENABLED":     "false",
-				"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_PROFILES_ENABLED": "false",
+				"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_PROFILES_ENABLED": "true",
 			},
 			check: func(t *testing.T, cfg *config.Config) {
 				t.Helper()
 				tel := cfg.Telemetry
-				if tel.Enabled || !tel.Traces.Enabled || tel.Logs.Enabled || tel.Profiles.Enabled || !tel.Metrics.Enabled {
+				if tel.Enabled || !tel.Traces.Enabled || tel.Logs.Enabled || !tel.Profiles.Enabled || !tel.Metrics.Enabled {
 					t.Errorf("telemetry = %+v, want env values", tel)
+				}
+			},
+		},
+		{
+			name: "profiles from file",
+			file: "testdata/telemetry_profiles.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				want := config.Profiles{Enabled: true, Endpoint: "http://otel-collector:4040", Interval: 30 * time.Second, MutexFraction: 100, BlockRate: 100000}
+				if cfg.Telemetry.Profiles != want {
+					t.Errorf("profiles = %+v, want %+v", cfg.Telemetry.Profiles, want)
+				}
+			},
+		},
+		{
+			name: "profiles env overrides",
+			file: "testdata/pat_token.yaml",
+			envVars: map[string]string{
+				"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_PROFILES_ENDPOINT":       "http://c:4040",
+				"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_PROFILES_INTERVAL":       "10s",
+				"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_PROFILES_MUTEX_FRACTION": "5",
+				"GITHUB_ACTIVITY_EXPORTER_TELEMETRY_PROFILES_BLOCK_RATE":     "7",
+			},
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				want := config.Profiles{Endpoint: "http://c:4040", Interval: 10 * time.Second, MutexFraction: 5, BlockRate: 7}
+				if cfg.Telemetry.Profiles != want {
+					t.Errorf("profiles = %+v, want %+v", cfg.Telemetry.Profiles, want)
 				}
 			},
 		},

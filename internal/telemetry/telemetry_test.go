@@ -70,7 +70,7 @@ func toggles(global, metrics, traces, logs, profiles bool) config.Telemetry {
 		Metrics:  config.Signal{Enabled: metrics},
 		Traces:   config.Signal{Enabled: traces},
 		Logs:     config.Signal{Enabled: logs},
-		Profiles: config.Signal{Enabled: profiles},
+		Profiles: config.Profiles{Enabled: profiles},
 	}
 }
 

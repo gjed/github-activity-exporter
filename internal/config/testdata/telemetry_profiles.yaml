@@ -1,0 +1,17 @@
+export:
+  otlp:
+    endpoint: http://localhost:4318
+telemetry:
+  enabled: true
+  profiles:
+    enabled: true
+    endpoint: http://otel-collector:4040
+    interval: 30s
+    mutex_fraction: 100
+    block_rate: 100000
+targets:
+  - name: myorg
+    auth:
+      token: ghp_testtoken123
+    orgs:
+      - org: myorg

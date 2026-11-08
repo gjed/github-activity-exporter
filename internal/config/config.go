@@ -27,11 +27,27 @@ type Config struct {
 // when Enabled and the signal's own Enabled are both true.
 type Telemetry struct {
 	// Enabled is the global toggle. Defaults to false.
-	Enabled  bool   `mapstructure:"enabled"`
-	Metrics  Signal `mapstructure:"metrics"`
-	Traces   Signal `mapstructure:"traces"`
-	Logs     Signal `mapstructure:"logs"`
-	Profiles Signal `mapstructure:"profiles"`
+	Enabled  bool     `mapstructure:"enabled"`
+	Metrics  Signal   `mapstructure:"metrics"`
+	Traces   Signal   `mapstructure:"traces"`
+	Logs     Signal   `mapstructure:"logs"`
+	Profiles Profiles `mapstructure:"profiles"`
+}
+
+// Profiles holds the profiles signal settings. Enabled defaults to false.
+// The settings are checked only when the signal is active, by the telemetry
+// package, which logs errors instead of failing startup.
+type Profiles struct {
+	Enabled bool `mapstructure:"enabled"`
+	// Endpoint is the base URL of an OpenTelemetry Collector pprof receiver
+	// in server mode; profiles are posted to Endpoint + "/v1/pprof".
+	Endpoint string `mapstructure:"endpoint"`
+	// Interval is the CPU profile window and the push period. Defaults to 60s.
+	Interval time.Duration `mapstructure:"interval"`
+	// MutexFraction is the runtime mutex profile fraction; 0 (default) is off.
+	MutexFraction int `mapstructure:"mutex_fraction"`
+	// BlockRate is the runtime block profile rate in nanoseconds; 0 (default) is off.
+	BlockRate int `mapstructure:"block_rate"`
 }
 
 // Signal holds the toggle of one self-telemetry signal.
@@ -197,9 +213,14 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("health.stall_timeout", "0s")
 	// Every telemetry key needs a default: viper maps env vars only onto known keys.
 	v.SetDefault("telemetry.enabled", false)
-	for _, s := range []string{"metrics", "traces", "logs", "profiles"} {
+	for _, s := range []string{"metrics", "traces", "logs"} {
 		v.SetDefault("telemetry."+s+".enabled", true)
 	}
+	v.SetDefault("telemetry.profiles.enabled", false)
+	v.SetDefault("telemetry.profiles.endpoint", "")
+	v.SetDefault("telemetry.profiles.interval", "60s")
+	v.SetDefault("telemetry.profiles.mutex_fraction", 0)
+	v.SetDefault("telemetry.profiles.block_rate", 0)
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("reading config %q: %w", path, err)
