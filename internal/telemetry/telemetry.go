@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -80,6 +82,7 @@ type Telemetry struct {
 	mp *sdkmetric.MeterProvider
 	tp *sdktrace.TracerProvider
 	lp *sdklog.LoggerProvider
+	pr *profiler
 }
 
 // New routes OTel SDK errors to Settings.Logger, resolves which signals are
@@ -135,11 +138,24 @@ func New(ctx context.Context, s Settings) (*Telemetry, error) {
 		t.lp = sdklog.NewLoggerProvider(sdklog.WithResource(s.Resource), sdklog.WithProcessor(sdklog.NewBatchProcessor(exp)))
 		otel.SetLoggerProvider(t.lp)
 	}
+	if t.active[SignalProfiles] {
+		// Profiles settings errors are logged, not returned: profiles stay
+		// off and the exporter runs.
+		if errs := profilesErrors(s.Config.Profiles); len(errs) > 0 {
+			for _, key := range slices.Sorted(maps.Keys(errs)) {
+				s.Logger.Error("invalid profiles setting, profiles are off", "key", key, "err", errs[key])
+			}
+			t.active[SignalProfiles] = false
+		} else {
+			t.pr = startProfiler(s.Config.Profiles, s.Logger)
+		}
+	}
 	return t, nil
 }
 
 // Active reports whether a signal is active: telemetry.enabled, its own
-// enabled, OTEL_SDK_DISABLED not true and OTEL_<SIGNAL>_EXPORTER not none.
+// enabled, OTEL_SDK_DISABLED not true, OTEL_<SIGNAL>_EXPORTER not none and,
+// for profiles, valid profiles settings.
 func (t *Telemetry) Active(s Signal) bool { return t.active[s] }
 
 // MeterProvider returns the self-telemetry MeterProvider, separate from the
@@ -178,7 +194,8 @@ func (t *Telemetry) Tracer() trace.Tracer {
 }
 
 // Shutdown flushes and shuts down the active providers: metrics, traces, then
-// logs, so records logged while shutting down still go out.
+// logs, so records logged while shutting down still go out; then it stops the
+// profiler, pushing the current CPU window.
 func (t *Telemetry) Shutdown(ctx context.Context) error {
 	var errs []error
 	if t.mp != nil {
@@ -194,6 +211,11 @@ func (t *Telemetry) Shutdown(ctx context.Context) error {
 	if t.lp != nil {
 		if err := t.lp.Shutdown(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("logger provider shutdown: %w", err))
+		}
+	}
+	if t.pr != nil {
+		if err := t.pr.shutdown(ctx); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
