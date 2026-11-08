@@ -21,7 +21,8 @@ import (
 )
 
 // The mock serves exactly what the exporter calls for one target over
-// base_url <mock>/api/v3: GET /user (PAT check), GET /orgs/{org}/repos,
+// base_url <mock>/api/v3: GET /user (PAT check), GET /users/{org} (owner
+// type lookup), GET /orgs/{org}/repos,
 // GET /repos/{owner}/{repo}/issues and POST /api/graphql (the PR query, whose
 // GraphQL response shape mirrors the prNode/prQuery struct tags in
 // internal/collector/pr.go). Any other request is recorded and answered 404;
@@ -109,6 +110,7 @@ func newMockGitHub(t *testing.T) *mockGitHub {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v3/user", m.user)
+	mux.HandleFunc("GET /api/v3/users/{name}", m.owner)
 	mux.HandleFunc("GET /api/v3/orgs/{org}/repos", m.orgRepos)
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/issues", m.issues)
 	mux.HandleFunc("POST /api/graphql", m.graphql)
@@ -156,6 +158,14 @@ func withRateLimitHeaders(next http.Handler) http.Handler {
 
 func (m *mockGitHub) user(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, map[string]string{"login": "e2e-bot"})
+}
+
+func (m *mockGitHub) owner(w http.ResponseWriter, r *http.Request) {
+	if r.PathValue("name") != e2eOrg {
+		m.unhandledRequest(w, r)
+		return
+	}
+	writeJSON(w, map[string]string{"login": e2eOrg, "type": "Organization"})
 }
 
 func (m *mockGitHub) orgRepos(w http.ResponseWriter, r *http.Request) {

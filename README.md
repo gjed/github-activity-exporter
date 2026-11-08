@@ -111,7 +111,7 @@ targets:
       #   private_key_path: /etc/github-activity-exporter/key.pem
       #   private_key_env: GITHUB_APP_KEY   # base64-encoded PEM, instead of the path
     orgs:                         # at least one org or repo is required
-      - org: my-org
+      - org: my-org               # organization or user account
         include_repos: []
         exclude_repos: []
         include_archived: false
@@ -132,6 +132,16 @@ targets:
 ```
 
 Quote logins that contain brackets in flow lists: `authors: ["renovate[bot]"]`. Unquoted, YAML reads `[bot]` as a nested list.
+
+`orgs:` accepts organizations and user accounts; the exporter looks up the account type once per process. Which repos of a user account are discovered depends on the auth:
+
+| Auth                                | Repos discovered         |
+| ----------------------------------- | ------------------------ |
+| PAT owned by that user              | public and private       |
+| PAT of another user                 | public only              |
+| GitHub App installed on the account | the installation's repos |
+
+`include_repos`, `exclude_repos` and `include_archived` apply to user accounts as to organizations. An `orgs` entry that names no existing account fails discovery with an error naming the target and the owner.
 
 ### Renovate preset
 

@@ -258,7 +258,7 @@ func buildTargetRunner(
 	}
 	tracker.CredentialChecked(t.Name)
 
-	disc := discovery.New(t, ghc.REST().Repositories, discovery.WithLogger(logger))
+	disc := discovery.New(t, ghc.REST(), discovery.WithLogger(logger))
 
 	prCfg := collector.PRCollectorConfig{LookbackDays: 30}
 	prColl, err := collector.NewPRCollector(ghc.GraphQL(), t.Filters.PRs, prCfg, otelMeter, logger)
