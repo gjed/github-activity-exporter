@@ -12,6 +12,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/otlptranslator"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
@@ -110,6 +111,11 @@ func New(ctx context.Context, s Settings) (*Telemetry, error) {
 			return nil, fmt.Errorf("telemetry: metrics: %w", err)
 		}
 		t.mp = mp
+		// Go runtime metrics (go.*) through callbacks on this provider;
+		// go.schedule.duration comes from the producer on its readers.
+		if err := runtime.Start(runtime.WithMeterProvider(mp)); err != nil {
+			return nil, errors.Join(fmt.Errorf("telemetry: runtime metrics: %w", err), t.Shutdown(ctx))
+		}
 	}
 	if t.active[SignalTraces] {
 		exp, err := newTraceExporter(ctx, s)
@@ -402,7 +408,9 @@ func newMetricExporter(ctx context.Context, s Settings) (sdkmetric.Exporter, err
 // newMeterProvider builds the self-telemetry MeterProvider: a periodic OTLP
 // reader (OTEL_METRIC_EXPORT_INTERVAL, default 60s) and, when the bridge is
 // on, a Prometheus reader on the bridge's registry. The product reader already
-// exposes target_info for the shared resource, so this one does not.
+// exposes target_info for the shared resource, so this one does not. Both
+// readers carry the Go runtime producer, the only source of
+// go.schedule.duration.
 func newMeterProvider(ctx context.Context, s Settings) (*sdkmetric.MeterProvider, error) {
 	exp, err := newMetricExporter(ctx, s)
 	if err != nil {
@@ -410,13 +418,14 @@ func newMeterProvider(ctx context.Context, s Settings) (*sdkmetric.MeterProvider
 	}
 	opts := []sdkmetric.Option{
 		sdkmetric.WithResource(s.Resource),
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exp)),
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exp, sdkmetric.WithProducer(runtime.NewProducer()))),
 	}
 	if s.PrometheusRegisterer != nil {
 		prom, err := promexporter.New(
 			promexporter.WithRegisterer(s.PrometheusRegisterer),
 			promexporter.WithTranslationStrategy(otlptranslator.NoTranslation),
 			promexporter.WithoutTargetInfo(),
+			promexporter.WithProducer(runtime.NewProducer()),
 		)
 		if err != nil {
 			return nil, errors.Join(fmt.Errorf("prometheus reader: %w", err), exp.Shutdown(ctx))
