@@ -268,7 +268,7 @@ metrics:
     brief: Set to 1 when the Renovate dependency dashboard cannot be parsed, 0 on success.
     note: >
       Emitted per repo. A value of 1 indicates the dashboard issue was found
-      but its body carries none of the markers Renovate always writes (the
+      but its body carries none of the Renovate dashboard markers (the
       default header, the "no open or pending branches" notice, the Detected
       Dependencies heading, or a branch checkbox) — likely not a Renovate
       dashboard or a format change. A dashboard with nothing queued reports 0.

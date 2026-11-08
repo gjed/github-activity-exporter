@@ -21,11 +21,11 @@ var dashboardSectionRE = regexp.MustCompile(
 	`(?m)^## (Awaiting Schedule|Rate-Limited|Pending Approval|Open)\s*$`,
 )
 
-// dashboardMarkerRE matches text that Renovate always writes into a Dependency
-// Dashboard regardless of user configuration (see
-// lib/workers/repository/dependency-dashboard.ts in renovatebot/renovate 44.222.4):
-// the default dependencyDashboardHeader, the no-branches notice, the Detected
-// Dependencies heading, or a branch checkbox comment.
+// dashboardMarkerRE matches text Renovate writes into a Dependency Dashboard
+// (see lib/workers/repository/dependency-dashboard.ts in renovatebot/renovate
+// 44.222.4): the default dependencyDashboardHeader, which users can override,
+// and three markers a custom header does not remove: the no-branches notice,
+// the Detected Dependencies heading, and a branch checkbox comment.
 var dashboardMarkerRE = regexp.MustCompile(
 	`This issue lists Renovate updates|This repository currently has no open or pending branches\.|(?m:^## Detected Dependencies\s*$)|<!-- [a-zA-Z]+-branch=\S+ -->`,
 )
