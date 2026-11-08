@@ -211,12 +211,12 @@ telemetry:
   logs:
     enabled: true
   profiles:
-    enabled: true
+    enabled: false      # profiles are opt-in, see "Profiles"
 ```
 
-A signal is active only when `telemetry.enabled` and its own `enabled` are both true, `OTEL_SDK_DISABLED` is not `true`, and, for traces, metrics and logs, `OTEL_<SIGNAL>_EXPORTER` is not `none`. Environment variables can turn a signal off, never on. Every key can be overridden with `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_ENABLED` and `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_<SIGNAL>_ENABLED`; a value that is not a boolean is a startup error. The startup log lists the active signals that have a provider under `self_telemetry`; profiles join the list with [#77](https://github.com/gjed/github-activity-exporter/issues/77).
+A signal is active only when `telemetry.enabled` and its own `enabled` are both true, `OTEL_SDK_DISABLED` is not `true`, and, for traces, metrics and logs, `OTEL_<SIGNAL>_EXPORTER` is not `none`. Environment variables can turn a signal off, never on. Every key can be overridden with `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_ENABLED` and `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_<SIGNAL>_ENABLED`; a value that is not a boolean is a startup error. The startup log lists the active signals under `self_telemetry`.
 
-Metrics are described in [Self-telemetry metrics](#self-telemetry-metrics). The other signals come in [#75](https://github.com/gjed/github-activity-exporter/issues/75) (traces), [#76](https://github.com/gjed/github-activity-exporter/issues/76) (OTLP logs) and [#77](https://github.com/gjed/github-activity-exporter/issues/77) (profiles).
+Metrics are described in [Self-telemetry metrics](#self-telemetry-metrics) and profiles in [Profiles](#profiles). The other signals come in [#75](https://github.com/gjed/github-activity-exporter/issues/75) (traces) and [#76](https://github.com/gjed/github-activity-exporter/issues/76) (OTLP logs).
 
 Self-telemetry runs on its own OTel SDK providers. No `telemetry` key and no `OTEL_*` variable other than `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` changes what the GitHub metrics export, where, how or when: their OTLP push is configured by `export.otlp` only. The `github_exporter.*` metrics (`scrape.duration`, `api.errors`, `otlp.errors`, `api.rate_limit.*`) belong to the GitHub metrics and are always on; the dashboard needs them. When the Prometheus bridge is enabled, self-telemetry metrics are also served on `/metrics`.
 
@@ -255,6 +255,57 @@ The GitHub metrics and the self-telemetry metrics share one resource but are pus
 
 - Prometheus: `storage.tsdb.out_of_order_time_window` (for example `10m`).
 - Mimir and Grafana Cloud Metrics: the per-tenant limit `out_of_order_time_window` (`-ingester.out-of-order-time-window`).
+
+### Profiles
+
+The OTel profiles signal is alpha and the OTel Go SDK has no profiles API, so the exporter does not produce OTLP profiles itself. It pushes Go pprof profiles of its own process to the [`pprof` receiver](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/pprofreceiver) of an OpenTelemetry Collector, which converts them to OTLP profiles. Profiles are off by default:
+
+```yaml
+telemetry:
+  enabled: true
+  profiles:
+    enabled: true
+    endpoint: http://otel-collector.monitoring.svc:4040  # pprof receiver, server mode
+    interval: 60s        # CPU profile window and push period
+    mutex_fraction: 0    # runtime.SetMutexProfileFraction; 0 is off
+    block_rate: 0        # runtime.SetBlockProfileRate in nanoseconds; 0 is off
+```
+
+Every `interval` the exporter posts, to `<endpoint>/v1/pprof`, a CPU profile of that interval, then the heap profile (in use and allocated since start) and the goroutine profile. With `mutex_fraction` or `block_rate` above 0 it also sets that runtime rate and posts the mutex or block profile; both add overhead to every contended lock or blocking call, so leave them at 0 unless you are chasing contention. CPU profiling samples at 100 Hz for as long as profiles are on. On shutdown it posts the CPU profile of the last, partial interval.
+
+A missing or invalid `endpoint`, `interval`, `mutex_fraction` or `block_rate` does not stop the exporter: it logs an error naming the key and runs with profiles off. A failed push is logged as an error and the next interval pushes again. The push has no authentication: run the Collector next to the exporter, in the same cluster, and send on from there. There is no `/debug/pprof/` endpoint.
+
+A Collector that receives the profiles, names them and forwards them as OTLP, tested with `otel/opentelemetry-collector-contrib:0.165.0`. The `pprof` receiver is only in the contrib distribution. pprof carries no resource attributes, so the `resource` processor sets `service.name`:
+
+```yaml
+receivers:
+  pprof:
+    server:
+      endpoint: 0.0.0.0:4040
+processors:
+  resource:
+    attributes:
+      - key: service.name
+        value: github-activity-exporter
+        action: upsert
+exporters:
+  debug:
+    verbosity: basic
+  otlp_grpc:
+    endpoint: profiles-backend:4317   # for example Pyroscope; must accept OTLP profiles
+    tls:
+      insecure: true
+service:
+  pipelines:
+    profiles:
+      receivers: [pprof]
+      processors: [resource]
+      exporters: [otlp_grpc, debug]
+```
+
+Start the Collector with `--feature-gates=+service.profilesSupport`. The `debug` exporter logs `"resource profiles": 1, "sample records": N` for each profile received.
+
+To get OTLP profiles without the exporter's help, run the [OpenTelemetry eBPF profiler](https://github.com/open-telemetry/opentelemetry-ebpf-profiler) (`otelcol-ebpf-profiler`) as a DaemonSet: it profiles every process on the node from outside, needs privileged access to the node, and reads Go pprof labels. The pprof push is replaced by an in-process OTLP profiles exporter once the OTel Go SDK ships a stable profiles API and the backends accept that OTLP profiles version; the `telemetry.profiles` toggle stays.
 
 ## Metrics
 
