@@ -59,8 +59,8 @@ Each entry of `secret.env` SHALL become a container env var read from the given 
 
 #### Scenario: OTLP headers from the Secret
 
-- **WHEN** `secret.env` maps `OTEL_EXPORTER_OTLP_HEADERS` to a key holding `authorization=Bearer x`
-- **THEN** the exporter sends that header on OTLP requests, given that `export.otlp.headers` is not set in the config
+- **WHEN** `secret.env` maps `OTLP_HEADERS` to a key holding `authorization=Bearer x` and the config sets `export.otlp.headers_env: OTLP_HEADERS`
+- **THEN** the exporter sends `authorization: Bearer x` on product OTLP requests
 
 #### Scenario: GitHub App key as a file
 
@@ -135,3 +135,12 @@ When `dashboard.enabled` is true the chart SHALL create a ConfigMap labelled `gr
 
 - **WHEN** `dashboard.enabled` is true
 - **THEN** the ConfigMap data `github-activity.json` equals `dashboards/github-activity.json` at the chart's version
+
+### Requirement: Secret env before extra env
+
+The container env list SHALL hold every `secret.env` var before any `env` entry, so an `env` value can reference a Secret-backed var with Kubernetes `$(VAR)` expansion.
+
+#### Scenario: Bearer header from a raw token
+
+- **WHEN** `secret.env` maps `OTLP_TOKEN` to a key holding the raw token, `env` holds `OTLP_HEADERS` with value `authorization=Bearer $(OTLP_TOKEN)`, and the config sets `export.otlp.headers_env: OTLP_HEADERS`
+- **THEN** `OTLP_TOKEN` precedes `OTLP_HEADERS` in the rendered container env and the exporter sends `authorization: Bearer <token>`
