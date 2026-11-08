@@ -33,7 +33,7 @@
 
 ## 7. Validation
 
-- [ ] 7.1 `go build ./... && go test ./... && make check-schema && make generate` with no unexpected diff; integration live-checks on and off; dashboard e2e
+- [x] 7.1 `go build ./... && go test ./... && make check-schema && make generate` with no unexpected diff; integration live-checks on and off; dashboard e2e
 
 ## Workflow follow-up
 
