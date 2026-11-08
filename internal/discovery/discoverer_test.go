@@ -71,8 +71,8 @@ func serveOrgType(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// newHTTPLister returns a real go-github REST client pointed at a test server.
-func newHTTPLister(t *testing.T, serverURL string) *gogithub.Client {
+// newTestClient returns a real go-github REST client pointed at a test server.
+func newTestClient(t *testing.T, serverURL string) *gogithub.Client {
 	t.Helper()
 	c, err := gogithub.NewClient(gogithub.WithEnterpriseURLs(serverURL+"/", serverURL+"/"))
 	if err != nil {
@@ -148,7 +148,7 @@ func TestDiscoverer_Autodiscovery_basic(t *testing.T) {
 		Orgs: []config.OrgConfig{{Org: "myorg"}},
 	}
 
-	d := discovery.New(target, newHTTPLister(t, srv.URL))
+	d := discovery.New(target, newTestClient(t, srv.URL))
 	repos, err := d.Repos(context.Background())
 	if err != nil {
 		t.Fatalf("Repos(): %v", err)
@@ -180,7 +180,7 @@ func TestDiscoverer_IncludeFilter(t *testing.T) {
 		}},
 	}
 
-	d := discovery.New(target, newHTTPLister(t, srv.URL))
+	d := discovery.New(target, newTestClient(t, srv.URL))
 	repos, err := d.Repos(context.Background())
 	if err != nil {
 		t.Fatalf("Repos(): %v", err)
@@ -212,7 +212,7 @@ func TestDiscoverer_ExcludeFilter(t *testing.T) {
 		}},
 	}
 
-	d := discovery.New(target, newHTTPLister(t, srv.URL))
+	d := discovery.New(target, newTestClient(t, srv.URL))
 	repos, err := d.Repos(context.Background())
 	if err != nil {
 		t.Fatalf("Repos(): %v", err)
@@ -246,7 +246,7 @@ func TestDiscoverer_IncludeAndExclude(t *testing.T) {
 		}},
 	}
 
-	d := discovery.New(target, newHTTPLister(t, srv.URL))
+	d := discovery.New(target, newTestClient(t, srv.URL))
 	repos, err := d.Repos(context.Background())
 	if err != nil {
 		t.Fatalf("Repos(): %v", err)
@@ -303,7 +303,7 @@ func TestDiscoverer_MultiOrg_Dedup(t *testing.T) {
 		},
 	}
 
-	d := discovery.New(target, newHTTPLister(t, srv.URL))
+	d := discovery.New(target, newTestClient(t, srv.URL))
 	repos, err := d.Repos(context.Background())
 	if err != nil {
 		t.Fatalf("Repos(): %v", err)
@@ -346,7 +346,7 @@ func TestDiscoverer_ArchivedOptIn(t *testing.T) {
 		}},
 	}
 
-	d := discovery.New(target, newHTTPLister(t, srv.URL))
+	d := discovery.New(target, newTestClient(t, srv.URL))
 	repos, err := d.Repos(context.Background())
 	if err != nil {
 		t.Fatalf("Repos(): %v", err)
@@ -382,7 +382,7 @@ func TestDiscoverer_IncrementalRefresh(t *testing.T) {
 		Orgs: []config.OrgConfig{{Org: "myorg"}},
 	}
 
-	d := discovery.New(target, newHTTPLister(t, srv.URL),
+	d := discovery.New(target, newTestClient(t, srv.URL),
 		discovery.WithRefreshInterval(100*time.Millisecond),
 	)
 
