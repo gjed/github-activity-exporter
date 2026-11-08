@@ -17,7 +17,7 @@
 
 ## 4. Integration
 
-- [ ] 4.1 Run `go build ./...`, `go test ./...`, `make check-schema`, `make test-e2e`, and verify all pass
+- [x] 4.1 Run `go build ./...`, `go test ./...`, `make check-schema`, `make test-e2e`, and verify all pass
 
 ## Workflow follow-up
 
