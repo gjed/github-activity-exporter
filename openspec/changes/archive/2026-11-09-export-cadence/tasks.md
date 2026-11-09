@@ -28,7 +28,7 @@
 
 ## 5. Integration
 
-- [ ] 5.1 `go build ./...`, `go test ./...`, `make check-schema`, `make generate` with no diff, OTLP and `/metrics` live-checks, dashboard e2e (`make test-e2e`) with self-telemetry metrics on; paste output.
+- [x] 5.1 `go build ./...`, `go test ./...`, `make check-schema`, `make generate` with no diff, OTLP and `/metrics` live-checks, dashboard e2e (`make test-e2e`) with self-telemetry metrics on; paste output.
 
 ## Workflow follow-up
 

@@ -131,7 +131,7 @@ On SIGTERM or SIGINT, after the collection loops stop, the exporter SHALL flush 
 
 ### Requirement: Go runtime metrics
 
-When self-telemetry metrics are active, the exporter SHALL record the Go runtime metrics of the OTel semantic conventions on the self-telemetry MeterProvider, pushed over OTLP on the self-telemetry export interval and exposed on `/metrics` when the Prometheus bridge is enabled. When self-telemetry metrics are inactive, no `go.*` metric SHALL be exported on OTLP or exposed on `/metrics`.
+When self-telemetry metrics are active, the exporter SHALL record the Go runtime metrics of the OTel semantic conventions on the self-telemetry MeterProvider, pushed over OTLP with the other self-telemetry metrics and exposed on `/metrics` when the Prometheus bridge is enabled. When self-telemetry metrics are inactive, no `go.*` metric SHALL be exported on OTLP or exposed on `/metrics`.
 
 #### Scenario: Runtime metrics with the signal on
 
@@ -265,3 +265,32 @@ On SIGTERM or SIGINT, within the existing shutdown deadline, the exporter SHALL 
 
 - **WHEN** the profiles signal is active and the exporter receives SIGTERM halfway through an interval
 - **THEN** the CPU profile of that half interval is pushed and the process exits within the shutdown deadline
+
+### Requirement: Inherited self-telemetry metrics in the product push
+
+When self-telemetry metrics are active and neither `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` nor `OTEL_EXPORTER_OTLP_ENDPOINT` is set, they SHALL travel in the product OTLP push, every `export.interval` and after each cycle, with one resource and one `target_info`. `OTEL_METRIC_EXPORT_INTERVAL` SHALL NOT apply then. With an env endpoint they SHALL keep their own OTLP push.
+
+#### Scenario: One push, one target_info
+
+- **WHEN** self-telemetry metrics are active, no OTLP endpoint env var is set, and the exporter pushes to a stock Prometheus 3.x without an out-of-order window
+- **THEN** `go.*` and `http.*` metrics arrive in the same requests as the GitHub metrics, `target_info` samples have strictly increasing timestamps, and Prometheus rejects no sample as out of order
+
+#### Scenario: Runtime data points carry the push time
+
+- **WHEN** self-telemetry metrics are active and two pushes are less than 15 seconds apart
+- **THEN** `go.schedule.duration` in the second push has a later timestamp than in the first
+
+#### Scenario: Export interval variable ignored when inherited
+
+- **WHEN** self-telemetry metrics inherit `export.otlp` and `OTEL_METRIC_EXPORT_INTERVAL=5000` is set
+- **THEN** self-telemetry metrics are pushed on the `export.interval` cadence, not every 5 seconds
+
+#### Scenario: Env endpoint keeps a separate push
+
+- **WHEN** self-telemetry metrics are active and `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` is set
+- **THEN** self-telemetry metrics are pushed to that endpoint every `OTEL_METRIC_EXPORT_INTERVAL` (default 60 s), and the product push carries no `go.*` or `http.*` metric
+
+#### Scenario: Self-telemetry failure does not block the product push
+
+- **WHEN** collecting the inherited self-telemetry metrics fails
+- **THEN** the product push still carries the GitHub metrics and the error is logged

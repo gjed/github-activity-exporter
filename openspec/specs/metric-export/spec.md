@@ -8,7 +8,7 @@ Export metrics through an OTel MeterProvider with OTLP (HTTP or gRPC) as the pri
 
 ### Requirement: OTLP push as primary export
 
-The system SHALL push metrics to an OTLP-compatible endpoint after each collection cycle. OTLP is the required primary output — the exporter MUST NOT start without a configured OTLP endpoint.
+The system SHALL push metrics to an OTLP-compatible endpoint every `export.interval` and after each collection cycle. Every push SHALL carry the latest collected values of every target. OTLP is the required primary output — the exporter MUST NOT start without a configured OTLP endpoint.
 
 #### Scenario: Metrics pushed after each collection cycle
 
@@ -19,6 +19,16 @@ The system SHALL push metrics to an OTLP-compatible endpoint after each collecti
 
 - **WHEN** N targets are configured and each completes a collection cycle
 - **THEN** the exporter pushes once per completed target cycle (N pushes per interval), each push carrying the latest data of all targets
+
+#### Scenario: Periodic push between cycles
+
+- **WHEN** `collection_interval` is `15m` and `export.interval` is `60s`
+- **THEN** the exporter pushes the latest values of every series at least every 60 seconds between cycles
+
+#### Scenario: Repeated pushes do not double-count
+
+- **WHEN** a counter or histogram is recorded once and the exporter then pushes several times
+- **THEN** every push carries the same cumulative value and start time
 
 #### Scenario: Failed push does not stop collection
 
@@ -111,12 +121,12 @@ The system SHALL start a collection cycle per target every `collection_interval`
 #### Scenario: Default collection interval
 
 - **WHEN** `collection_interval` is not configured
-- **THEN** metrics are collected and pushed every 5 minutes
+- **THEN** metrics are collected every 5 minutes
 
 #### Scenario: Custom interval respected
 
 - **WHEN** `collection_interval: 15m` is set
-- **THEN** collection and OTLP push occur approximately every 15 minutes
+- **THEN** collection and its end-of-cycle OTLP push occur approximately every 15 minutes
 
 #### Scenario: Period measured from cycle start
 
@@ -142,10 +152,20 @@ The system SHALL emit metrics about its own operation using the same OTel MeterP
 - **WHEN** a collection cycle completes
 - **THEN** `github_exporter.scrape.duration` histogram is updated with the cycle duration in seconds
 
+#### Scenario: Scrape duration buckets cover long cycles
+
+- **WHEN** a collection cycle takes 1040 seconds
+- **THEN** it falls in the `1800` bucket of `github_exporter.scrape.duration`, whose explicit boundaries are `1, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600` seconds
+
 #### Scenario: API error counter incremented
 
 - **WHEN** a GitHub API call returns an error
 - **THEN** `github_exporter.api.errors` counter is incremented with `exporter.target` and `github.api.endpoint` attributes
+
+#### Scenario: API error series exported before the first error
+
+- **WHEN** a target's collection loop starts
+- **THEN** `github_exporter.api.errors` is exported with value 0 for that target and every `github.api.endpoint` value in the registry, from the first push
 
 #### Scenario: OTLP error counter incremented
 
@@ -265,3 +285,17 @@ The first time in the process an OTLP push is rejected as unauthenticated or for
 
 - **WHEN** later pushes also get 401
 - **THEN** no further auth-rejection warning is logged and each failure still increments `github_exporter.otlp.errors`
+
+### Requirement: Configurable export interval
+
+The system SHALL push metrics via OTLP every `export.interval`, independent of `collection_interval`. `export.interval` SHALL default to `60s` and MUST be positive.
+
+#### Scenario: Default export interval
+
+- **WHEN** `export.interval` is not configured
+- **THEN** the exporter pushes every 60 seconds in addition to the end-of-cycle pushes
+
+#### Scenario: Non-positive export interval is fatal
+
+- **WHEN** `export.interval` is `0s` or negative
+- **THEN** the exporter logs an error naming `export.interval` and exits with a non-zero status before collecting anything
