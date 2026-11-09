@@ -97,7 +97,25 @@ The batch function takes `(ctx, repos)` and returns per-repo results and failure
 | Total, dashboard on  |           ≥ 2,334 |         ≥ 28,008 |          ≥ 1,596 |        ≥ 19,152 |
 | Total, dashboard off |           ≥ 1,945 |         ≥ 23,340 |          ≥ 1,576 |        ≥ 18,912 |
 
-Issue and dashboard cost drops by 95%, from 9,336 to 480 points per hour. The total stays above both the 5,000 (PAT) and 12,500 (App) budgets: PR scans are 97% of what remains, so this change alone does not make 389 repos at 5m fit. The README's current "389 × 4 × 12 ≈ 18,700" counts the PR scans at 2 points in total; they cost 2 per page. The before/after run against `zextras` replaces these estimates with the measured points (summed `rateLimit.cost` and the `graphql` gauge delta) and goes in the PR description.
+Issue and dashboard cost drops by 95%, from 9,336 to 480 points per hour. The total stays above both the 5,000 (PAT) and 12,500 (App) budgets: PR scans are 97% of what remains, so this change alone does not make 389 repos at 5m fit. The README's current "389 × 4 × 12 ≈ 18,700" counts the PR scans at 2 points in total; they cost 2 per page. The before/after run against `zextras` replaces these estimates with the measured points.
+
+## Measured on zextras
+
+One collection cycle each with origin/main and this change, 389 repos, dashboard enabled, `graphql_batch_size` 20, through a counting proxy that summed `rateLimit.cost` per response (the proxy added `rateLimit` to the per-repo queries and stripped it from what the exporter saw).
+
+| Per cycle             |    Before |     After |
+| --------------------- | --------: | --------: |
+| GraphQL requests      |     1,168 |       430 |
+| GraphQL points (cost) |     1,557 |       819 |
+| PR scans (points)     | 778 (389) | 778 (389) |
+| Issue + dashboard     | 779 (779) |   41 (41) |
+| REST calls            |         8 |         8 |
+| Cycle duration        |    508.6s |    260.8s |
+| Exported series       |     2,416 |     2,416 |
+
+Points in parentheses are requests. The 41 issue and dashboard requests are 40 batches (20 per collector) and one per-repo continuation. No request failed and no GraphQL error was returned in either run. The exported series, with the `github_exporter.*` self-metrics left out and the `github.issue.age` and `github.pr.age` values ignored, are identical: `diff` exits 0.
+
+A first cycle records no PR events, so it skips the event scan. From the second cycle on, each repo adds at least one event-scan page of 2 points, the same before and after: at least 2,335 points per cycle before and 1,597 after, so at least 28,020 and 19,164 points per hour at 5m, as estimated above. The `graphql` remaining values GitHub reported during the runs were not monotonic, so they cannot measure one cycle; the summed cost is the measure.
 
 ## Follow-up: PR scans
 
