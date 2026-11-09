@@ -341,7 +341,7 @@ func TestDashboardCollector_WrongBotAuthor_Skipped(t *testing.T) {
 
 // collectDashboard runs the dashboard collector once and returns the emitted
 // queue per section and the failed repos.
-func collectDashboard(t *testing.T, gql collector.GraphQLClient, botLogin string) (map[string]int64, []string) {
+func collectDashboard(t *testing.T, gql collector.BatchGraphQLClient, botLogin string) (map[string]int64, []string) {
 	t.Helper()
 	mp, reader := newTestMeterProvider()
 	meter := mp.Meter("test")

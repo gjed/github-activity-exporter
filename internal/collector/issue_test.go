@@ -40,7 +40,7 @@ type issueSnapshot struct {
 }
 
 // collectIssues runs the issue collector once against gql and returns its output.
-func collectIssues(t *testing.T, gql collector.GraphQLClient, filters config.IssueFilters) issueSnapshot {
+func collectIssues(t *testing.T, gql collector.BatchGraphQLClient, filters config.IssueFilters) issueSnapshot {
 	t.Helper()
 	mp, reader := newTestMeterProvider()
 	meter := mp.Meter("test")
@@ -278,11 +278,16 @@ func TestIssueAndDashboard_GraphQLPool(t *testing.T) {
 		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10))
 		w.Header().Set("Content-Type", "application/json")
 		page := `"pageInfo":{"hasNextPage":false,"endCursor":"x"}`
+		// A batched query aliases the repo r0; a per-repo query does not.
+		key := "repository"
+		if strings.Contains(req.Query, "r0: repository(owner: $o0, name: $n0)") {
+			key = "r0"
+		}
 		switch {
 		case strings.Contains(req.Query, "filterBy"):
-			_, _ = fmt.Fprintf(w, `{"data":{"repository":{"issues":{"nodes":[{"title":"Dependency Dashboard","body":%q,"author":{"__typename":"Bot","login":"renovate"}}],%s}}}}`, typicalDashboard, page)
+			_, _ = fmt.Fprintf(w, `{"data":{%q:{"issues":{"nodes":[{"title":"Dependency Dashboard","body":%q,"author":{"__typename":"Bot","login":"renovate"}}],%s}}}}`, key, typicalDashboard, page)
 		case strings.Contains(req.Query, "oldest:"):
-			_, _ = fmt.Fprintf(w, `{"data":{"repository":{"open":{"totalCount":2},"closed":{"totalCount":1},"oldest":{"nodes":[{"createdAt":"2026-01-01T00:00:00Z"}]},"labels":{"nodes":[{"name":"bug","issues":{"totalCount":2}}],%s}}}}`, page)
+			_, _ = fmt.Fprintf(w, `{"data":{%q:{"open":{"totalCount":2},"closed":{"totalCount":1},"oldest":{"nodes":[{"createdAt":"2026-01-01T00:00:00Z"}]},"labels":{"nodes":[{"name":"bug","issues":{"totalCount":2}}],%s}}}}`, key, page)
 		default:
 			_, _ = fmt.Fprintf(w, `{"data":{"repository":{"issues":{"nodes":[{"state":"OPEN","title":"bug","createdAt":"2026-01-01T00:00:00Z","labels":{"nodes":[{"name":"bug"}]}}],%s}}}}`, page)
 		}
@@ -302,15 +307,15 @@ func TestIssueAndDashboard_GraphQLPool(t *testing.T) {
 		t.Fatalf("NewClient: %v", err)
 	}
 
-	counted := collectIssues(t, ghc.GraphQL(), config.IssueFilters{})
+	counted := collectIssues(t, ghc, config.IssueFilters{})
 	if want := map[string]int64{"state=open": 2, "state=closed": 1, "label=bug": 2}; !maps.Equal(counted.counts, want) {
 		t.Errorf("counted: counts = %v, want %v", counted.counts, want)
 	}
-	listed := collectIssues(t, ghc.GraphQL(), config.IssueFilters{ExcludeTitleRegexps: []*regexp.Regexp{regexp.MustCompile(`^never$`)}})
+	listed := collectIssues(t, ghc, config.IssueFilters{ExcludeTitleRegexps: []*regexp.Regexp{regexp.MustCompile(`^never$`)}})
 	if want := map[string]int64{"state=open": 1, "label=bug": 1}; !maps.Equal(listed.counts, want) {
 		t.Errorf("listed: counts = %v, want %v", listed.counts, want)
 	}
-	if queue, failed := collectDashboard(t, ghc.GraphQL(), "renovate[bot]"); len(queue) == 0 || len(failed) != 0 {
+	if queue, failed := collectDashboard(t, ghc, "renovate[bot]"); len(queue) == 0 || len(failed) != 0 {
 		t.Errorf("dashboard: queue = %v, failed = %v, want found", queue, failed)
 	}
 

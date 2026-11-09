@@ -287,16 +287,17 @@ func buildTargetRunner(
 	}
 
 	issColl, err := collector.NewIssueCollector(
-		ghc.GraphQL(),
+		ghc,
 		t.Filters.Issues,
 		otelMeter,
 		logger,
+		collector.WithGraphQLBatchSize(t.BatchSize()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build issue collector: %w", err)
 	}
 
-	dashColl, err := newDashboardCollector(t, ghc.GraphQL(), otelMeter, logger)
+	dashColl, err := newDashboardCollector(t, ghc, otelMeter, logger)
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard collector: %w", err)
 	}
@@ -324,7 +325,7 @@ func buildTargetRunner(
 // collector.
 func newDashboardCollector(
 	t config.Target,
-	gql collector.GraphQLClient,
+	gql collector.BatchGraphQLClient,
 	meter metric.Meter,
 	logger *slog.Logger,
 ) (*collector.DashboardCollector, error) {
@@ -336,6 +337,7 @@ func newDashboardCollector(
 		envOr("RENOVATE_BOT_LOGIN", "renovate[bot]"),
 		meter,
 		logger,
+		collector.WithGraphQLBatchSize(t.BatchSize()),
 	)
 }
 

@@ -2,8 +2,10 @@ package collector
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -18,24 +20,34 @@ import (
 	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
-// issueCountQuery reads a repo's issue counts without listing issues: the
+// issueCountRepo is a repo's issue counts without listing issues: the
 // per-state totals, the oldest open issue and one page of labels, each with
 // the number of issues carrying it. $states is nullable: nil means every state.
+type issueCountRepo struct {
+	Open   struct{ TotalCount int64 } `graphql:"open: issues(states: OPEN)"`
+	Closed struct{ TotalCount int64 } `graphql:"closed: issues(states: CLOSED)"`
+	Oldest struct {
+		Nodes []struct{ CreatedAt time.Time }
+	} `graphql:"oldest: issues(first: 1, states: OPEN, orderBy: {field: CREATED_AT, direction: ASC})"`
+	Labels struct {
+		Nodes []struct {
+			Name   string
+			Issues struct{ TotalCount int64 } `graphql:"issues(states: $states)"`
+		}
+		PageInfo pageInfo
+	} `graphql:"labels(first: 100, after: $cursor)"`
+}
+
+// issueCountQuery reads one repo's issueCountRepo.
 type issueCountQuery struct {
-	Repository struct {
-		Open   struct{ TotalCount int64 } `graphql:"open: issues(states: OPEN)"`
-		Closed struct{ TotalCount int64 } `graphql:"closed: issues(states: CLOSED)"`
-		Oldest struct {
-			Nodes []struct{ CreatedAt time.Time }
-		} `graphql:"oldest: issues(first: 1, states: OPEN, orderBy: {field: CREATED_AT, direction: ASC})"`
-		Labels struct {
-			Nodes []struct {
-				Name   string
-				Issues struct{ TotalCount int64 } `graphql:"issues(states: $states)"`
-			}
-			PageInfo pageInfo
-		} `graphql:"labels(first: 100, after: $cursor)"`
-	} `graphql:"repository(owner: $owner, name: $name)"`
+	Repository issueCountRepo `graphql:"repository(owner: $owner, name: $name)"`
+}
+
+// issueCountBatch reads issueCountRepo for each repo of a batch, with the
+// variables of issueCountQuery except owner and name.
+var issueCountBatch = repoBatchQuery{
+	selection: selectionOf(reflect.TypeFor[issueCountRepo]()),
+	varDecls:  "$states: [IssueState!], $cursor: String",
 }
 
 // issueListQuery pages a repo's issues for the title filter. GitHub caps an
@@ -65,9 +77,10 @@ type pageInfo struct {
 // IssueCollector reads GitHub issues via GraphQL, which unlike the REST
 // issues list never returns pull requests, and records OTel metrics.
 type IssueCollector struct {
-	gql    GraphQLClient
-	filter *filter.IssueFilter
-	logger *slog.Logger
+	gql       BatchGraphQLClient
+	filter    *filter.IssueFilter
+	logger    *slog.Logger
+	batchSize int
 
 	// states is the GraphQL $states variable for filters.issues.states:
 	// nil when unset (every state), empty when no valid state is listed.
@@ -114,10 +127,11 @@ func (c *IssueCollection) FailedRepos() []string { return c.failed }
 
 // NewIssueCollector creates an IssueCollector that records metrics on the given meter.
 func NewIssueCollector(
-	gql GraphQLClient,
+	gql BatchGraphQLClient,
 	filterCfg config.IssueFilters,
 	meter metric.Meter,
 	logger *slog.Logger,
+	opts ...BatchOption,
 ) (*IssueCollector, error) {
 	if logger == nil {
 		logger = slog.Default()
@@ -127,6 +141,7 @@ func NewIssueCollector(
 		gql:        gql,
 		filter:     filter.NewIssueFilter(filterCfg),
 		logger:     logger,
+		batchSize:  batchSize(opts),
 		states:     issueStates(filterCfg.States),
 		listIssues: len(filterCfg.ExcludeTitleRegexps) > 0,
 	}
@@ -153,11 +168,11 @@ func NewIssueCollector(
 }
 
 // Collect fetches issues for all repos and returns an IssueCollection.
+// Issue counts are read graphql_batch_size repos per request; the title
+// filter listing pages each repo on its own.
 func (c *IssueCollector) Collect(ctx context.Context, target string, repos []discovery.Repo) (*IssueCollection, error) {
 	coll := &IssueCollection{}
-
-	for _, repo := range repos {
-		stats, err := c.collectRepo(ctx, target, repo)
+	add := func(repo discovery.Repo, stats issueStats, err error) {
 		if err != nil {
 			c.logger.Error("issue collection failed for repo",
 				"target", target,
@@ -165,7 +180,7 @@ func (c *IssueCollector) Collect(ctx context.Context, target string, repos []dis
 				"err", err,
 			)
 			coll.failed = append(coll.failed, repo.FullName)
-			continue
+			return
 		}
 		coll.results = append(coll.results, IssueCollectResult{
 			target: target,
@@ -175,7 +190,61 @@ func (c *IssueCollector) Collect(ctx context.Context, target string, repos []dis
 		})
 	}
 
+	if c.listIssues || (c.states != nil && len(*c.states) == 0) {
+		for _, repo := range repos {
+			stats, err := c.collectRepo(ctx, target, repo)
+			add(repo, stats, err)
+		}
+		return coll, nil
+	}
+
+	for _, batch := range batches(repos, c.batchSize) {
+		stats, errs := c.countBatch(ctx, batch)
+		for i, repo := range batch {
+			add(repo, stats[i], errs[i])
+		}
+	}
 	return coll, nil
+}
+
+// countBatch reads the issue counts of repos with one batched query. A repo
+// GitHub answered with an error fails; a repo with more label pages continues
+// with per-repo queries; a repo without a usable batched result is counted
+// with per-repo queries from the start. It reads only fields set at
+// construction, so batches can run concurrently.
+func (c *IssueCollector) countBatch(ctx context.Context, repos []discovery.Repo) ([]issueStats, []error) {
+	stats := make([]issueStats, len(repos))
+	errs := make([]error, len(repos))
+	q := issueCountBatch
+	q.vars = map[string]any{"states": c.states, "cursor": nil}
+	out := runRepoBatch(ctx, c.gql, q, repos)
+
+	for i, repo := range repos {
+		stats[i] = newIssueStats()
+		switch {
+		case out.failed[i] != nil:
+			errs[i] = fmt.Errorf("graphql issue count query for %s: %w", repo.FullName, out.failed[i])
+		case out.retry[i]:
+			errs[i] = c.countRepo(ctx, repo, &stats[i], nil)
+		default:
+			var r issueCountRepo
+			if err := json.Unmarshal(out.data[i], &r); err != nil {
+				errs[i] = fmt.Errorf("decoding issue counts of %s: %w", repo.FullName, err)
+				continue
+			}
+			if cursor := c.applyCount(&stats[i], &r, true); cursor != nil {
+				errs[i] = c.countRepo(ctx, repo, &stats[i], cursor)
+			}
+		}
+	}
+	return stats, errs
+}
+
+func newIssueStats() issueStats {
+	return issueStats{
+		countByState: make(map[string]int64),
+		countByLabel: make(map[string]int64),
+	}
 }
 
 // issueStates maps filters.issues.states to the GraphQL $states variable.
@@ -199,10 +268,7 @@ func (c *IssueCollector) stateAllowed(st githubv4.IssueState) bool {
 
 // collectRepo computes the issue stats of a single repo.
 func (c *IssueCollector) collectRepo(ctx context.Context, _ string, repo discovery.Repo) (issueStats, error) {
-	stats := issueStats{
-		countByState: make(map[string]int64),
-		countByLabel: make(map[string]int64),
-	}
+	stats := newIssueStats()
 	if c.states != nil && len(*c.states) == 0 {
 		// No configured state is a valid issue state: nothing passes.
 		return stats, nil
@@ -210,45 +276,51 @@ func (c *IssueCollector) collectRepo(ctx context.Context, _ string, repo discove
 	if c.listIssues {
 		return stats, c.listRepo(ctx, repo, &stats)
 	}
-	return stats, c.countRepo(ctx, repo, &stats)
+	return stats, c.countRepo(ctx, repo, &stats, nil)
 }
 
-// countRepo fills stats from GraphQL totalCounts. Only valid without title
-// patterns, which totalCount cannot apply. A state or label with no issue is
-// left out, as when issues are listed.
-func (c *IssueCollector) countRepo(ctx context.Context, repo discovery.Repo, stats *issueStats) error {
-	var cursor *githubv4.String
+// countRepo fills stats from GraphQL totalCounts, starting at the label page
+// after cursor, or at the first page with the state totals when cursor is nil.
+// Only valid without title patterns, which totalCount cannot apply.
+func (c *IssueCollector) countRepo(ctx context.Context, repo discovery.Repo, stats *issueStats, cursor *githubv4.String) error {
 	for {
 		var q issueCountQuery
 		if err := c.gql.Query(ctx, &q, c.vars(repo, cursor)); err != nil {
 			return fmt.Errorf("graphql issue count query for %s: %w", repo.FullName, err)
 		}
-		r := &q.Repository
-
-		if cursor == nil {
-			if n := r.Open.TotalCount; n > 0 && c.stateAllowed(githubv4.IssueStateOpen) {
-				stats.countByState["open"] = n
-				if len(r.Oldest.Nodes) > 0 {
-					stats.oldestOpenAge = time.Since(r.Oldest.Nodes[0].CreatedAt).Seconds()
-				}
-			}
-			if n := r.Closed.TotalCount; n > 0 && c.stateAllowed(githubv4.IssueStateClosed) {
-				stats.countByState["closed"] = n
-			}
-		}
-
-		for _, l := range r.Labels.Nodes {
-			if l.Issues.TotalCount > 0 {
-				stats.countByLabel[l.Name] = l.Issues.TotalCount
-			}
-		}
-
-		if !r.Labels.PageInfo.HasNextPage {
+		if cursor = c.applyCount(stats, &q.Repository, cursor == nil); cursor == nil {
 			return nil
 		}
-		end := r.Labels.PageInfo.EndCursor
-		cursor = &end
 	}
+}
+
+// applyCount adds one page of r to stats, with the state totals and oldest
+// issue when first, and returns the cursor of the next label page, nil on the
+// last. A state or label with no issue is left out, as when issues are listed.
+func (c *IssueCollector) applyCount(stats *issueStats, r *issueCountRepo, first bool) *githubv4.String {
+	if first {
+		if n := r.Open.TotalCount; n > 0 && c.stateAllowed(githubv4.IssueStateOpen) {
+			stats.countByState["open"] = n
+			if len(r.Oldest.Nodes) > 0 {
+				stats.oldestOpenAge = time.Since(r.Oldest.Nodes[0].CreatedAt).Seconds()
+			}
+		}
+		if n := r.Closed.TotalCount; n > 0 && c.stateAllowed(githubv4.IssueStateClosed) {
+			stats.countByState["closed"] = n
+		}
+	}
+
+	for _, l := range r.Labels.Nodes {
+		if l.Issues.TotalCount > 0 {
+			stats.countByLabel[l.Name] = l.Issues.TotalCount
+		}
+	}
+
+	if !r.Labels.PageInfo.HasNextPage {
+		return nil
+	}
+	end := r.Labels.PageInfo.EndCursor
+	return &end
 }
 
 // listRepo pages the repo's issues and fills stats from those passing the
