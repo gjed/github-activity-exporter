@@ -22,8 +22,8 @@ func TestNew_DefaultsProtocol(t *testing.T) {
 	// Use a non-existent endpoint; we only test the Provider is created, not
 	// that export succeeds.
 	cfg := exporter.Config{
-		OTLPEndpoint:       "http://localhost:14318", // won't be dialled at startup
-		CollectionInterval: 10 * time.Minute,         // long so no push happens in test
+		OTLPEndpoint:   "http://localhost:14318", // won't be dialled at startup
+		ExportInterval: 10 * time.Minute,         // long so no push happens in test
 	}
 	p, err := exporter.New(context.Background(), cfg, nil)
 	if err != nil {
@@ -42,8 +42,8 @@ func TestNew_DefaultsProtocol(t *testing.T) {
 
 func TestNew_SetsGlobalMeterProvider(t *testing.T) {
 	cfg := exporter.Config{
-		OTLPEndpoint:       "http://localhost:14318",
-		CollectionInterval: 10 * time.Minute,
+		OTLPEndpoint:   "http://localhost:14318",
+		ExportInterval: 10 * time.Minute,
 	}
 	p, err := exporter.New(context.Background(), cfg, nil)
 	if err != nil {
@@ -65,10 +65,10 @@ func TestNew_SetsGlobalMeterProvider(t *testing.T) {
 func TestNew_PrometheusEnabled(t *testing.T) {
 	const addr = "127.0.0.1:19091"
 	cfg := exporter.Config{
-		OTLPEndpoint:       "http://localhost:14318",
-		CollectionInterval: 10 * time.Minute,
-		PrometheusEnabled:  true,
-		PrometheusAddr:     addr,
+		OTLPEndpoint:      "http://localhost:14318",
+		ExportInterval:    10 * time.Minute,
+		PrometheusEnabled: true,
+		PrometheusAddr:    addr,
 	}
 	p, err := exporter.New(context.Background(), cfg, nil)
 	if err != nil {
@@ -95,10 +95,10 @@ func TestNew_PrometheusEnabled(t *testing.T) {
 
 func TestNew_GRPCProtocol(t *testing.T) {
 	cfg := exporter.Config{
-		OTLPEndpoint:       "localhost:14317",
-		Protocol:           exporter.ProtocolGRPC,
-		CollectionInterval: 10 * time.Minute,
-		TLSInsecure:        true,
+		OTLPEndpoint:   "localhost:14317",
+		Protocol:       exporter.ProtocolGRPC,
+		ExportInterval: 10 * time.Minute,
+		TLSInsecure:    true,
 	}
 	p, err := exporter.New(context.Background(), cfg, nil)
 	if err != nil {
@@ -117,8 +117,8 @@ func TestNew_GRPCProtocol(t *testing.T) {
 
 func TestSelfMetrics_RecordScrapeDuration(t *testing.T) {
 	cfg := exporter.Config{
-		OTLPEndpoint:       "http://localhost:14318",
-		CollectionInterval: 10 * time.Minute,
+		OTLPEndpoint:   "http://localhost:14318",
+		ExportInterval: 10 * time.Minute,
 	}
 	p, err := exporter.New(context.Background(), cfg, nil)
 	if err != nil {

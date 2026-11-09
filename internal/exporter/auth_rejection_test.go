@@ -54,7 +54,7 @@ func pushTwiceRejected(t *testing.T, cfg exporter.Config) (string, int64) {
 	var logs syncBuffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	cfg.Headers = map[string]string{"authorization": "Bearer " + authSecret}
-	cfg.CollectionInterval = time.Hour
+	cfg.ExportInterval = time.Hour
 	p, err := exporter.New(context.Background(), cfg, logger)
 	if err != nil {
 		t.Fatalf("New: %v", err)

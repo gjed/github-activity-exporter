@@ -59,8 +59,11 @@ type Signal struct {
 
 // Export holds the metric export settings.
 type Export struct {
-	OTLP       OTLP       `mapstructure:"otlp"`
-	Prometheus Prometheus `mapstructure:"prometheus"`
+	// Interval is the period of the OTLP push, independent of
+	// CollectionInterval: every push re-sends the latest values. Default 60s.
+	Interval   time.Duration `mapstructure:"interval"`
+	OTLP       OTLP          `mapstructure:"otlp"`
+	Prometheus Prometheus    `mapstructure:"prometheus"`
 }
 
 // OTLP holds the OTLP push settings. Endpoint is required.
@@ -235,6 +238,7 @@ func Load(path string) (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	v.SetDefault("collection_interval", "5m")
+	v.SetDefault("export.interval", "60s")
 	v.SetDefault("export.otlp.protocol", "http")
 	v.SetDefault("export.prometheus.listen_address", ":9090")
 	v.SetDefault("health.listen_address", ":10062")
@@ -452,6 +456,9 @@ func validateExport(cfg *Config) error {
 	}
 	if cfg.CollectionInterval <= 0 {
 		return fmt.Errorf("collection_interval must be positive, got %s", cfg.CollectionInterval)
+	}
+	if cfg.Export.Interval <= 0 {
+		return fmt.Errorf("export.interval must be positive, got %s", cfg.Export.Interval)
 	}
 	return nil
 }

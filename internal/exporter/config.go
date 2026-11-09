@@ -32,9 +32,10 @@ type Config struct {
 	// TLSInsecure disables TLS certificate verification. Do not use in production.
 	TLSInsecure bool
 
-	// CollectionInterval is how often metrics are pushed via OTLP.
-	// Defaults to 5 minutes.
-	CollectionInterval time.Duration
+	// ExportInterval is how often metrics are pushed via OTLP, on top of the
+	// per-cycle ForceFlush. Every push re-sends the latest values.
+	// Defaults to 60 seconds.
+	ExportInterval time.Duration
 
 	// PrometheusEnabled enables the optional /metrics Prometheus bridge.
 	PrometheusEnabled bool
@@ -60,8 +61,8 @@ func (c *Config) defaults() {
 	if c.Protocol == "" {
 		c.Protocol = ProtocolHTTP
 	}
-	if c.CollectionInterval == 0 {
-		c.CollectionInterval = 5 * time.Minute
+	if c.ExportInterval == 0 {
+		c.ExportInterval = time.Minute
 	}
 	if c.PrometheusAddr == "" {
 		c.PrometheusAddr = ":9090"

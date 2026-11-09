@@ -3,6 +3,23 @@
 {{- if not $dashboard }}
 {{- fail "dashboards/github-activity.json is missing from the chart" }}
 {{- end }}
+{{- with .Values.dashboard.minStep }}
+{{- $minStep := toString . }}
+{{- $parsed := $dashboard | fromJson }}
+{{- $found := false }}
+{{- range $parsed.templating.list }}
+{{- if eq .name "min_step" }}
+{{- $_ := set . "query" $minStep }}
+{{- $_ := set . "current" (dict "text" $minStep "value" $minStep) }}
+{{- $_ := set . "options" (list (dict "selected" true "text" $minStep "value" $minStep)) }}
+{{- $found = true }}
+{{- end }}
+{{- end }}
+{{- if not $found }}
+{{- fail "dashboards/github-activity.json has no min_step variable" }}
+{{- end }}
+{{- $dashboard = toJson $parsed }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

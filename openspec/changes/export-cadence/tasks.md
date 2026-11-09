@@ -2,13 +2,13 @@
 
 ## 1. Export cadence (#89)
 
-- [ ] 1.1 Add `export.interval` to `internal/config` (default `60s`, fatal when not positive, error names the key); verify with config unit tests for default, override and `0s`/negative.
-- [ ] 1.2 Rename `exporter.Config.CollectionInterval` to `ExportInterval`, feed it to the product `PeriodicReader`, pass `cfg.CollectionInterval` to the runners in `main.go`; verify `go build ./...` and the existing exporter tests.
-- [ ] 1.3 Unit test: one counter `Add` and one histogram `Record`, then several periodic pushes and flushes into an in-memory exporter, assert the same cumulative sum, count and start time on every push and that pushes happen on `ExportInterval` without a flush.
-- [ ] 1.4 Dashboard template: `min_step` constant variable (default `2m`), every panel `"interval": "$min_step"`, comments updated (gauge `last_over_time` rationale now `export.interval`); run `make generate` and verify the dashboard and chart copy diff only in those fields.
-- [ ] 1.5 Chart: `dashboard.minStep` in `values.yaml` and `templates/dashboard.yaml`, chart README; verify `helm template` with and without the value (byte-for-byte when empty, only `min_step` changed when set).
-- [ ] 1.6 README: `export.interval` in the config reference and example, push cadence explanation, dashboard `$min_step`; run markdown lint on the changed files.
-- [ ] 1.7 e2e: `collection_interval: 15m`, short `export.interval` scaled from the default, `$min_step` read from the dashboard and checked against 2 × default `export.interval`; a range query of every `rate()` panel over the run has a value at every step; `github_exporter.scrape.duration_count` stays 1 across pushes.
+- [x] 1.1 Add `export.interval` to `internal/config` (default `60s`, fatal when not positive, error names the key); verify with config unit tests for default, override and `0s`/negative.
+- [x] 1.2 Rename `exporter.Config.CollectionInterval` to `ExportInterval`, feed it to the product `PeriodicReader`, pass `cfg.CollectionInterval` to the runners in `main.go`; verify `go build ./...` and the existing exporter tests.
+- [x] 1.3 Unit test: one counter `Add` and one histogram `Record`, then several periodic pushes and flushes into an in-memory exporter, assert the same cumulative sum, count and start time on every push and that pushes happen on `ExportInterval` without a flush.
+- [x] 1.4 Dashboard template: `min_step` constant variable (default `10m`), every panel `"interval": "$min_step"`, comments updated (gauge `last_over_time` rationale now `export.interval`); run `make generate` and verify the dashboard and chart copy diff only in those fields.
+- [x] 1.5 Chart: `dashboard.minStep` in `values.yaml` and `templates/dashboard.yaml`, chart README; verify `helm template` with and without the value (byte-for-byte when empty, only `min_step` changed when set).
+- [x] 1.6 README: `export.interval` in the config reference and example, push cadence explanation, dashboard `$min_step`; run markdown lint on the changed files.
+- [x] 1.7 e2e: every interval scaled by one factor; `$min_step` read from the dashboard and checked against 2 × default `export.interval` and 2 × default `collection_interval`; with `collection_interval: 15m` scaled, a range query of every `rate()` panel has a value at every step, and `github_exporter.scrape.duration_count` changes once per cycle, not once per push.
 
 ## 2. One target_info writer (#99)
 

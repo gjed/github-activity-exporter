@@ -30,7 +30,12 @@ No lower bound beyond `> 0`: a sub-second interval is the operator's choice. SIM
 
 ### D2. Dashboard `$min_step`
 
-A Grafana `constant` variable `min_step`, default `2m`, referenced as `"interval": "$min_step"` by every panel. `2m` = 2 × default `export.interval`: Grafana's `$__rate_interval` = max(`$__interval` + scrape, 4 × scrape) = 2m15s with the default 15 s data source scrape interval, so every `rate()` window holds at least two pushes. The template cannot read the runtime config, so the relation is written in the template comment and enforced by the e2e: it reads the variable's default, fails if it is below 2 × the default `export.interval`, and scales the window to the e2e's `export.interval`.
+A Grafana `constant` variable `min_step`, default `10m`, referenced as `"interval": "$min_step"` by every panel. Grafana's `$__rate_interval` = max(`$__interval` + scrape, 4 × scrape), so with the default 15 s data source scrape interval the window is 10m15s. Two lower bounds apply:
+
+- 2 × `export.interval`: the window holds two pushes, so `rate()` and `last_over_time()` panels have a value whatever `collection_interval` is.
+- 2 × `collection_interval`: the window holds a cycle, so `histogram_quantile(rate(_bucket))` panels have a new observation. Histograms only grow once per cycle; a window without one gives NaN.
+
+An earlier draft used `2m` (2 × default `export.interval` only). The e2e showed the histogram panels NaN most of the time at the default `collection_interval` of 5m, so the default stays `10m`, the larger bound for the defaults. The template cannot read the runtime config, so the bounds are written in the template comment and enforced by the e2e: it reads the variable's default, fails if it is below either bound for the defaults, and scales the window by the same factor as both intervals.
 
 Constant over custom/textbox: constants are not shown on the dashboard, change only in the dashboard settings or through provisioning, and are what the chart can set. Chart: `dashboard.minStep` (empty by default). When set, the template parses the generated JSON, sets the `min_step` variable's `query` and `current`, and re-serialises; when empty the ConfigMap stays byte for byte the generated file.
 

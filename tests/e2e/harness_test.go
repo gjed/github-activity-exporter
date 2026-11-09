@@ -110,12 +110,13 @@ func startOTLPProxy(t *testing.T, promURL string) string {
 }
 
 // startExporter builds the exporter binary and runs it with a temp config that
-// uses apiURL (the mock REST root, .../api/v3) and pushes OTLP to otlpURL. Its output goes
-// to the test log. Self-telemetry metrics are on and go straight to
-// Prometheus at selfOTLPURL, every testCollectionInterval: through the proxy
+// uses apiURL (the mock REST root, .../api/v3), collects every
+// collectionInterval and pushes OTLP to otlpURL every testExportInterval. Its
+// output goes to the test log. Self-telemetry metrics are on and go straight
+// to Prometheus at selfOTLPURL, every testExportInterval: through the proxy
 // they could take the rejected first push meant for github_exporter.otlp.errors.
 // The returned channel closes once the process has exited.
-func startExporter(t *testing.T, apiURL, otlpURL, selfOTLPURL string) <-chan struct{} {
+func startExporter(t *testing.T, apiURL, otlpURL, selfOTLPURL string, collectionInterval time.Duration) <-chan struct{} {
 	t.Helper()
 	root := repoRoot()
 	bin := filepath.Join(t.TempDir(), "github-activity-exporter")
@@ -128,6 +129,7 @@ func startExporter(t *testing.T, apiURL, otlpURL, selfOTLPURL string) <-chan str
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := fmt.Sprintf(`collection_interval: %s
 export:
+  interval: %s
   otlp:
     endpoint: %s
     protocol: http
@@ -152,7 +154,7 @@ targets:
       - org: acme
     renovate_dashboard:
       enabled: true
-`, testCollectionInterval, otlpURL, freePort(t), apiURL)
+`, collectionInterval, testExportInterval, otlpURL, freePort(t), apiURL)
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +164,7 @@ targets:
 		"CONFIG_FILE="+cfgPath,
 		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT="+selfOTLPURL,
 		"OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/protobuf",
-		fmt.Sprintf("OTEL_METRIC_EXPORT_INTERVAL=%d", testCollectionInterval.Milliseconds()),
+		fmt.Sprintf("OTEL_METRIC_EXPORT_INTERVAL=%d", testExportInterval.Milliseconds()),
 		// go.memory.limit is reported only under a memory limit.
 		"GOMEMLIMIT=512MiB",
 	)

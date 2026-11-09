@@ -4,7 +4,7 @@
 // Architecture:
 //
 //	MeterProvider
-//	├── PeriodicReader (interval: CollectionInterval)
+//	├── PeriodicReader (interval: ExportInterval)  ← plus a flush per cycle
 //	│   └── OTLP Exporter (HTTP or gRPC)  ← primary (required)
 //	└── ManualReader
 //	    └── Prometheus Bridge Exporter    ← secondary (opt-in)
@@ -83,7 +83,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Provider, error
 
 	periodicReader := metric.NewPeriodicReader(
 		otlpExp,
-		metric.WithInterval(cfg.CollectionInterval),
+		metric.WithInterval(cfg.ExportInterval),
 		// Pinned: OTEL_METRIC_EXPORT_TIMEOUT must not reach the product pipeline.
 		metric.WithTimeout(exportTimeout),
 	)

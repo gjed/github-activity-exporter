@@ -1,0 +1,10 @@
+export:
+  interval: -1m
+  otlp:
+    endpoint: http://localhost:4318
+targets:
+  - name: myorg
+    auth:
+      token: ghp_testtoken123
+    orgs:
+      - org: myorg

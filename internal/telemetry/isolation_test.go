@@ -71,12 +71,12 @@ func TestProductMetricsIsolation(t *testing.T) {
 				otlp := config.OTLP{Endpoint: rcv.URL + "/v1/metrics", Protocol: "http"}
 
 				p, err := exporter.New(ctx, exporter.Config{
-					OTLPEndpoint:       otlp.Endpoint,
-					CollectionInterval: time.Hour,
-					PrometheusEnabled:  true,
-					PrometheusAddr:     "127.0.0.1:0",
-					Resource:           resource.Empty(),
-					Version:            "1.2.3",
+					OTLPEndpoint:      otlp.Endpoint,
+					ExportInterval:    time.Hour,
+					PrometheusEnabled: true,
+					PrometheusAddr:    "127.0.0.1:0",
+					Resource:          resource.Empty(),
+					Version:           "1.2.3",
 				}, nil)
 				if err != nil {
 					t.Fatalf("exporter.New: %v", err)

@@ -19,11 +19,16 @@ import (
 )
 
 const (
-	// defaultCollectionInterval is the exporter's default collection_interval
-	// (internal/config), the push cadence the dashboard is sized for.
+	// timeScale maps production durations to e2e durations: every interval
+	// and window of the e2e is the production one divided by timeScale.
+	timeScale = 60
+	// defaultExportInterval and defaultCollectionInterval are the exporter's
+	// defaults (internal/config), the cadence the dashboard is sized for.
+	defaultExportInterval     = time.Minute
 	defaultCollectionInterval = 5 * time.Minute
-	// testCollectionInterval is the collection_interval the e2e runs with.
-	testCollectionInterval = 5 * time.Second
+	// testExportInterval and testCollectionInterval are the defaults scaled.
+	testExportInterval     = defaultExportInterval / timeScale
+	testCollectionInterval = defaultCollectionInterval / timeScale
 	// grafanaScrapeInterval is the Grafana Prometheus data source's default
 	// scrape interval, an input of $__rate_interval.
 	grafanaScrapeInterval = 15 * time.Second
@@ -44,6 +49,7 @@ type dashVariable struct {
 	Name       string `json:"name"`
 	Type       string `json:"type"`
 	Definition string `json:"definition"`
+	Query      any    `json:"query"`
 }
 
 type dashPanel struct {
@@ -72,24 +78,32 @@ var (
 
 // rateInterval returns the window Grafana gives $__rate_interval for a panel
 // with the given Min interval, max($__interval + scrape, 4 × scrape) with
-// $__interval at its floor, scaled from the default collection_interval to
-// the e2e's. The e2e window then holds as many pushes as a production one.
-// It fails unless the Min interval spans two default collection intervals.
-func rateInterval(minInterval string) (string, error) {
+// $__interval at its floor, scaled by timeScale. The e2e window then holds as
+// many pushes and cycles as a production one. It fails unless the Min
+// interval spans two default export intervals (two pushes, for rate()) and
+// two default collection intervals (a cycle, for histogram_quantile()).
+func rateInterval(minInterval string) (time.Duration, error) {
 	d, err := time.ParseDuration(minInterval)
 	if err != nil {
-		return "", fmt.Errorf("panel Min interval %q: %v", minInterval, err)
+		return 0, fmt.Errorf("panel Min interval %q: %v", minInterval, err)
+	}
+	if d < 2*defaultExportInterval {
+		return 0, fmt.Errorf("panel Min interval %s is shorter than 2 × export.interval (%s): rate() gets fewer than 2 samples", d, defaultExportInterval)
 	}
 	if d < 2*defaultCollectionInterval {
-		return "", fmt.Errorf("panel Min interval %s is shorter than 2 × collection_interval (%s): rate() gets fewer than 2 samples", d, defaultCollectionInterval)
+		return 0, fmt.Errorf("panel Min interval %s is shorter than 2 × collection_interval (%s): histogram_quantile() gets windows without a cycle", d, defaultCollectionInterval)
 	}
-	prod := max(d+grafanaScrapeInterval, 4*grafanaScrapeInterval)
-	return fmt.Sprintf("%dms", (prod / (defaultCollectionInterval / testCollectionInterval)).Milliseconds()), nil
+	return max(d+grafanaScrapeInterval, 4*grafanaScrapeInterval) / timeScale, nil
 }
 
-// runDashboardQueries runs every panel target of dashboards/github-activity.json
-// against Prometheus, after resolving the dashboard variables.
-func runDashboardQueries(t *testing.T, promURL string) {
+// promDuration formats d for PromQL, in milliseconds.
+func promDuration(d time.Duration) string {
+	return fmt.Sprintf("%dms", d.Milliseconds())
+}
+
+// loadDashboard reads dashboards/github-activity.json and returns it with the
+// values of its constant variables (min_step).
+func loadDashboard(t *testing.T) (dashboardJSON, map[string]string) {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(repoRoot(), "dashboards", "github-activity.json"))
 	if err != nil {
@@ -99,8 +113,23 @@ func runDashboardQueries(t *testing.T, promURL string) {
 	if err := json.Unmarshal(raw, &d); err != nil {
 		t.Fatalf("parse dashboard: %v", err)
 	}
-
 	vars := make(map[string]string)
+	for _, v := range d.Templating.List {
+		if q, ok := v.Query.(string); ok && v.Type == "constant" {
+			vars[v.Name] = q
+		}
+	}
+	if vars["min_step"] == "" {
+		t.Fatal("dashboard has no min_step constant variable")
+	}
+	return d, vars
+}
+
+// runDashboardQueries runs every panel target of dashboards/github-activity.json
+// against Prometheus, after resolving the dashboard variables.
+func runDashboardQueries(t *testing.T, promURL string) {
+	t.Helper()
+	d, vars := loadDashboard(t)
 	for _, v := range d.Templating.List {
 		if v.Type != "query" {
 			continue
@@ -220,11 +249,17 @@ func checkPanelTarget(t *testing.T, promURL string, pt panelTarget, vars map[str
 			return
 		}
 	}
-	window, err := rateInterval(pt.interval)
+	minStep, err := expandVars(pt.interval, vars)
+	if err != nil {
+		t.Errorf("panel %q refId %s: Min interval: %v", pt.panel, pt.refID, err)
+		return
+	}
+	d, err := rateInterval(minStep)
 	if err != nil {
 		t.Errorf("panel %q refId %s: %v", pt.panel, pt.refID, err)
 		return
 	}
+	window := promDuration(d)
 	withTime := map[string]string{"__rate_interval": window, "__interval": window}
 	for k, v := range vars {
 		withTime[k] = v

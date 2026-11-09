@@ -96,9 +96,9 @@ func TestProductPushIgnoresOTLPEnv_HTTP(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	p, err := exporter.New(context.Background(), exporter.Config{
-		OTLPEndpoint:       srv.URL + "/v1/metrics",
-		Headers:            nil,
-		CollectionInterval: time.Hour,
+		OTLPEndpoint:   srv.URL + "/v1/metrics",
+		Headers:        nil,
+		ExportInterval: time.Hour,
 	}, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -156,10 +156,10 @@ func TestProductPushIgnoresOTLPEnv_GRPC(t *testing.T) {
 	t.Cleanup(gs.Stop)
 
 	p, err := exporter.New(context.Background(), exporter.Config{
-		OTLPEndpoint:       lis.Addr().String(),
-		Protocol:           exporter.ProtocolGRPC,
-		TLSInsecure:        true,
-		CollectionInterval: time.Hour,
+		OTLPEndpoint:   lis.Addr().String(),
+		Protocol:       exporter.ProtocolGRPC,
+		TLSInsecure:    true,
+		ExportInterval: time.Hour,
 	}, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)

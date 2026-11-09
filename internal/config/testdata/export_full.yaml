@@ -1,5 +1,6 @@
 collection_interval: 15m
 export:
+  interval: 30s
   otlp:
     endpoint: otel-collector:4317
     protocol: grpc
