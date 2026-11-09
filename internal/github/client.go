@@ -1,9 +1,12 @@
 package github
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -79,6 +82,11 @@ type Client struct {
 
 	// GraphQL client
 	graphql *githubv4.Client
+
+	// httpClient sends every request, REST and GraphQL, through the auth and
+	// rate limit transports; gqlURL is the GraphQL endpoint QueryRaw posts to.
+	httpClient *http.Client
+	gqlURL     string
 
 	// Rate limit state, keyed by pool.
 	mu      sync.Mutex
@@ -173,6 +181,8 @@ func NewClient(auth Authenticator, opts ...ClientOption) (*Client, error) {
 	c.rest = rest
 	gqlURL := graphqlURL(c.baseURL)
 	c.graphql = githubv4.NewEnterpriseClient(gqlURL, httpClient)
+	c.httpClient = httpClient
+	c.gqlURL = gqlURL
 
 	restU, err := url.Parse(c.baseURL)
 	if err != nil {
@@ -203,6 +213,77 @@ func (c *Client) REST() *github.Client { return c.rest }
 
 // GraphQL returns the underlying githubv4 GraphQL client.
 func (c *Client) GraphQL() *githubv4.Client { return c.graphql }
+
+// Query runs a typed GraphQL query; see githubv4.Client.Query.
+func (c *Client) Query(ctx context.Context, q interface{}, variables map[string]interface{}) error {
+	return c.graphql.Query(ctx, q, variables)
+}
+
+// GraphQLError is one entry of a GraphQL response's errors. Path starts with
+// the top-level field or alias the error belongs to; it is empty for an error
+// about the whole request.
+type GraphQLError struct {
+	Message string `json:"message"`
+	Type    string `json:"type"`
+	Path    []any  `json:"path"`
+}
+
+// RawResponse is an undecoded GraphQL response: data per top-level field or
+// alias (JSON null for a field that failed) and the errors, which may come
+// with partial data.
+type RawResponse struct {
+	Data   map[string]json.RawMessage `json:"data"`
+	Errors []GraphQLError             `json:"errors"`
+}
+
+// graphqlRateLimit is the rateLimit field of a GraphQL response.
+type graphqlRateLimit struct {
+	Cost      int       `json:"cost"`
+	Remaining int       `json:"remaining"`
+	ResetAt   time.Time `json:"resetAt"`
+}
+
+// QueryRaw posts query with variables to the GraphQL endpoint through the
+// same transports as Query, and returns the response without decoding it into
+// a struct, so the caller sees which alias each error belongs to. A non-200
+// status or an undecodable body is an error; GraphQL errors are not. When the
+// data holds a rateLimit field, its remaining and resetAt are recorded as the
+// graphql pool state and its cost is logged at debug level.
+func (c *Client) QueryRaw(ctx context.Context, query string, variables map[string]any) (*RawResponse, error) {
+	body, err := json.Marshal(struct {
+		Query     string         `json:"query"`
+		Variables map[string]any `json:"variables,omitempty"`
+	}{query, variables})
+	if err != nil {
+		return nil, fmt.Errorf("encoding graphql request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.gqlURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("graphql: non-200 OK status code: %v body: %q", resp.Status, b)
+	}
+	var out RawResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decoding graphql response: %w", err)
+	}
+	if raw, ok := out.Data["rateLimit"]; ok {
+		var rl *graphqlRateLimit
+		if err := json.Unmarshal(raw, &rl); err == nil && rl != nil {
+			c.updateRateLimit(sc.AttrGitHubApiRateLimitResourceGraphQL, rl.Remaining, rl.ResetAt)
+			c.logger.Debug("graphql query cost", "cost", rl.Cost, "remaining", rl.Remaining)
+		}
+	}
+	return &out, nil
+}
 
 // RateLimitState returns a snapshot of the rate limit state of a pool
 // (e.g. "core", "graphql"). It is the zero value, with Resource set, until a
