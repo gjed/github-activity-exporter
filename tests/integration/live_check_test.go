@@ -225,9 +225,9 @@ func runLiveCheck(t *testing.T, emit func(*testing.T, *exporter.Provider)) (stri
 }
 
 // runLiveCheckWithSelfTelemetry is runLiveCheck that also runs self before
-// stopping live-check. self gets the receiver address (OTLP/gRPC, plaintext)
-// and must have flushed everything it sends when it returns.
-func runLiveCheckWithSelfTelemetry(t *testing.T, emit func(*testing.T, *exporter.Provider), self func(t *testing.T, addr string)) (string, error) {
+// the product flush. self gets the receiver address (OTLP/gRPC, plaintext)
+// and the product provider, whose push carries what self attaches to it.
+func runLiveCheckWithSelfTelemetry(t *testing.T, emit func(*testing.T, *exporter.Provider), self func(t *testing.T, addr string, p *exporter.Provider)) (string, error) {
 	t.Helper()
 	runner := requireWeaverRunner(t)
 
@@ -266,6 +266,9 @@ func runLiveCheckWithSelfTelemetry(t *testing.T, emit func(*testing.T, *exporter
 	}
 
 	emit(t, p)
+	if self != nil {
+		self(t, addr, p)
+	}
 
 	// ForceFlush pushes pending metric data immediately rather than waiting
 	// for the next PeriodicReader cycle.
@@ -277,10 +280,6 @@ func runLiveCheckWithSelfTelemetry(t *testing.T, emit func(*testing.T, *exporter
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	_ = p.Shutdown(shutdownCtx)
-
-	if self != nil {
-		self(t, addr)
-	}
 
 	// Ask live-check to stop and render its report now that all telemetry
 	// has been delivered.

@@ -5,6 +5,7 @@
 //
 //	MeterProvider
 //	├── PeriodicReader (interval: ExportInterval)  ← plus a flush per cycle
+//	│   ├── attached Producer (self-telemetry metrics inheriting export.otlp)
 //	│   └── OTLP Exporter (HTTP or gRPC)  ← primary (required)
 //	└── ManualReader
 //	    └── Prometheus Bridge Exporter    ← secondary (opt-in)
@@ -23,6 +24,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/otlptranslator"
@@ -32,6 +34,7 @@ import (
 	promexporter "go.opentelemetry.io/otel/exporters/prometheus"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/encoding"
@@ -46,6 +49,7 @@ import (
 // Prometheus HTTP server.
 type Provider struct {
 	mp         *metric.MeterProvider
+	attached   *attachedProducer
 	promReg    *prometheus.Registry
 	promServer *http.Server
 	logger     *slog.Logger
@@ -73,7 +77,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Provider, error
 		}
 	}
 
-	p := &Provider{logger: logger, version: cfg.Version}
+	p := &Provider{logger: logger, version: cfg.Version, attached: &attachedProducer{}}
 
 	// ── Primary: OTLP exporter + PeriodicReader ──────────────────────────────
 	otlpExp, err := p.newOTLPExporter(ctx, cfg)
@@ -86,6 +90,7 @@ func New(ctx context.Context, cfg Config, logger *slog.Logger) (*Provider, error
 		metric.WithInterval(cfg.ExportInterval),
 		// Pinned: OTEL_METRIC_EXPORT_TIMEOUT must not reach the product pipeline.
 		metric.WithTimeout(exportTimeout),
+		metric.WithProducer(p.attached),
 	)
 
 	opts := []metric.Option{
@@ -142,6 +147,33 @@ func (p *Provider) PrometheusRegisterer() prometheus.Registerer {
 		return nil
 	}
 	return p.promReg
+}
+
+// AttachProducer adds the metrics of producer to every OTLP push, under the
+// product resource. It is set once, after New, because the self-telemetry
+// providers are built after the product one; a later call is ignored.
+func (p *Provider) AttachProducer(producer metric.Producer) {
+	p.attached.p.CompareAndSwap(nil, &producer)
+}
+
+// attachedProducer is the product reader's producer slot. Its errors are
+// logged, not returned: the SDK drops the whole push when a producer fails,
+// and attached metrics must not hold back the GitHub metrics.
+type attachedProducer struct {
+	p atomic.Pointer[metric.Producer]
+}
+
+func (a *attachedProducer) Produce(ctx context.Context) ([]metricdata.ScopeMetrics, error) {
+	p := a.p.Load()
+	if p == nil {
+		return nil, nil
+	}
+	sm, err := (*p).Produce(ctx)
+	if err != nil {
+		otel.Handle(fmt.Errorf("attached metrics producer: %w", err))
+		return nil, nil
+	}
+	return sm, nil
 }
 
 // ForceFlush triggers an immediate export of all pending metrics. Each Runner

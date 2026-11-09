@@ -119,6 +119,11 @@ func main() {
 		logger.Error("failed to initialise self-telemetry", "err", err)
 		os.Exit(1)
 	}
+	// Self-telemetry metrics inheriting export.otlp ride in the product push:
+	// one writer for the shared resource's target_info.
+	if p := tel.Producer(); p != nil {
+		provider.AttachProducer(p)
+	}
 
 	// Every product instrument, self-metrics included, comes from one meter
 	// with the exporter's instrumentation scope. Each Runner records scrape

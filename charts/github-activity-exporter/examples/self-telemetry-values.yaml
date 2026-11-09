@@ -1,7 +1,6 @@
 # One org with a PAT, plus self-telemetry metrics: Go runtime and GitHub API
-# HTTP client metrics, pushed to export.otlp every 60s
-# (OTEL_METRIC_EXPORT_INTERVAL). The other self-telemetry signals stay off.
-# The OTLP backend needs out-of-order ingestion (README, Self-telemetry metrics).
+# HTTP client metrics, pushed with the GitHub metrics to export.otlp every
+# export.interval. The other self-telemetry signals stay off.
 #
 #   kubectl create secret generic github-activity-exporter \
 #     --from-literal=github-token="$GITHUB_TOKEN"

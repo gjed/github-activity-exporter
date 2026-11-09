@@ -63,6 +63,8 @@ The e2e runs Prometheus with the stock config (only `otlp.translation_strategy: 
 
 If all three hold, the README requirement and the e2e window go. If not, both stay and the README states the measured cause.
 
+Measured result: with one writer alone, a stock Prometheus still rejected most pushes with `out of order sample`. The pushes carried `go.schedule.duration` from the contrib runtime producer with the time of its last runtime read, which it repeats for up to its default 15 s minimum read interval; Prometheus writes a resource's `target_info` at the oldest data point time of the push, so each push's `target_info` landed behind the previous one. The self-telemetry runtime producers now read on every `Produce` (`WithMinimumReadMemStatsInterval(time.Nanosecond)`; one `runtime/metrics` histogram read per push). With that, all three checks hold: strictly increasing `target_info` timestamps, 0 out-of-order samples, `otlp.errors` 1. The README requirement and the e2e window are dropped.
+
 ### D5. Scrape duration buckets
 
 `1, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600` s. Small orgs finish in seconds (1–30 s); the reported 389-repo org takes ~1040 s (600–1800 s range resolves it); a cycle that waits out a GitHub primary rate limit window can last up to the 1 h window (1800, 3600). Sub-second buckets go: the panel sizes `collection_interval`, which is set in minutes, and any faster cycle lands in the 1 s bucket. 11 finite buckets against 9 before: two more series per target.

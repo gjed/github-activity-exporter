@@ -30,6 +30,11 @@ When self-telemetry metrics are active and neither `OTEL_EXPORTER_OTLP_METRICS_E
 - **WHEN** self-telemetry metrics are active, no OTLP endpoint env var is set, and the exporter pushes to a stock Prometheus 3.x without an out-of-order window
 - **THEN** `go.*` and `http.*` metrics arrive in the same requests as the GitHub metrics, `target_info` samples have strictly increasing timestamps, and Prometheus rejects no sample as out of order
 
+#### Scenario: Runtime data points carry the push time
+
+- **WHEN** self-telemetry metrics are active and two pushes are less than 15 seconds apart
+- **THEN** `go.schedule.duration` in the second push has a later timestamp than in the first
+
 #### Scenario: Export interval variable ignored when inherited
 
 - **WHEN** self-telemetry metrics inherit `export.otlp` and `OTEL_METRIC_EXPORT_INTERVAL=5000` is set
