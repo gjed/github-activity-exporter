@@ -177,10 +177,10 @@ func scrapeSelfTelemetry(t *testing.T, active bool) map[string]*dto.MetricFamily
 	t.Helper()
 	addr := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	p, err := exporter.New(context.Background(), exporter.Config{
-		OTLPEndpoint:       "http://127.0.0.1:1", // unreachable: the 1h interval never fires
-		CollectionInterval: time.Hour,
-		PrometheusEnabled:  true,
-		PrometheusAddr:     addr,
+		OTLPEndpoint:      "http://127.0.0.1:1", // unreachable: the 1h interval never fires
+		ExportInterval:    time.Hour,
+		PrometheusEnabled: true,
+		PrometheusAddr:    addr,
 	}, nil)
 	if err != nil {
 		t.Fatalf("exporter.New: %v", err)

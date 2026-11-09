@@ -39,6 +39,9 @@ func TestLoad(t *testing.T) {
 				if cfg.CollectionInterval != 5*time.Minute {
 					t.Errorf("expected collection_interval 5m, got %s", cfg.CollectionInterval)
 				}
+				if cfg.Export.Interval != time.Minute {
+					t.Errorf("expected export.interval 60s, got %s", cfg.Export.Interval)
+				}
 				otlp := cfg.Export.OTLP
 				if otlp.Endpoint != "http://localhost:4318" {
 					t.Errorf("expected endpoint http://localhost:4318, got %q", otlp.Endpoint)
@@ -107,6 +110,9 @@ func TestLoad(t *testing.T) {
 				t.Helper()
 				if cfg.CollectionInterval != 15*time.Minute {
 					t.Errorf("expected collection_interval 15m, got %s", cfg.CollectionInterval)
+				}
+				if cfg.Export.Interval != 30*time.Second {
+					t.Errorf("expected export.interval 30s, got %s", cfg.Export.Interval)
 				}
 				otlp := cfg.Export.OTLP
 				if otlp.Endpoint != "otel-collector:4317" || otlp.Protocol != "grpc" || !otlp.TLS.Insecure {
@@ -216,6 +222,18 @@ func TestLoad(t *testing.T) {
 			name:    "non-positive collection interval is fatal",
 			file:    "testdata/bad_interval.yaml",
 			wantErr: true,
+		},
+		{
+			name:        "zero export interval is fatal",
+			file:        "testdata/bad_export_interval_zero.yaml",
+			wantErr:     true,
+			errContains: "export.interval must be positive",
+		},
+		{
+			name:        "negative export interval is fatal",
+			file:        "testdata/bad_export_interval_negative.yaml",
+			wantErr:     true,
+			errContains: "export.interval must be positive",
 		},
 		{
 			name:    "pat token from env var",

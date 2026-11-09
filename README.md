@@ -83,6 +83,7 @@ The path is read from `CONFIG_FILE`. It defaults to `config.yaml` in the working
 ```yaml
 collection_interval: 5m           # period between collection cycle starts, see "Collection schedule"
 export:
+  interval: 60s                 # OTLP push period, independent of collection_interval; see "Collection schedule"
   otlp:
     endpoint: https://otlp.example.com:4318  # required; http: full URL, grpc: host:port without scheme
     protocol: http                # http or grpc
@@ -149,6 +150,8 @@ Quote logins that contain brackets in flow lists: `authors: ["renovate[bot]"]`. 
 ### Collection schedule
 
 Each target starts a collection cycle every `collection_interval`, measured from the start of its previous cycle, and pushes the cycle's metrics when the cycle ends. A cycle that runs longer than `collection_interval` is an overrun: the exporter logs a warning, increments `github_exporter.scrape.overruns` and starts the next cycle as soon as the late one finishes. Cycles of one target never overlap, and missed periods are not caught up. Steady overruns mean the configured freshness is out of reach; raise `collection_interval`.
+
+Between cycles the exporter also pushes every `export.interval` (default `60s`, must be positive), whatever `collection_interval` is. Each push carries the latest values of every series, so series stay continuous with a `collection_interval` of 15m or more. Counters and histograms are pushed with cumulative temporality: a push repeats the running total and never adds to it.
 
 ### Renovate preset
 
@@ -382,7 +385,7 @@ With any other setting the backend stores escaped or suffixed names (for example
 
 ## Grafana dashboard
 
-`dashboards/github-activity.json` is generated from the registry by `make generate` ([#19](https://github.com/gjed/github-activity-exporter/issues/19)). Every query uses the name and type each metric declares in `annotations.prometheus`, in UTF-8 PromQL syntax (`{"github.pr.count", job=~"$job"}`): counters through `rate`, histograms through `histogram_quantile` over `_bucket`, gauges through `last_over_time`. Every panel has a Min interval of 10m, twice the default `collection_interval`, so each window holds at least two pushes; raise it in the template for a longer `collection_interval`. It needs the backend settings from [Metric naming](#metric-naming).
+`dashboards/github-activity.json` is generated from the registry by `make generate` ([#19](https://github.com/gjed/github-activity-exporter/issues/19)). Every query uses the name and type each metric declares in `annotations.prometheus`, in UTF-8 PromQL syntax (`{"github.pr.count", job=~"$job"}`): counters through `rate`, histograms through `histogram_quantile` over `_bucket`, gauges through `last_over_time`. Every panel's Min interval is the hidden constant variable `$min_step`, default `10m`. It must be at least twice `export.interval`, so each window holds two pushes, and twice `collection_interval`, so each window holds a cycle: `histogram_quantile` panels need a new observation in the window, `rate` and `last_over_time` panels only the pushes. The default fits the defaults (60s and 5m). With a longer interval, raise `$min_step` in the dashboard settings or with the chart's `dashboard.minStep`. It needs the backend settings from [Metric naming](#metric-naming).
 
 Variables: data source, `job` (the exporter's `service.name`, `github-activity-exporter`, optionally prefixed with `service.namespace/`), `exporter.target`, `github.org` and `github.repo`. The Dependency Dashboard row shows no data unless a target enables `renovate_dashboard`. The Exporter internals row (Go memory, heap allocation rate, goroutines, GitHub API latency p50 and p90 by `url.template` and status) shows no data unless [self-telemetry metrics](#self-telemetry-metrics) are active.
 

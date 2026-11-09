@@ -11,5 +11,5 @@ When `dashboard.enabled` is true the chart SHALL create a ConfigMap labelled `gr
 
 #### Scenario: Min step override
 
-- **WHEN** `dashboard.enabled` is true and `dashboard.minStep` is `5m`
-- **THEN** the dashboard in the ConfigMap has `min_step` defaulting to `5m` and is otherwise the same JSON document as `dashboards/github-activity.json`
+- **WHEN** `dashboard.enabled` is true and `dashboard.minStep` is `30m`
+- **THEN** the dashboard in the ConfigMap has `min_step` defaulting to `30m` and is otherwise the same JSON document as `dashboards/github-activity.json`

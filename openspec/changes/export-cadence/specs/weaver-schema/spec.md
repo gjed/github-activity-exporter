@@ -41,12 +41,12 @@ The system SHALL generate a `dashboards/github-activity.json` Grafana dashboard 
 #### Scenario: Panel Min interval from a variable
 
 - **WHEN** `make generate` renders the dashboard
-- **THEN** every panel's Min interval is `$min_step`, a constant variable whose default spans at least two default `export.interval` pushes
+- **THEN** every panel's Min interval is `$min_step`, a constant variable whose default is at least twice the default `export.interval` and twice the default `collection_interval`
 
 #### Scenario: Continuous panels with a long collection interval
 
 - **WHEN** the exporter runs with `collection_interval: 15m` and the default `export.interval`
-- **THEN** every `rate()` panel has a value at every step of the dashboard's default Min interval
+- **THEN** every `rate()` panel has a value at every step of the dashboard's default Min interval, though that interval is shorter than `collection_interval`
 
 #### Scenario: Panel references an unknown metric
 

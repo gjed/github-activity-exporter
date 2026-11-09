@@ -255,10 +255,10 @@ func runLiveCheckWithSelfTelemetry(t *testing.T, emit func(*testing.T, *exporter
 	}
 
 	cfg := exporter.Config{
-		OTLPEndpoint:       addr,
-		Protocol:           exporter.ProtocolGRPC,
-		TLSInsecure:        true,      // plaintext gRPC to the local receiver
-		CollectionInterval: time.Hour, // export only via ForceFlush
+		OTLPEndpoint:   addr,
+		Protocol:       exporter.ProtocolGRPC,
+		TLSInsecure:    true,      // plaintext gRPC to the local receiver
+		ExportInterval: time.Hour, // export only via ForceFlush
 	}
 	p, err := exporter.New(context.Background(), cfg, nil)
 	if err != nil {

@@ -87,15 +87,15 @@ func main() {
 	}
 
 	exporterCfg := exporter.Config{
-		OTLPEndpoint:       cfg.Export.OTLP.Endpoint,
-		Protocol:           exporter.Protocol(cfg.Export.OTLP.Protocol),
-		Headers:            cfg.Export.OTLP.Headers,
-		TLSInsecure:        cfg.Export.OTLP.TLS.Insecure,
-		CollectionInterval: cfg.CollectionInterval,
-		PrometheusEnabled:  cfg.Export.Prometheus.Enabled,
-		PrometheusAddr:     cfg.Export.Prometheus.ListenAddress,
-		Resource:           res,
-		Version:            version,
+		OTLPEndpoint:      cfg.Export.OTLP.Endpoint,
+		Protocol:          exporter.Protocol(cfg.Export.OTLP.Protocol),
+		Headers:           cfg.Export.OTLP.Headers,
+		TLSInsecure:       cfg.Export.OTLP.TLS.Insecure,
+		ExportInterval:    cfg.Export.Interval,
+		PrometheusEnabled: cfg.Export.Prometheus.Enabled,
+		PrometheusAddr:    cfg.Export.Prometheus.ListenAddress,
+		Resource:          res,
+		Version:           version,
 	}
 
 	provider, err := exporter.New(ctx, exporterCfg, logger)
@@ -138,7 +138,7 @@ func main() {
 		httpMeterProvider = tel.MeterProvider()
 	}
 	runners, err := buildRunners(ctx, cfg, logger, meter, httpMeterProvider, selfMetrics, tracker,
-		collector.WithInterval(exporterCfg.CollectionInterval),
+		collector.WithInterval(cfg.CollectionInterval),
 		collector.WithSelfMetrics(selfMetrics),
 		collector.WithFlush(provider.ForceFlush),
 		collector.WithCycleObserver(tracker),
@@ -154,7 +154,8 @@ func main() {
 		"targets", len(cfg.Targets),
 		"otlp_endpoint", exporterCfg.OTLPEndpoint,
 		"protocol", exporterCfg.Protocol,
-		"collection_interval", exporterCfg.CollectionInterval,
+		"collection_interval", cfg.CollectionInterval,
+		"export_interval", cfg.Export.Interval,
 		"prometheus_enabled", exporterCfg.PrometheusEnabled,
 		"health_listen_address", cfg.Health.ListenAddress,
 		"self_telemetry", activeSignals(tel),
