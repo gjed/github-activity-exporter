@@ -402,6 +402,38 @@ func TestLoad(t *testing.T) {
 			errContains: `target "ghes": base_url must be an http(s) URL without query or fragment, got "https://ghes.example.com/api/v3?x=1"`,
 		},
 		{
+			name: "graphql_batch_size defaults to 20",
+			file: "testdata/pat_token.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if got := cfg.Targets[0].BatchSize(); got != 20 {
+					t.Errorf("BatchSize() = %d, want 20", got)
+				}
+			},
+		},
+		{
+			name: "graphql_batch_size bounds accepted",
+			file: "testdata/graphql_batch_size.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if a, b := cfg.Targets[0].BatchSize(), cfg.Targets[1].BatchSize(); a != 1 || b != 100 {
+					t.Errorf("BatchSize() = %d, %d, want 1, 100", a, b)
+				}
+			},
+		},
+		{
+			name:        "graphql_batch_size 0 is error",
+			file:        "testdata/graphql_batch_size_zero.yaml",
+			wantErr:     true,
+			errContains: `target "t": graphql_batch_size must be between 1 and 100, got 0`,
+		},
+		{
+			name:        "graphql_batch_size 101 is error",
+			file:        "testdata/graphql_batch_size_101.yaml",
+			wantErr:     true,
+			errContains: `target "t": graphql_batch_size must be between 1 and 100, got 101`,
+		},
+		{
 			name: "telemetry defaults",
 			file: "testdata/pat_token.yaml",
 			check: func(t *testing.T, cfg *config.Config) {

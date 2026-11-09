@@ -1,0 +1,16 @@
+export:
+  otlp:
+    endpoint: http://localhost:4318
+targets:
+  - name: one
+    graphql_batch_size: 1
+    auth:
+      token: ghp_one
+    orgs:
+      - org: one-org
+  - name: hundred
+    graphql_batch_size: 100
+    auth:
+      token: ghp_hundred
+    orgs:
+      - org: hundred-org

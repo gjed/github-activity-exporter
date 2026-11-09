@@ -108,6 +108,15 @@ type Health struct {
 // DefaultBaseURL is the GitHub REST API root used when a target sets no base_url.
 const DefaultBaseURL = "https://api.github.com"
 
+// DefaultGraphQLBatchSize is the number of repos per batched GraphQL query
+// when a target sets no graphql_batch_size, and MaxGraphQLBatchSize the
+// largest accepted value. See openspec/changes/graphql-batching/design.md for
+// how the default was measured.
+const (
+	DefaultGraphQLBatchSize = 20
+	MaxGraphQLBatchSize     = 100
+)
+
 // Target represents a single monitored GitHub target (set of orgs/repos with shared auth).
 type Target struct {
 	Name string `mapstructure:"name"`
@@ -121,6 +130,18 @@ type Target struct {
 	Filters   Filters     `mapstructure:"filters"`
 	// RenovateDashboard configures the Renovate Dependency Dashboard collector.
 	RenovateDashboard RenovateDashboard `mapstructure:"renovate_dashboard"`
+	// GraphQLBatchSize is the number of repos the issue count and Dependency
+	// Dashboard queries read per GraphQL request, 1 to MaxGraphQLBatchSize.
+	// nil means DefaultGraphQLBatchSize; see BatchSize.
+	GraphQLBatchSize *int `mapstructure:"graphql_batch_size"`
+}
+
+// BatchSize returns GraphQLBatchSize, or DefaultGraphQLBatchSize when unset.
+func (t Target) BatchSize() int {
+	if t.GraphQLBatchSize == nil {
+		return DefaultGraphQLBatchSize
+	}
+	return *t.GraphQLBatchSize
 }
 
 // RenovateDashboard holds the Renovate Dependency Dashboard collector settings.
@@ -400,6 +421,10 @@ func validate(cfg *Config) error {
 
 		if len(t.Orgs) == 0 && len(t.Repos) == 0 {
 			return fmt.Errorf("target %q: must specify at least one org or explicit repo", t.Name)
+		}
+
+		if n := t.BatchSize(); n < 1 || n > MaxGraphQLBatchSize {
+			return fmt.Errorf("target %q: graphql_batch_size must be between 1 and %d, got %d", t.Name, MaxGraphQLBatchSize, n)
 		}
 	}
 	return nil
