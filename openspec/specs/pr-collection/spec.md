@@ -183,7 +183,7 @@ The dashboard collector SHALL find a repo's Dependency Dashboard with a query fo
 #### Scenario: Repo with many open PRs
 
 - **WHEN** a repo has many open Renovate pull requests and one Dependency Dashboard issue
-- **THEN** the dashboard is found with one request
+- **THEN** the dashboard is found within the repo's batch request, with no further request for the repo
 
 #### Scenario: No dashboard issue
 
