@@ -2,8 +2,10 @@ package collector
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -57,28 +59,39 @@ type dashboardNode struct {
 	Body  string
 	// Author is nil when the author account was deleted.
 	Author *struct {
-		Typename string `graphql:"__typename"`
+		Typename string `graphql:"__typename" json:"__typename"`
 		Login    string
 	}
 }
 
-// dashboardQuery pages the open issues created by $filterBy.createdBy, which
-// takes the REST login ("renovate[bot]" for a GitHub App bot). $filterBy is
-// nullable: nil means any author.
+// dashboardRepo is one page of a repo's open issues created by
+// $filterBy.createdBy, which takes the REST login ("renovate[bot]" for a
+// GitHub App bot). $filterBy is nullable: nil means any author.
+type dashboardRepo struct {
+	Issues struct {
+		Nodes    []dashboardNode
+		PageInfo pageInfo
+	} `graphql:"issues(first: 100, states: OPEN, filterBy: $filterBy, after: $cursor)"`
+}
+
+// dashboardQuery reads one repo's dashboardRepo.
 type dashboardQuery struct {
-	Repository struct {
-		Issues struct {
-			Nodes    []dashboardNode
-			PageInfo pageInfo
-		} `graphql:"issues(first: 100, states: OPEN, filterBy: $filterBy, after: $cursor)"`
-	} `graphql:"repository(owner: $owner, name: $name)"`
+	Repository dashboardRepo `graphql:"repository(owner: $owner, name: $name)"`
+}
+
+// dashboardBatch reads dashboardRepo for each repo of a batch, with the
+// variables of dashboardQuery except owner and name.
+var dashboardBatch = repoBatchQuery{
+	selection: selectionOf(reflect.TypeFor[dashboardRepo]()),
+	varDecls:  "$filterBy: IssueFilters, $cursor: String",
 }
 
 // DashboardCollector fetches the Renovate Dependency Dashboard issue and records queue metrics.
 type DashboardCollector struct {
-	gql      GraphQLClient
-	botLogin string
-	logger   *slog.Logger
+	gql       BatchGraphQLClient
+	botLogin  string
+	logger    *slog.Logger
+	batchSize int
 
 	// OTel instruments
 	queueGauge      metric.Int64ObservableGauge
@@ -114,19 +127,21 @@ func (c *DashboardCollection) FailedRepos() []string { return c.failed }
 // NewDashboardCollector creates a DashboardCollector.
 // botLogin is the REST login of the Renovate bot account (e.g., "renovate[bot]").
 func NewDashboardCollector(
-	gql GraphQLClient,
+	gql BatchGraphQLClient,
 	botLogin string,
 	meter metric.Meter,
 	logger *slog.Logger,
+	opts ...BatchOption,
 ) (*DashboardCollector, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	c := &DashboardCollector{
-		gql:      gql,
-		botLogin: botLogin,
-		logger:   logger,
+		gql:       gql,
+		botLogin:  botLogin,
+		logger:    logger,
+		batchSize: batchSize(opts),
 	}
 
 	var err error
@@ -150,63 +165,88 @@ func NewDashboardCollector(
 	return c, nil
 }
 
-// Collect finds the Dependency Dashboard issue in each repo and records queue metrics.
+// Collect finds the Dependency Dashboard issue in each repo and records queue
+// metrics, reading graphql_batch_size repos per request.
 func (c *DashboardCollector) Collect(ctx context.Context, target string, repos []discovery.Repo) (*DashboardCollection, error) {
 	coll := &DashboardCollection{}
 
-	for _, repo := range repos {
-		stats, err := c.collectRepo(ctx, repo)
-		if err != nil {
-			c.logger.Error("dashboard collection failed",
-				"target", target,
-				"repo", repo.FullName,
-				"err", err,
-			)
-			coll.failed = append(coll.failed, repo.FullName)
-			continue
+	for _, batch := range batches(repos, c.batchSize) {
+		issues, errs := c.findBatch(ctx, batch)
+		for i, repo := range batch {
+			if errs[i] != nil {
+				c.logger.Error("dashboard collection failed",
+					"target", target,
+					"repo", repo.FullName,
+					"err", errs[i],
+				)
+				coll.failed = append(coll.failed, repo.FullName)
+				continue
+			}
+			if issues[i] == nil {
+				// No dashboard issue found in this repo — skip.
+				continue
+			}
+			coll.results = append(coll.results, DashboardCollectResult{
+				target: target,
+				org:    repo.Owner,
+				repo:   repo.Name,
+				stats:  parseDashboard(issues[i].Body),
+			})
 		}
-		if stats == nil {
-			// No dashboard issue found in this repo — skip.
-			continue
-		}
-		coll.results = append(coll.results, DashboardCollectResult{
-			target: target,
-			org:    repo.Owner,
-			repo:   repo.Name,
-			stats:  *stats,
-		})
 	}
 
 	return coll, nil
 }
 
-// collectRepo finds and parses the Dependency Dashboard issue for a single repo.
-// Returns nil stats (no error) if no dashboard issue is found.
-func (c *DashboardCollector) collectRepo(ctx context.Context, repo discovery.Repo) (*dashboardStats, error) {
-	issue, err := c.findDashboardIssue(ctx, repo)
-	if err != nil {
-		return nil, err
+// filterBy returns the $filterBy variable: the bot's issues, or any author
+// when no bot login is configured.
+func (c *DashboardCollector) filterBy() *githubv4.IssueFilters {
+	if c.botLogin == "" {
+		return nil
 	}
-	if issue == nil {
-		return nil, nil
-	}
+	login := githubv4.String(c.botLogin)
+	return &githubv4.IssueFilters{CreatedBy: &login}
+}
 
-	stats := parseDashboard(issue.Body)
-	return &stats, nil
+// findBatch looks for the Dependency Dashboard of each repo with one batched
+// query, with the fallback rules of IssueCollector.countBatch. A nil issue
+// with a nil error means the repo has no dashboard. It reads only fields set
+// at construction, so batches can run concurrently.
+func (c *DashboardCollector) findBatch(ctx context.Context, repos []discovery.Repo) ([]*dashboardNode, []error) {
+	issues := make([]*dashboardNode, len(repos))
+	errs := make([]error, len(repos))
+	q := dashboardBatch
+	q.vars = map[string]any{"filterBy": c.filterBy(), "cursor": nil}
+	out := runRepoBatch(ctx, c.gql, q, repos)
+
+	for i, repo := range repos {
+		switch {
+		case out.failed[i] != nil:
+			errs[i] = fmt.Errorf("graphql dashboard query for %s: %w", repo.FullName, out.failed[i])
+		case out.retry[i]:
+			issues[i], errs[i] = c.findDashboardIssue(ctx, repo, nil)
+		default:
+			var r dashboardRepo
+			if err := json.Unmarshal(out.data[i], &r); err != nil {
+				errs[i] = fmt.Errorf("decoding dashboard query of %s: %w", repo.FullName, err)
+				continue
+			}
+			var cursor *githubv4.String
+			if issues[i], cursor = c.searchPage(&r); issues[i] == nil && cursor != nil {
+				issues[i], errs[i] = c.findDashboardIssue(ctx, repo, cursor)
+			}
+		}
+	}
+	return issues, errs
 }
 
 // findDashboardIssue looks for the Renovate Dependency Dashboard among the
-// open issues the bot created: title == "Dependency Dashboard" AND author ==
-// botLogin. Filtering by creator at the source keeps pull requests and other
-// authors' issues out, so this is one request in practice.
-func (c *DashboardCollector) findDashboardIssue(ctx context.Context, repo discovery.Repo) (*dashboardNode, error) {
-	var filterBy *githubv4.IssueFilters
-	if c.botLogin != "" {
-		login := githubv4.String(c.botLogin)
-		filterBy = &githubv4.IssueFilters{CreatedBy: &login}
-	}
-
-	var cursor *githubv4.String
+// open issues the bot created, from the page after cursor (the first page
+// when nil): title == "Dependency Dashboard" AND author == botLogin.
+// Filtering by creator at the source keeps pull requests and other authors'
+// issues out, so this is one page in practice.
+func (c *DashboardCollector) findDashboardIssue(ctx context.Context, repo discovery.Repo, cursor *githubv4.String) (*dashboardNode, error) {
+	filterBy := c.filterBy()
 	for {
 		vars := map[string]interface{}{
 			"owner":    githubv4.String(repo.Owner),
@@ -219,18 +259,27 @@ func (c *DashboardCollector) findDashboardIssue(ctx context.Context, repo discov
 			return nil, fmt.Errorf("graphql dashboard query for %s: %w", repo.FullName, err)
 		}
 
-		for i := range q.Repository.Issues.Nodes {
-			if iss := &q.Repository.Issues.Nodes[i]; isDashboardIssue(iss, c.botLogin) {
-				return iss, nil
-			}
+		iss, next := c.searchPage(&q.Repository)
+		if iss != nil || next == nil {
+			return iss, nil
 		}
-
-		if !q.Repository.Issues.PageInfo.HasNextPage {
-			return nil, nil
-		}
-		end := q.Repository.Issues.PageInfo.EndCursor
-		cursor = &end
+		cursor = next
 	}
+}
+
+// searchPage returns the dashboard issue of one page, or the cursor of the
+// next page when the page has none (nil on the last page).
+func (c *DashboardCollector) searchPage(r *dashboardRepo) (*dashboardNode, *githubv4.String) {
+	for i := range r.Issues.Nodes {
+		if iss := &r.Issues.Nodes[i]; isDashboardIssue(iss, c.botLogin) {
+			return iss, nil
+		}
+	}
+	if !r.Issues.PageInfo.HasNextPage {
+		return nil, nil
+	}
+	end := r.Issues.PageInfo.EndCursor
+	return nil, &end
 }
 
 // isDashboardIssue returns true if the issue is the Renovate Dependency Dashboard.

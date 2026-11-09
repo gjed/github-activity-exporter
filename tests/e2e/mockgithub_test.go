@@ -24,10 +24,11 @@ import (
 // The mock serves exactly what the exporter calls for one target over
 // base_url <mock>/api/v3: GET /user (PAT check), GET /users/{org} (owner
 // type lookup), GET /orgs/{org}/repos,
-// and POST /api/graphql (the PR query, the issue count query and the
-// Dependency Dashboard query, whose response shapes mirror the struct tags of
-// prQuery in internal/collector/pr.go, issueCountQuery in issue.go and
-// dashboardQuery in dashboard.go). Any other request is recorded and answered 404;
+// and POST /api/graphql (the PR query, and the issue count and Dependency
+// Dashboard queries, per repo or batched with one alias r<i> per repo, whose
+// response shapes mirror the struct tags of prQuery in
+// internal/collector/pr.go, issueCountRepo in issue.go and dashboardRepo in
+// dashboard.go). Any other request is recorded and answered 404;
 // the test fails on recorded requests.
 
 const e2eOrg = "acme"
@@ -106,7 +107,8 @@ type mockGitHub struct {
 }
 
 // newMockGitHub starts the mock with one org (acme) and two repos. The first
-// issue query of repo-b returns HTTP 500 once.
+// issue count of repo-b fails once: an HTTP 500 for a per-repo query, a
+// GraphQL error on its alias for a batched one.
 func newMockGitHub(t *testing.T) *mockGitHub {
 	t.Helper()
 	now := time.Now().UTC()
@@ -219,14 +221,26 @@ func (m *mockGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(body, &req); err == nil {
 		fullName = req.Variables.Owner + "/" + req.Variables.Name
 	}
+	if strings.Contains(req.Query, "r0: repository(owner: $o0, name: $n0)") {
+		if m.batch(w, body) {
+			return
+		}
+		r.Body = io.NopCloser(strings.NewReader(string(body)))
+		m.unhandledRequest(w, r)
+		return
+	}
 	_, known := m.fixturePRs[fullName]
 	switch {
 	case known && strings.Contains(req.Query, "pullRequests("):
 	case known && strings.Contains(req.Query, "oldest: issues("):
-		m.issueCounts(w, fullName, req.Variables.States)
+		if m.failIssuesOnce(fullName) {
+			http.Error(w, `{"message":"e2e: injected failure"}`, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"data": map[string]any{"repository": m.issueCounts(fullName, req.Variables.States)}})
 		return
 	case known && req.Variables.FilterBy != nil && strings.Contains(req.Query, "issues(first: 100, states: OPEN, filterBy: $filterBy"):
-		m.dashboard(w, fullName, req.Variables.FilterBy.CreatedBy)
+		writeJSON(w, map[string]any{"data": map[string]any{"repository": m.dashboard(fullName, req.Variables.FilterBy.CreatedBy)}})
 		return
 	default:
 		r.Body = io.NopCloser(strings.NewReader(string(body)))
@@ -261,21 +275,81 @@ func (m *mockGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 	}}})
 }
 
-// issueCounts answers the issue count query: per-state totals, the oldest
-// open issue and every label with its issue count in states. The first query
-// for repo-b fails once, so github_exporter.api.errors gets a series.
-func (m *mockGitHub) issueCounts(w http.ResponseWriter, fullName string, states []string) {
-	if fullName == e2eOrg+"/repo-b" {
-		m.mu.Lock()
-		fail := !m.issuesFailed
-		m.issuesFailed = true
-		m.mu.Unlock()
-		if fail {
-			http.Error(w, `{"message":"e2e: injected failure"}`, http.StatusInternalServerError)
-			return
+// batch answers a batched issue count or dashboard query: alias r<i> is the
+// repo $o<i>/$n<i>, with rateLimit as GitHub returns it. It reports false
+// for a query or repo it does not serve.
+func (m *mockGitHub) batch(w http.ResponseWriter, body []byte) bool {
+	var req struct {
+		Query     string         `json:"query"`
+		Variables map[string]any `json:"variables"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return false
+	}
+	var states []string
+	if st, ok := req.Variables["states"].([]any); ok {
+		states = []string{}
+		for _, v := range st {
+			states = append(states, v.(string))
 		}
 	}
+	createdBy := ""
+	if fb, ok := req.Variables["filterBy"].(map[string]any); ok {
+		createdBy, _ = fb["createdBy"].(string)
+	}
 
+	data := map[string]any{"rateLimit": map[string]any{
+		"cost": 1, "remaining": 4999, "resetAt": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+	}}
+	var errs []map[string]any
+	for i := 0; ; i++ {
+		owner, ok := req.Variables["o"+strconv.Itoa(i)].(string)
+		if !ok {
+			break
+		}
+		name, _ := req.Variables["n"+strconv.Itoa(i)].(string)
+		fullName, alias := owner+"/"+name, "r"+strconv.Itoa(i)
+		if _, known := m.fixturePRs[fullName]; !known {
+			return false
+		}
+		switch {
+		case strings.Contains(req.Query, "oldest: issues("):
+			if m.failIssuesOnce(fullName) {
+				data[alias] = nil
+				errs = append(errs, map[string]any{"type": "INTERNAL", "path": []string{alias}, "message": "e2e: injected failure"})
+				continue
+			}
+			data[alias] = m.issueCounts(fullName, states)
+		case createdBy != "" && strings.Contains(req.Query, "issues(first: 100, states: OPEN, filterBy: $filterBy"):
+			data[alias] = m.dashboard(fullName, createdBy)
+		default:
+			return false
+		}
+	}
+	out := map[string]any{"data": data}
+	if errs != nil {
+		out["errors"] = errs
+	}
+	writeJSON(w, out)
+	return true
+}
+
+// failIssuesOnce reports true for the first issue count query of repo-b, so
+// github_exporter.api.errors gets a series.
+func (m *mockGitHub) failIssuesOnce(fullName string) bool {
+	if fullName != e2eOrg+"/repo-b" {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	fail := !m.issuesFailed
+	m.issuesFailed = true
+	return fail
+}
+
+// issueCounts returns the issue count query's repository: per-state totals,
+// the oldest open issue and every label with its issue count in states.
+func (m *mockGitHub) issueCounts(fullName string, states []string) map[string]any {
 	total := map[string]int{}
 	var oldestAt time.Time
 	labels := map[string]int{} // every repo label, with its issue count in states
@@ -301,7 +375,7 @@ func (m *mockGitHub) issueCounts(w http.ResponseWriter, fullName string, states 
 	for _, name := range slices.Sorted(maps.Keys(labels)) {
 		labelNodes = append(labelNodes, map[string]any{"name": name, "issues": map[string]any{"totalCount": labels[name]}})
 	}
-	writeJSON(w, map[string]any{"data": map[string]any{"repository": map[string]any{
+	return map[string]any{
 		"open":   map[string]any{"totalCount": total["OPEN"]},
 		"closed": map[string]any{"totalCount": total["CLOSED"]},
 		"oldest": map[string]any{"nodes": oldest},
@@ -309,12 +383,13 @@ func (m *mockGitHub) issueCounts(w http.ResponseWriter, fullName string, states 
 			"nodes":    labelNodes,
 			"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""},
 		},
-	}}})
+	}
 }
 
-// dashboard answers the Dependency Dashboard query: the open issues created by
-// createdBy, a REST login ("renovate[bot]" for the Renovate app).
-func (m *mockGitHub) dashboard(w http.ResponseWriter, fullName, createdBy string) {
+// dashboard returns the Dependency Dashboard query's repository: the open
+// issues created by createdBy, a REST login ("renovate[bot]" for the
+// Renovate app).
+func (m *mockGitHub) dashboard(fullName, createdBy string) map[string]any {
 	nodes := []map[string]any{}
 	for _, iss := range m.fixtureIss[fullName] {
 		login := iss.Author.Login
@@ -325,12 +400,12 @@ func (m *mockGitHub) dashboard(w http.ResponseWriter, fullName, createdBy string
 			nodes = append(nodes, map[string]any{"title": iss.Title, "body": iss.Body, "author": iss.Author})
 		}
 	}
-	writeJSON(w, map[string]any{"data": map[string]any{"repository": map[string]any{
+	return map[string]any{
 		"issues": map[string]any{
 			"nodes":    nodes,
 			"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""},
 		},
-	}}})
+	}
 }
 
 // recordEventPRs appends one merged and one closed PR created at now. Caller holds m.mu.

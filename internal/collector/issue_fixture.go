@@ -2,6 +2,8 @@ package collector
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -9,6 +11,8 @@ import (
 	"time"
 
 	"github.com/shurcooL/githubv4"
+
+	ghclient "github.com/gjed/github-activity-exporter/internal/github"
 )
 
 // ExportedIssueNode is a fixture issue for FixtureIssueClient.
@@ -37,9 +41,90 @@ type FixtureIssueClient struct {
 	PageSize int
 	// Err, when set, fails every query.
 	Err error
+	// RawErr, when set, fails every batched query (QueryRaw) as a whole.
+	RawErr error
+	// AliasErrors maps a repo name to the GraphQL error type its alias gets in
+	// a batched query. RESOURCE_LIMITS_EXCEEDED is attributed to a field under
+	// the alias, which keeps its partial data, as GitHub does; any other type
+	// nulls the alias. Per-repo queries are not affected.
+	AliasErrors map[string]string
 
 	mu       sync.Mutex
 	requests []FixtureIssueRequest
+	batches  []int
+}
+
+// Batches returns the number of repos of each batched query received so far.
+func (f *FixtureIssueClient) Batches() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]int(nil), f.batches...)
+}
+
+// QueryRaw serves a batched issue count or dashboard query: every alias r<i>
+// gets the first page of the fixture repo, as Query serves it, unless
+// AliasErrors names the repo $n<i>. The query is recorded in Requests like
+// a per-repo first page, and its repo count in Batches.
+func (f *FixtureIssueClient) QueryRaw(ctx context.Context, query string, vars map[string]any) (*ghclient.RawResponse, error) {
+	n := 0
+	for vars["o"+strconv.Itoa(n)] != nil {
+		n++
+	}
+	f.mu.Lock()
+	f.batches = append(f.batches, n)
+	f.mu.Unlock()
+
+	resp := &ghclient.RawResponse{Data: map[string]json.RawMessage{}}
+	for i := range n {
+		alias := "r" + strconv.Itoa(i)
+		typed := map[string]interface{}{"states": vars["states"], "filterBy": vars["filterBy"]}
+		var repo any
+		var errField string
+		switch {
+		case strings.Contains(query, "oldest: issues("):
+			var q issueCountQuery
+			errField = "labels"
+			if err := f.query(ctx, &q, typed, i == 0); err != nil {
+				return nil, err
+			}
+			repo = q.Repository
+		case strings.Contains(query, "filterBy: $filterBy"):
+			var q dashboardQuery
+			errField = "issues"
+			if err := f.query(ctx, &q, typed, i == 0); err != nil {
+				return nil, err
+			}
+			repo = q.Repository
+		default:
+			return nil, fmt.Errorf("fixture: unexpected batched query %q", query)
+		}
+		if f.RawErr != nil {
+			return nil, f.RawErr
+		}
+		name, _ := vars["n"+strconv.Itoa(i)].(string)
+		switch typ := f.AliasErrors[name]; typ {
+		case "":
+		case "RESOURCE_LIMITS_EXCEEDED":
+			resp.Errors = append(resp.Errors, ghclient.GraphQLError{Type: typ, Path: []any{alias, errField}, Message: "Resource limits for this query exceeded."})
+		default:
+			resp.Errors = append(resp.Errors, ghclient.GraphQLError{Type: typ, Path: []any{alias}, Message: "fixture: " + typ})
+			repo = nil
+		}
+		b, err := json.Marshal(repo)
+		if err != nil {
+			return nil, err
+		}
+		resp.Data[alias] = b
+	}
+	return resp, nil
+}
+
+// query serves one typed query, recording it only when record is set.
+func (f *FixtureIssueClient) query(ctx context.Context, q interface{}, vars map[string]interface{}, record bool) error {
+	if record {
+		return f.Query(ctx, q, vars)
+	}
+	return f.serve(ctx, q, vars, false)
 }
 
 // FixtureIssueRequest records one query.
@@ -62,6 +147,12 @@ func (f *FixtureIssueClient) Requests() []FixtureIssueRequest {
 
 // Query fills q with one page of the fixture repo.
 func (f *FixtureIssueClient) Query(ctx context.Context, q interface{}, vars map[string]interface{}) error {
+	return f.serve(ctx, q, vars, true)
+}
+
+// serve fills q with one page of the fixture repo, recording the request when
+// record is set.
+func (f *FixtureIssueClient) serve(ctx context.Context, q interface{}, vars map[string]interface{}, record bool) error {
 	req := FixtureIssueRequest{}
 	if s, _ := vars["states"].(*[]githubv4.IssueState); s != nil {
 		for _, st := range *s {
@@ -87,9 +178,11 @@ func (f *FixtureIssueClient) Query(ctx context.Context, q interface{}, vars map[
 	case *prQuery:
 		req.Query = "pr"
 	}
-	f.mu.Lock()
-	f.requests = append(f.requests, req)
-	f.mu.Unlock()
+	if record {
+		f.mu.Lock()
+		f.requests = append(f.requests, req)
+		f.mu.Unlock()
+	}
 
 	if f.Err != nil {
 		return f.Err
@@ -127,7 +220,7 @@ func (f *FixtureIssueClient) Query(ctx context.Context, q interface{}, vars map[
 			n := dashboardNode{Title: iss.Title, Body: iss.Body}
 			if iss.Author != "" {
 				n.Author = &struct {
-					Typename string `graphql:"__typename"`
+					Typename string `graphql:"__typename" json:"__typename"`
 					Login    string
 				}{Typename: authorTypename(iss.AuthorIsBot), Login: iss.Author}
 			}
