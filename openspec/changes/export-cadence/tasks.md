@@ -12,10 +12,10 @@
 
 ## 2. One target_info writer (#99)
 
-- [ ] 2.1 `internal/exporter`: late-binding producer on the product reader and `Provider.AttachProducer`; unit test that attached data appears in the next push and that a producer error does not block the push.
-- [ ] 2.2 `internal/telemetry`: inherited case uses a `ManualReader` (with the runtime producer) exposed by `Telemetry.Producer()`; env-endpoint case unchanged with `Producer()` nil; `main.go` attaches it. Unit tests for both cases, including `OTEL_METRIC_EXPORT_INTERVAL` ignored when inherited.
-- [ ] 2.3 e2e: self-telemetry inherited through the proxy, stock Prometheus config (no `out_of_order_time_window`); log `target_info` sample timestamps and assert strictly increasing, `prometheus_tsdb_out_of_order_samples_total` 0, `github_exporter.otlp.errors` 1.
-- [ ] 2.4 README self-telemetry section and `OTEL_METRIC_EXPORT_INTERVAL` row: when it applies; drop or keep the out-of-order backend requirement per 2.3 evidence; note that an env endpoint on the same backend brings two writers back. Update `charts/.../examples/self-telemetry-values.yaml` comment. Markdown lint.
+- [x] 2.1 `internal/exporter`: late-binding producer on the product reader and `Provider.AttachProducer`; unit test that attached data appears in the next push and that a producer error does not block the push.
+- [x] 2.2 `internal/telemetry`: inherited case uses a `ManualReader` (with the runtime producer) exposed by `Telemetry.Producer()`; env-endpoint case unchanged with `Producer()` nil; `main.go` attaches it. Unit tests for both cases, including `OTEL_METRIC_EXPORT_INTERVAL` ignored when inherited.
+- [x] 2.3 e2e: self-telemetry inherited through the proxy, stock Prometheus config (no `out_of_order_time_window`); log `target_info` sample timestamps and assert strictly increasing, `prometheus_tsdb_out_of_order_samples_total` 0, `github_exporter.otlp.errors` 1.
+- [x] 2.4 README self-telemetry section and `OTEL_METRIC_EXPORT_INTERVAL` row: when it applies; drop or keep the out-of-order backend requirement per 2.3 evidence; note that an env endpoint on the same backend brings two writers back. Update `charts/.../examples/self-telemetry-values.yaml` comment. Markdown lint.
 
 ## 3. Scrape duration buckets (#94)
 

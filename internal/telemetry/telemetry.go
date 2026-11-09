@@ -11,6 +11,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/otlptranslator"
@@ -29,6 +30,7 @@ import (
 	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
@@ -80,9 +82,12 @@ type Telemetry struct {
 	version string
 
 	mp *sdkmetric.MeterProvider
-	tp *sdktrace.TracerProvider
-	lp *sdklog.LoggerProvider
-	pr *profiler
+	// producer is set when self-telemetry metrics inherit export.otlp: they
+	// travel in the product push instead of their own.
+	producer sdkmetric.Producer
+	tp       *sdktrace.TracerProvider
+	lp       *sdklog.LoggerProvider
+	pr       *profiler
 }
 
 // New routes OTel SDK errors to Settings.Logger, resolves which signals are
@@ -109,11 +114,11 @@ func New(ctx context.Context, s Settings) (*Telemetry, error) {
 	t := &Telemetry{active: resolveSignals(s.Config, s.Getenv, s.Logger), version: s.Version}
 
 	if t.active[SignalMetrics] {
-		mp, err := newMeterProvider(ctx, s)
+		mp, producer, err := newMeterProvider(ctx, s)
 		if err != nil {
 			return nil, fmt.Errorf("telemetry: metrics: %w", err)
 		}
-		t.mp = mp
+		t.mp, t.producer = mp, producer
 		// Go runtime metrics (go.*) through callbacks on this provider;
 		// go.schedule.duration comes from the producer on its readers.
 		if err := runtime.Start(runtime.WithMeterProvider(mp)); err != nil {
@@ -166,6 +171,12 @@ func (t *Telemetry) MeterProvider() metric.MeterProvider {
 	}
 	return t.mp
 }
+
+// Producer returns the self-telemetry metrics for the product reader when
+// they inherit export.otlp, so one push carries the shared resource and its
+// target_info; nil when self-telemetry metrics are inactive or go to an OTLP
+// endpoint from the environment, which they push to on their own.
+func (t *Telemetry) Producer() sdkmetric.Producer { return t.producer }
 
 // TracerProvider returns the TracerProvider, a no-op one when traces are inactive.
 func (t *Telemetry) TracerProvider() trace.TracerProvider {
@@ -427,32 +438,69 @@ func newMetricExporter(ctx context.Context, s Settings) (sdkmetric.Exporter, err
 	}
 }
 
-// newMeterProvider builds the self-telemetry MeterProvider: a periodic OTLP
-// reader (OTEL_METRIC_EXPORT_INTERVAL, default 60s) and, when the bridge is
-// on, a Prometheus reader on the bridge's registry. The product reader already
-// exposes target_info for the shared resource, so this one does not. Both
-// readers carry the Go runtime producer, the only source of
-// go.schedule.duration.
-func newMeterProvider(ctx context.Context, s Settings) (*sdkmetric.MeterProvider, error) {
-	exp, err := newMetricExporter(ctx, s)
+// newMeterProvider builds the self-telemetry MeterProvider and its OTLP path.
+// With an OTLP endpoint in the environment it gets a periodic OTLP reader
+// (OTEL_METRIC_EXPORT_INTERVAL, default 60s). Inheriting export.otlp, it gets
+// a manual reader returned as a Producer for the product reader instead: a
+// second push of the shared resource would write target_info out of order
+// with the product push. When the bridge is on, it also gets a Prometheus
+// reader on the bridge's registry; the product reader already exposes
+// target_info there, so this one does not. Every reader carries the Go
+// runtime producer, the only source of go.schedule.duration.
+func newMeterProvider(ctx context.Context, s Settings) (*sdkmetric.MeterProvider, sdkmetric.Producer, error) {
+	d, err := resolveDestination(s, SignalMetrics)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	opts := []sdkmetric.Option{
-		sdkmetric.WithResource(s.Resource),
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exp, sdkmetric.WithProducer(runtime.NewProducer()))),
+	opts := []sdkmetric.Option{sdkmetric.WithResource(s.Resource)}
+	var producer sdkmetric.Producer
+	var exp sdkmetric.Exporter
+	if d.fromEnv {
+		if exp, err = newMetricExporter(ctx, s); err != nil {
+			return nil, nil, err
+		}
+		opts = append(opts, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exp, sdkmetric.WithProducer(newRuntimeProducer()))))
+	} else {
+		r := sdkmetric.NewManualReader(sdkmetric.WithProducer(newRuntimeProducer()))
+		opts = append(opts, sdkmetric.WithReader(r))
+		producer = readerProducer{r}
 	}
 	if s.PrometheusRegisterer != nil {
 		prom, err := promexporter.New(
 			promexporter.WithRegisterer(s.PrometheusRegisterer),
 			promexporter.WithTranslationStrategy(otlptranslator.NoTranslation),
 			promexporter.WithoutTargetInfo(),
-			promexporter.WithProducer(runtime.NewProducer()),
+			promexporter.WithProducer(newRuntimeProducer()),
 		)
 		if err != nil {
-			return nil, errors.Join(fmt.Errorf("prometheus reader: %w", err), exp.Shutdown(ctx))
+			err = fmt.Errorf("prometheus reader: %w", err)
+			if exp != nil {
+				err = errors.Join(err, exp.Shutdown(ctx))
+			}
+			return nil, nil, err
 		}
 		opts = append(opts, sdkmetric.WithReader(prom))
 	}
-	return sdkmetric.NewMeterProvider(opts...), nil
+	return sdkmetric.NewMeterProvider(opts...), producer, nil
+}
+
+// newRuntimeProducer returns the Go runtime producer (go.schedule.duration)
+// reading the runtime on every Produce. With the default 15 s minimum read
+// interval its data point keeps the time of the last read, up to 15 s old;
+// in a push that also carries fresher data, Prometheus writes that resource's
+// target_info at the oldest timestamp, behind the previous push's, and
+// rejects it as out of order. A runtime/metrics read of one histogram is cheap.
+func newRuntimeProducer() *runtime.Producer {
+	return runtime.NewProducer(runtime.WithMinimumReadMemStatsInterval(time.Nanosecond).(runtime.ProducerOption))
+}
+
+// readerProducer exposes a manual reader's metrics as a Producer.
+type readerProducer struct{ r *sdkmetric.ManualReader }
+
+func (p readerProducer) Produce(ctx context.Context) ([]metricdata.ScopeMetrics, error) {
+	var rm metricdata.ResourceMetrics
+	if err := p.r.Collect(ctx, &rm); err != nil {
+		return nil, err
+	}
+	return rm.ScopeMetrics, nil
 }

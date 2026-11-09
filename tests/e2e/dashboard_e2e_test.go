@@ -21,9 +21,15 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// warmupWindow is the window in which every series must have two samples
-// before the dashboard queries run.
+// warmupWindow is the window in which every series must have warmupSamples
+// samples before the dashboard queries run.
 const warmupWindow = "1m"
+
+// warmupSamples is two collection cycles of pushes. A series pushed every
+// export.interval has two samples one push after it appears, before any cycle
+// changes it, and a histogram_quantile() over it is still NaN; two cycles
+// later each series has changed in every window that holds a cycle.
+const warmupSamples = int(2 * testCollectionInterval / testExportInterval)
 
 // pollDeadline bounds how long the exporter may take to fill Prometheus with
 // enough samples for rate() and histogram_quantile().
@@ -35,7 +41,7 @@ func TestDashboardQueries(t *testing.T) {
 	promURL := startPrometheus(t)
 	mock := newMockGitHub(t)
 	otlpURL := startOTLPProxy(t, promURL)
-	exited := startExporter(t, mock.URL+"/api/v3", otlpURL, promURL+otlpMetricsPath, testCollectionInterval)
+	exited := startExporter(t, mock.URL+"/api/v3", otlpURL, testCollectionInterval)
 
 	want := expectedSeriesNames(t)
 	waitForSamples(t, promURL, want, exited)
@@ -56,6 +62,10 @@ func TestDashboardQueries(t *testing.T) {
 
 	t.Run("dashboard", func(t *testing.T) {
 		runDashboardQueries(t, promURL)
+	})
+
+	t.Run("one target_info writer", func(t *testing.T) {
+		checkSingleWriter(t, promURL)
 	})
 
 	for _, u := range mock.unhandledRequests() {
@@ -81,7 +91,7 @@ func TestDashboardContinuity(t *testing.T) {
 	promURL := startPrometheus(t)
 	mock := newMockGitHub(t)
 	otlpURL := startOTLPProxy(t, promURL)
-	exited := startExporter(t, mock.URL+"/api/v3", otlpURL, promURL+otlpMetricsPath, longCollectionInterval)
+	exited := startExporter(t, mock.URL+"/api/v3", otlpURL, longCollectionInterval)
 	waitForSamples(t, promURL, expectedSeriesNames(t), exited)
 
 	d, vars := loadDashboard(t)
@@ -151,6 +161,68 @@ func TestDashboardContinuity(t *testing.T) {
 
 	for _, u := range mock.unhandledRequests() {
 		t.Errorf("mock GitHub: unhandled request: %s", u)
+	}
+}
+
+// checkSingleWriter is the evidence that a stock Prometheus, without an
+// out-of-order window, ingests every push: the target_info samples written by
+// the run have strictly increasing timestamps, Prometheus counted no
+// out-of-order sample, and the only failed push is the proxy's planned one.
+func checkSingleWriter(t *testing.T, promURL string) {
+	t.Helper()
+	body, err := promGet(promURL + "/api/v1/query?" + url.Values{"query": {"target_info[10m]"}}.Encode())
+	if err != nil {
+		t.Fatalf("target_info: %v: %s", err, truncate(body, 800))
+	}
+	var resp struct {
+		Data struct {
+			Result []struct {
+				Values [][2]any `json:"values"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Data.Result) != 1 {
+		t.Fatalf("target_info: want one series: %v: %s", err, truncate(body, 800))
+	}
+	var ts []float64
+	for _, v := range resp.Data.Result[0].Values {
+		f, err := strconv.ParseFloat(fmt.Sprint(v[0]), 64)
+		if err != nil {
+			t.Fatalf("target_info timestamp %v: %v", v[0], err)
+		}
+		ts = append(ts, f)
+	}
+	t.Logf("target_info: %d samples, timestamps %v", len(ts), ts)
+	for i := 1; i < len(ts); i++ {
+		if ts[i] <= ts[i-1] {
+			t.Errorf("target_info sample %d at %.3f is not after %.3f", i, ts[i], ts[i-1])
+		}
+	}
+
+	// Prometheus' own metrics: the e2e config has no scrape job, so read /metrics.
+	self, err := promGet(promURL + "/metrics")
+	if err != nil {
+		t.Fatalf("prometheus /metrics: %v", err)
+	}
+	var oooLines []string
+	for _, line := range strings.Split(string(self), "\n") {
+		if !strings.HasPrefix(line, "prometheus_tsdb_out_of_order_samples_total") {
+			continue
+		}
+		oooLines = append(oooLines, line)
+		fields := strings.Fields(line)
+		if v, err := strconv.ParseFloat(fields[len(fields)-1], 64); err != nil || v != 0 {
+			t.Errorf("Prometheus rejected samples as out of order: %s", line)
+		}
+	}
+	if len(oooLines) == 0 {
+		t.Fatal("prometheus_tsdb_out_of_order_samples_total not in Prometheus /metrics")
+	}
+	t.Logf("Prometheus: %s", strings.Join(oooLines, "; "))
+	pushErrors := instantValue(t, promURL, `sum({"github_exporter.otlp.errors"})`)
+	t.Logf("github_exporter.otlp.errors = %v", pushErrors)
+	if pushErrors != 1 {
+		t.Errorf("github_exporter.otlp.errors = %v, want 1 (the proxy's rejection)", pushErrors)
 	}
 }
 
@@ -274,8 +346,9 @@ func expectedSeriesNames(t *testing.T) []string {
 	return names
 }
 
-// waitForSamples polls until every expected series has at least two samples
-// in the window, so rate() and histogram_quantile() have data. One query per
+// waitForSamples polls until every expected series has at least
+// warmupSamples samples in the window, so rate() and histogram_quantile()
+// have data. One query per
 // name: count_over_time drops __name__, so a combined query cannot say which
 // name matched.
 func waitForSamples(t *testing.T, promURL string, want []string, exited <-chan struct{}) {
@@ -290,7 +363,7 @@ func waitForSamples(t *testing.T, promURL string, want []string, exited <-chan s
 		}
 		missing = missing[:0]
 		for _, name := range want {
-			expr := fmt.Sprintf("count_over_time({__name__=%q}[%s]) >= 2", name, warmupWindow)
+			expr := fmt.Sprintf("count_over_time({__name__=%q}[%s]) >= %d", name, warmupWindow, warmupSamples)
 			body, err := promGet(promURL + "/api/v1/query?query=" + url.QueryEscape(expr))
 			if n, cerr := checkResult(body); err != nil || cerr != nil || n == 0 {
 				missing = append(missing, name)
@@ -300,7 +373,7 @@ func waitForSamples(t *testing.T, promURL string, want []string, exited <-chan s
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("after %s, not every series has 2 samples in %s; missing: %v", pollDeadline, warmupWindow, missing)
+			t.Fatalf("after %s, not every series has %d samples in %s; missing: %v", pollDeadline, warmupSamples, warmupWindow, missing)
 		}
 		time.Sleep(time.Second)
 	}

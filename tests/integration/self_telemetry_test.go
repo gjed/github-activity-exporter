@@ -107,17 +107,25 @@ func exerciseGitHub(t *testing.T, tel *telemetry.Telemetry) {
 	_, _, _ = c.REST().Repositories.Get(ctx, "acme", "missing")
 }
 
-// selfTelemetryOTLP returns a live-check self hook that runs self-telemetry
-// against the receiver, active or not, and shuts it down (which flushes).
-func selfTelemetryOTLP(active bool) func(t *testing.T, addr string) {
-	return func(t *testing.T, addr string) {
+// selfTelemetryOTLP returns a live-check self hook that runs self-telemetry,
+// active or not, inheriting the receiver as export.otlp: as in main.go, its
+// metrics are attached to the product provider p and go out in its push.
+func selfTelemetryOTLP(active bool) func(t *testing.T, addr string, p *exporter.Provider) {
+	return func(t *testing.T, addr string, p *exporter.Provider) {
 		tel := newSelfTelemetry(t, active, config.OTLP{Endpoint: addr, Protocol: "grpc", TLS: config.TLS{Insecure: true}}, nil)
-		exerciseGitHub(t, tel)
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := tel.Shutdown(ctx); err != nil {
-			t.Fatalf("self-telemetry Shutdown: %v", err)
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := tel.Shutdown(ctx); err != nil {
+				t.Errorf("self-telemetry Shutdown: %v", err)
+			}
+		})
+		if producer := tel.Producer(); producer != nil {
+			p.AttachProducer(producer)
+		} else if active {
+			t.Fatal("Producer() = nil with self-telemetry metrics inheriting export.otlp")
 		}
+		exerciseGitHub(t, tel)
 	}
 }
 

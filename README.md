@@ -258,7 +258,7 @@ The standard [OTel SDK variables](https://opentelemetry.io/docs/specs/otel/confi
 | `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_HEADERS`   | Request headers; replace the inherited `export.otlp` headers                                                     |
 | `OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_TIMEOUT`   | Export timeout in milliseconds                                                                                   |
 | `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG`                                   | Trace sampler; default `parentbased_always_on`                                                                   |
-| `OTEL_METRIC_EXPORT_INTERVAL`                                                      | Self-telemetry metric push interval in milliseconds; default 60000                                               |
+| `OTEL_METRIC_EXPORT_INTERVAL`                                                      | Self-telemetry metric push interval in milliseconds; default 60000. Only with an OTLP metrics endpoint variable  |
 | `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`                                    | Resource attributes, for the GitHub metrics too                                                                  |
 
 Every provider, the GitHub metrics included, shares one resource: `service.name` (default `github-activity-exporter`), `service.version` (the build version), `service.instance.id` (a random UUID per process) and the host, OS, process and container attributes. `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` override them. The instance ID changes on every restart; set a stable one, such as the pod name, with `OTEL_RESOURCE_ATTRIBUTES=service.instance.id=<id>` if your backend derives `instance` from it. Every meter, tracer and logger uses the instrumentation scope `github.com/gjed/github-activity-exporter` with the build version.
@@ -267,7 +267,7 @@ On SIGTERM or SIGINT the exporter flushes and shuts down every self-telemetry pr
 
 ### Self-telemetry metrics
 
-With self-telemetry metrics active ([#74](https://github.com/gjed/github-activity-exporter/issues/74)), the exporter records, on the self-telemetry push interval (`OTEL_METRIC_EXPORT_INTERVAL`) and on `/metrics` when the bridge is enabled:
+With self-telemetry metrics active ([#74](https://github.com/gjed/github-activity-exporter/issues/74)), the exporter records, on OTLP and on `/metrics` when the bridge is enabled:
 
 - Go runtime metrics, per the [Go runtime semantic conventions](https://opentelemetry.io/docs/specs/semconv/runtime/go-metrics/): `go.memory.used` (by `go.memory.type`), `go.memory.limit` (only when a memory limit such as `GOMEMLIMIT` is set), `go.memory.allocated`, `go.memory.allocations`, `go.memory.gc.goal`, `go.goroutine.count`, `go.processor.limit`, `go.config.gogc` and `go.schedule.duration`.
 - `http.client.request.duration` and `http.client.request.body.size` for every GitHub request (REST, GraphQL, the startup credential check and the GitHub App token exchange), per the [HTTP client semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-metrics/#http-client). Attributes: `http.request.method`, `http.response.status_code`, `server.address`, `server.port`, `url.scheme`, `network.protocol.name`, `network.protocol.version`, `error.type` (the status code for 4xx and 5xx, the error type when no response arrives) and `url.template`.
@@ -276,10 +276,9 @@ With self-telemetry metrics active ([#74](https://github.com/gjed/github-activit
 
 With self-telemetry metrics inactive, no `go.*` or `http.*` metric is exported and the GitHub client is not instrumented. The registry imports these metrics from the OTel semantic conventions in [`registry/telemetry.yaml`](registry/telemetry.yaml).
 
-The GitHub metrics and the self-telemetry metrics share one resource but are pushed on separate schedules, so both pushes write the same `target_info` series with interleaved timestamps. A backend that ingests OTLP needs out-of-order ingestion enabled, or it rejects pushes, GitHub metric pushes included, with `out of order sample`. The e2e runs Prometheus with a 10m window:
+When the self-telemetry metrics inherit `export.otlp`, they travel in the GitHub metrics push, every `export.interval` and after each cycle, and `OTEL_METRIC_EXPORT_INTERVAL` does not apply. One push carries the shared resource, so its `target_info` series has one writer and increasing timestamps: the backend needs no out-of-order ingestion. The e2e runs a stock Prometheus 3.x, without `out_of_order_time_window`, and checks that it rejects no sample ([#99](https://github.com/gjed/github-activity-exporter/issues/99)).
 
-- Prometheus: `storage.tsdb.out_of_order_time_window` (for example `10m`).
-- Mimir and Grafana Cloud Metrics: the per-tenant limit `out_of_order_time_window` (`-ingester.out-of-order-time-window`).
+With `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT` set, the self-telemetry metrics are pushed on their own, every `OTEL_METRIC_EXPORT_INTERVAL`. If that endpoint is the backend of `export.otlp`, both pushes write the same `target_info` series on separate schedules, and the backend needs out-of-order ingestion (Prometheus `storage.tsdb.out_of_order_time_window`, Mimir and Grafana Cloud Metrics the per-tenant `out_of_order_time_window`) or it rejects pushes, GitHub metric pushes included, with `out of order sample`.
 
 ### Profiles
 

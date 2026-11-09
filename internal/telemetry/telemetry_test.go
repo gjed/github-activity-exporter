@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
@@ -267,18 +268,29 @@ func TestNew_ActiveSetsGlobals(t *testing.T) {
 	}
 }
 
+// TestNew_InheritsExportOTLP: traces and logs go to export.otlp with its
+// headers; metrics get no exporter of their own, whatever
+// OTEL_METRIC_EXPORT_INTERVAL says, and come out of Producer for the product
+// push instead.
 func TestNew_InheritsExportOTLP(t *testing.T) {
 	for _, path := range []string{"/otlp", "/otlp/", "/otlp/v1/metrics"} {
 		t.Run(path, func(t *testing.T) {
-			clearEnv(t, nil)
+			clearEnv(t, map[string]string{"OTEL_METRIC_EXPORT_INTERVAL": "1"})
 			rcv := newReceiver(t)
 			tel := newTelemetry(t, toggles(true, true, true, true, true), config.OTLP{
 				Endpoint: rcv.URL + path,
 				Protocol: "http",
 				Headers:  map[string]string{"authorization": "Bearer file"},
 			}, nil, nil)
+			if tel.Producer() == nil {
+				t.Fatal("Producer() = nil, want the self-telemetry metrics for the product push")
+			}
+			requireProduced(t, tel.Producer(), "go.schedule.duration", "go.goroutine.count")
 			emitAll(t, tel)
-			for _, p := range []string{"/otlp/v1/traces", "/otlp/v1/metrics", "/otlp/v1/logs"} {
+			if rcv.request("/otlp/v1/metrics") != nil {
+				t.Error("self-telemetry metrics pushed on their own")
+			}
+			for _, p := range []string{"/otlp/v1/traces", "/otlp/v1/logs"} {
 				req := rcv.request(p)
 				if req == nil {
 					t.Errorf("no request to %s", p)
@@ -289,6 +301,26 @@ func TestNew_InheritsExportOTLP(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// requireProduced fails unless producer returns every named metric.
+func requireProduced(t *testing.T, producer sdkmetric.Producer, names ...string) {
+	t.Helper()
+	sms, err := producer.Produce(context.Background())
+	if err != nil {
+		t.Fatalf("Produce: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, sm := range sms {
+		for _, m := range sm.Metrics {
+			seen[m.Name] = true
+		}
+	}
+	for _, n := range names {
+		if !seen[n] {
+			t.Errorf("Produce lacks %s: %v", n, seen)
+		}
 	}
 }
 
@@ -303,6 +335,9 @@ func TestNew_SignalEndpointWins(t *testing.T) {
 		Protocol: "http",
 		Headers:  map[string]string{"authorization": "Bearer file"},
 	}, nil, nil)
+	if tel.Producer() != nil {
+		t.Error("Producer() != nil with an OTLP endpoint in the environment")
+	}
 	emitAll(t, tel)
 	if b.request("/v1/traces") == nil {
 		t.Error("spans did not go to the traces endpoint")
@@ -478,5 +513,34 @@ func TestNew_RoutesOTelErrorsToLogger(t *testing.T) {
 	otel.Handle(errors.New("export failed"))
 	if !strings.Contains(buf.String(), `"msg":"opentelemetry error"`) || !strings.Contains(buf.String(), `"err":"export failed"`) {
 		t.Errorf("OTel error not logged through slog: %q", buf.String())
+	}
+}
+
+// TestProducer_RuntimeTimestampsAdvance: go.schedule.duration carries the time
+// of each Produce, not of a read up to 15 s old, so a push never holds a data
+// point older than the previous push.
+func TestProducer_RuntimeTimestampsAdvance(t *testing.T) {
+	clearEnv(t, nil)
+	tel := newTelemetry(t, toggles(true, true, false, false, false), config.OTLP{Endpoint: "http://127.0.0.1:1", Protocol: "http"}, nil, nil)
+	t.Cleanup(func() { _ = tel.Shutdown(context.Background()) })
+	schedTime := func() time.Time {
+		sms, err := tel.Producer().Produce(context.Background())
+		if err != nil {
+			t.Fatalf("Produce: %v", err)
+		}
+		for _, sm := range sms {
+			for _, m := range sm.Metrics {
+				if h, ok := m.Data.(metricdata.Histogram[float64]); ok && m.Name == "go.schedule.duration" && len(h.DataPoints) > 0 {
+					return h.DataPoints[0].Time
+				}
+			}
+		}
+		t.Fatal("Produce lacks go.schedule.duration")
+		return time.Time{}
+	}
+	first := schedTime()
+	time.Sleep(10 * time.Millisecond)
+	if second := schedTime(); !second.After(first) {
+		t.Errorf("go.schedule.duration time %v not after %v", second, first)
 	}
 }

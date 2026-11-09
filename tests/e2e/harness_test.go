@@ -40,8 +40,9 @@ func requireDocker(t *testing.T) {
 	}
 }
 
-// startPrometheus runs the pinned Prometheus with the OTLP receiver,
-// NoTranslation and an out-of-order window, and returns its base URL once /-/ready answers.
+// startPrometheus runs the pinned Prometheus with the OTLP receiver and
+// NoTranslation, otherwise stock (no out-of-order window), and returns its
+// base URL once /-/ready answers.
 func startPrometheus(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -49,11 +50,7 @@ func startPrometheus(t *testing.T) string {
 	if err := os.Chmod(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// The product and self-telemetry pipelines push the same resource on
-	// independent schedules, so their target_info samples interleave: without
-	// an out-of-order window Prometheus rejects pushes with "out of order
-	// sample" (README, backend requirements).
-	cfg := "otlp:\n  translation_strategy: NoTranslation\nstorage:\n  tsdb:\n    out_of_order_time_window: 10m\n"
+	cfg := "otlp:\n  translation_strategy: NoTranslation\n"
 	if err := os.WriteFile(filepath.Join(dir, "prometheus.yml"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -112,11 +109,10 @@ func startOTLPProxy(t *testing.T, promURL string) string {
 // startExporter builds the exporter binary and runs it with a temp config that
 // uses apiURL (the mock REST root, .../api/v3), collects every
 // collectionInterval and pushes OTLP to otlpURL every testExportInterval. Its
-// output goes to the test log. Self-telemetry metrics are on and go straight
-// to Prometheus at selfOTLPURL, every testExportInterval: through the proxy
-// they could take the rejected first push meant for github_exporter.otlp.errors.
-// The returned channel closes once the process has exited.
-func startExporter(t *testing.T, apiURL, otlpURL, selfOTLPURL string, collectionInterval time.Duration) <-chan struct{} {
+// output goes to the test log. Self-telemetry metrics are on and inherit
+// export.otlp, so they travel in the same pushes. The returned channel closes
+// once the process has exited.
+func startExporter(t *testing.T, apiURL, otlpURL string, collectionInterval time.Duration) <-chan struct{} {
 	t.Helper()
 	root := repoRoot()
 	bin := filepath.Join(t.TempDir(), "github-activity-exporter")
@@ -162,9 +158,9 @@ targets:
 	cmd := exec.Command(bin)
 	cmd.Env = append(os.Environ(),
 		"CONFIG_FILE="+cfgPath,
-		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT="+selfOTLPURL,
-		"OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/protobuf",
-		fmt.Sprintf("OTEL_METRIC_EXPORT_INTERVAL=%d", testExportInterval.Milliseconds()),
+		// Self-telemetry metrics inherit export.otlp whatever the caller's environment says.
+		"OTEL_EXPORTER_OTLP_ENDPOINT=",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=",
 		// go.memory.limit is reported only under a memory limit.
 		"GOMEMLIMIT=512MiB",
 	)
