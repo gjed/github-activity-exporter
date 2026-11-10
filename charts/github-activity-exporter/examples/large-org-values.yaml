@@ -1,0 +1,40 @@
+# All PR and issue activity of a large org (hundreds of repos), authenticated
+# as a GitHub App, with concurrent collection.
+#
+#   kubectl create secret generic github-activity-exporter \
+#     --from-file=app-key.pem=./my-app.private-key.pem \
+#     --from-literal=otlp-headers='authorization=Bearer <token>'
+#
+# Sizing (see "Collection concurrency" in the exporter README): a serial cycle
+# of a 400-repo org takes about 5 minutes, about 0.6 s per request. With 8
+# requests in flight it fits a 5m collection_interval with room to spare.
+# Each cycle spends the same GraphQL points whatever the concurrency, so
+# 12 cycles per hour must stay under the App's 12,500 points per hour: check
+# github_exporter.api.rate_limit.remaining and lower the concurrency if
+# github_exporter.api.secondary_rate_limits keeps rising.
+config:
+  collection_interval: 5m
+  collection:
+    concurrency: 8
+  export:
+    otlp:
+      endpoint: https://otlp.example.com:4318
+      headers_env: OTLP_HEADERS
+  targets:
+    - name: my-org
+      auth:
+        app:
+          app_id: 12345
+          installation_id: 67890
+          private_key_path: /etc/github-activity-exporter/secrets/app-key.pem
+      orgs:
+        - org: my-org
+      renovate_dashboard:
+        enabled: true
+
+secret:
+  existingSecret: github-activity-exporter
+  env:
+    OTLP_HEADERS: otlp-headers
+  files:
+    - app-key.pem

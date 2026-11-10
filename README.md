@@ -82,6 +82,8 @@ The path is read from `CONFIG_FILE`. It defaults to `config.yaml` in the working
 
 ```yaml
 collection_interval: 5m           # period between collection cycle starts, see "Collection schedule"
+collection:
+  concurrency: 4                  # default for every target: repos or batches collected at once, 1 to 100; see "Collection concurrency"
 export:
   interval: 60s                 # OTLP push period, independent of collection_interval; see "Collection schedule"
   otlp:
@@ -134,6 +136,8 @@ targets:
     renovate_dashboard:
       enabled: false              # collect the Renovate Dependency Dashboard issue
     graphql_batch_size: 20        # repos per issue count and Dependency Dashboard query, 1 to 100
+    collection:
+      concurrency: 4              # overrides the top-level collection.concurrency for this target
 ```
 
 Quote logins that contain brackets in flow lists: `authors: ["renovate[bot]"]`. Unquoted, YAML reads `[bot]` as a nested list.
@@ -150,9 +154,29 @@ Quote logins that contain brackets in flow lists: `authors: ["renovate[bot]"]`. 
 
 ### Collection schedule
 
-Each target starts a collection cycle every `collection_interval`, measured from the start of its previous cycle, and pushes the cycle's metrics when the cycle ends. A cycle that runs longer than `collection_interval` is an overrun: the exporter logs a warning, increments `github_exporter.scrape.overruns` and starts the next cycle as soon as the late one finishes. Cycles of one target never overlap, and missed periods are not caught up. Steady overruns mean the configured freshness is out of reach; raise `collection_interval`.
+Each target starts a collection cycle every `collection_interval`, measured from the start of its previous cycle, and pushes the cycle's metrics when the cycle ends. A cycle that runs longer than `collection_interval` is an overrun: the exporter logs a warning, increments `github_exporter.scrape.overruns` and starts the next cycle as soon as the late one finishes. Cycles of one target never overlap, and missed periods are not caught up. Steady overruns mean the configured freshness is out of reach; raise `collection.concurrency` (see "Collection concurrency") or `collection_interval`.
 
 Between cycles the exporter also pushes every `export.interval` (default `60s`, must be positive), whatever `collection_interval` is. Each push carries the latest values of every series, so series stay continuous with a `collection_interval` of 15m or more. Counters and histograms are pushed with cumulative temporality: a push repeats the running total and never adds to it.
+
+### Collection concurrency
+
+A cycle is a sequence of GitHub requests, each of which takes about 0.5 to 0.7 s, so on a large org it is latency, not rate limit budget, that sets the cycle length. `collection.concurrency` (default `4`, 1 to 100) is how many units of work a target runs at once. A unit is one repo of the PR scan, one batch of the issue count or Dependency Dashboard query (`graphql_batch_size` repos), or one repo of the issue listing used with `exclude_title_patterns`. A unit sends its requests one after another, so a target never has more than `concurrency` collection requests in flight. The PR, issue and dashboard collectors run at the same time and share that limit. `1` sends one request at a time. The exported series do not depend on the setting. Set it at the top level for every target, or per target under `targets[].collection.concurrency`.
+
+Measured against one 390-repo org with a PAT, Dependency Dashboard enabled, one cycle per run:
+
+| `concurrency` | Cycle (`scrape.duration`) | GraphQL requests | GraphQL points | REST requests | 403/429 responses |
+| ------------: | ------------------------: | ---------------: | -------------: | ------------: | ----------------: |
+|             1 |                   286.7 s |              431 |            581 |             6 |                 0 |
+|             4 |                    73.4 s |              431 |            591 |             6 |                 0 |
+|             8 |                    40.4 s |              431 |            605 |             6 |                 0 |
+
+To size it:
+
+1. Check the cycle length against `collection_interval`. `github_exporter.scrape.duration` (sum over count, or a quantile) should stay well below `collection_interval`; a rising `github_exporter.scrape.overruns` means it does not. Cycle time falls roughly as `1 / concurrency` until GitHub's secondary rate limits slow it down.
+1. Check the budget. Concurrency does not change the points one cycle spends, but a shorter cycle allows a shorter `collection_interval`, and points per hour are points per cycle times cycles per hour. Read the drop of `github_exporter.api.rate_limit.remaining{github.api.rate_limit.resource="graphql"}` over one cycle, and keep points per hour well under the pool's limit (5,000 for a PAT, 12,500 or more for a GitHub App installation). Below 200 remaining, the exporter pauses that pool until `github_exporter.api.rate_limit.reset`.
+1. Stay under GitHub's [secondary rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#about-secondary-rate-limits): at most 100 concurrent requests and about 2,000 GraphQL points per minute per token, shared by every target and every other client using the same token. At about 0.6 s per request, each unit of concurrency sends up to about 100 GraphQL requests per minute, so values above about 16 add little and risk hitting the limit.
+
+On a secondary rate limit response (403 or 429 with `Retry-After`, or a 429 or 403 whose body names a secondary rate limit), the exporter pauses every request of the target until the time GitHub gives, 60 s doubling per further hit when it gives none, then retries the request up to 3 times. Each such response increments `github_exporter.api.secondary_rate_limits`. A primary limit response (`X-RateLimit-Remaining: 0`) pauses only its pool until the reset, then retries. A steadily rising `github_exporter.api.secondary_rate_limits` means `concurrency` is too high for the token: lower it.
 
 ### Renovate preset
 
@@ -243,7 +267,7 @@ A signal is active only when `telemetry.enabled` and its own `enabled` are both 
 
 Metrics are described in [Self-telemetry metrics](#self-telemetry-metrics) and profiles in [Profiles](#profiles). The other signals come in [#75](https://github.com/gjed/github-activity-exporter/issues/75) (traces) and [#76](https://github.com/gjed/github-activity-exporter/issues/76) (OTLP logs).
 
-Self-telemetry runs on its own OTel SDK providers. No `telemetry` key and no `OTEL_*` variable other than `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` changes what the GitHub metrics export, where, how or when: their OTLP push is configured by `export.otlp` only. The `github_exporter.*` metrics (`scrape.duration`, `scrape.overruns`, `api.errors`, `otlp.errors`, `api.rate_limit.*`) belong to the GitHub metrics and are always on; the exporter dashboard uses all of them. When the Prometheus bridge is enabled, self-telemetry metrics are also served on `/metrics`.
+Self-telemetry runs on its own OTel SDK providers. No `telemetry` key and no `OTEL_*` variable other than `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` changes what the GitHub metrics export, where, how or when: their OTLP push is configured by `export.otlp` only. The `github_exporter.*` metrics (`scrape.duration`, `scrape.overruns`, `api.errors`, `api.secondary_rate_limits`, `otlp.errors`, `api.rate_limit.*`) belong to the GitHub metrics and are always on; the exporter dashboard uses all of them. When the Prometheus bridge is enabled, self-telemetry metrics are also served on `/metrics`.
 
 Traces, metrics and logs go over OTLP. With no OTLP endpoint in the environment, each signal uses `export.otlp`: same endpoint, protocol, headers (`export.otlp.headers_env` included) and TLS. For `protocol: http` the endpoint is a base URL, and a trailing `/v1/metrics` is dropped, so `https://gw.example.com/otlp` and `https://gw.example.com/otlp/v1/metrics` both send traces to `https://gw.example.com/otlp/v1/traces`. Once `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` is set, that signal is configured from the `OTEL_EXPORTER_OTLP_*` variables only, and `export.otlp` headers are never sent to it.
 
@@ -335,23 +359,24 @@ To get OTLP profiles without the exporter's help, run the [OpenTelemetry eBPF pr
 
 All metric names and attributes are defined in the OTel registry at [`registry/`](registry/).
 
-| Metric                            | Instrument    | Description                                          |
-| --------------------------------- | ------------- | ---------------------------------------------------- |
-| `github.pr.count`                 | UpDownCounter | Open PR count by repo, state (open, draft) and label |
-| `github.pr.age`                   | Gauge         | Age in seconds of the oldest open PR per repo        |
-| `github.pr.created`               | Counter       | PRs created                                          |
-| `github.pr.merged`                | Counter       | PRs merged                                           |
-| `github.pr.closed`                | Counter       | PRs closed without merge                             |
-| `github.pr.close.duration`        | Histogram     | Time from open to close/merge                        |
-| `github.pr.automerged`            | Counter       | PRs merged with no human approval                    |
-| `github.pr.review_status`         | Gauge         | Open PR count by review decision state               |
-| `github.issue.count`              | UpDownCounter | Issue count by repo, state, and label                |
-| `github.issue.age`                | Gauge         | Age in seconds of the oldest open issue per repo     |
-| `renovate.dashboard.queue`        | Gauge         | Renovate dashboard PRs by queue state                |
-| `github_exporter.scrape.duration` | Histogram     | Collection cycle duration in seconds                 |
-| `github_exporter.scrape.overruns` | Counter       | Cycles longer than `collection_interval`             |
-| `github_exporter.api.errors`      | Counter       | GitHub API errors by target and endpoint             |
-| `github_exporter.otlp.errors`     | Counter       | OTLP push failures                                   |
+| Metric                                      | Instrument    | Description                                          |
+| ------------------------------------------- | ------------- | ---------------------------------------------------- |
+| `github.pr.count`                           | UpDownCounter | Open PR count by repo, state (open, draft) and label |
+| `github.pr.age`                             | Gauge         | Age in seconds of the oldest open PR per repo        |
+| `github.pr.created`                         | Counter       | PRs created                                          |
+| `github.pr.merged`                          | Counter       | PRs merged                                           |
+| `github.pr.closed`                          | Counter       | PRs closed without merge                             |
+| `github.pr.close.duration`                  | Histogram     | Time from open to close/merge                        |
+| `github.pr.automerged`                      | Counter       | PRs merged with no human approval                    |
+| `github.pr.review_status`                   | Gauge         | Open PR count by review decision state               |
+| `github.issue.count`                        | UpDownCounter | Issue count by repo, state, and label                |
+| `github.issue.age`                          | Gauge         | Age in seconds of the oldest open issue per repo     |
+| `renovate.dashboard.queue`                  | Gauge         | Renovate dashboard PRs by queue state                |
+| `github_exporter.scrape.duration`           | Histogram     | Collection cycle duration in seconds                 |
+| `github_exporter.scrape.overruns`           | Counter       | Cycles longer than `collection_interval`             |
+| `github_exporter.api.errors`                | Counter       | GitHub API errors by target and endpoint             |
+| `github_exporter.api.secondary_rate_limits` | Counter       | GitHub secondary rate limit responses by target      |
+| `github_exporter.otlp.errors`               | Counter       | OTLP push failures                                   |
 
 ### PR events
 
