@@ -4,8 +4,8 @@ on:
   pull_request:
     paths:
       - charts/**
-      # Embedded in the chart through a symlink.
-      - dashboards/github-activity.json
+      # Embedded in the chart through symlinks.
+      - dashboards/*.json
       - .github/workflows/chart.yml
   # Fires because release.yml creates the release with the gjed-release app
   # token; releases created with GITHUB_TOKEN do not trigger workflows.

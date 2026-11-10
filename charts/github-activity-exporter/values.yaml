@@ -72,14 +72,24 @@ metrics:
 
 # ConfigMap carrying dashboards/github-activity.json for the Grafana dashboard sidecar.
 dashboard:
-  enabled: false
-  labels:
-    grafana_dashboard: "1"
-  annotations: {}
-  # Default of the dashboard's $min_step variable, the Min interval of every
+  # Default of the dashboards' $min_step variable, the Min interval of every
   # panel: at least 2x config.export.interval and 2x config.collection_interval,
   # e.g. 30m for collection_interval: 15m. Empty keeps the generated default (10m).
+  # Applies to every enabled dashboard.
   minStep: ""
+  # GitHub activity KPIs: dashboards/github-activity.json.
+  kpi:
+    enabled: false
+    labels:
+      grafana_dashboard: "1"
+    annotations: {}
+  # The exporter's own metrics (collection cycles, API and OTLP errors, rate
+  # limits, self-telemetry): dashboards/github-activity-exporter.json.
+  exporter:
+    enabled: false
+    labels:
+      grafana_dashboard: "1"
+    annotations: {}
 
 podAnnotations: {}
 podLabels: {}

@@ -1,9 +1,17 @@
-{{- if .Values.dashboard.enabled }}
-{{- $dashboard := .Files.Get "dashboards/github-activity.json" }}
-{{- if not $dashboard }}
-{{- fail "dashboards/github-activity.json is missing from the chart" }}
+{{- range $old, $new := dict "enabled" "dashboard.kpi.enabled" "labels" "dashboard.kpi.labels" "annotations" "dashboard.kpi.annotations" }}
+{{- if hasKey $.Values.dashboard $old }}
+{{- fail (printf "dashboard.%s was renamed to %s" $old $new) }}
 {{- end }}
-{{- with .Values.dashboard.minStep }}
+{{- end }}
+{{- range $key, $d := dict "kpi" (dict "file" "github-activity.json" "suffix" "dashboard") "exporter" (dict "file" "github-activity-exporter.json" "suffix" "exporter-dashboard") }}
+{{- $values := get $.Values.dashboard $key }}
+{{- if $values.enabled }}
+{{- $path := printf "dashboards/%s" $d.file }}
+{{- $dashboard := $.Files.Get $path }}
+{{- if not $dashboard }}
+{{- fail (printf "%s is missing from the chart" $path) }}
+{{- end }}
+{{- with $.Values.dashboard.minStep }}
 {{- $minStep := toString . }}
 {{- if not (regexMatch "^[0-9]+(ms|[smhdwMy])$" $minStep) }}
 {{- fail (printf "dashboard.minStep %q is not a Grafana interval such as 30m" $minStep) }}
@@ -19,23 +27,25 @@
 {{- end }}
 {{- end }}
 {{- if not $found }}
-{{- fail "dashboards/github-activity.json has no min_step variable" }}
+{{- fail (printf "%s has no min_step variable" $path) }}
 {{- end }}
 {{- $dashboard = toJson $parsed }}
 {{- end }}
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "github-activity-exporter.fullname" . }}-dashboard
+  name: {{ include "github-activity-exporter.fullname" $ }}-{{ $d.suffix }}
   labels:
-    {{- include "github-activity-exporter.labels" . | nindent 4 }}
-    {{- with .Values.dashboard.labels }}
+    {{- include "github-activity-exporter.labels" $ | nindent 4 }}
+    {{- with $values.labels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-  {{- with .Values.dashboard.annotations }}
+  {{- with $values.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 data:
-  github-activity.json: {{ $dashboard | toJson }}
+  {{ $d.file }}: {{ $dashboard | toJson }}
+{{- end }}
 {{- end }}

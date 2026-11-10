@@ -1,5 +1,5 @@
 # All PR and issue activity of an org, authenticated as a GitHub App, with the
-# Prometheus bridge, a ServiceMonitor and the Grafana dashboard.
+# Prometheus bridge, a ServiceMonitor and the Grafana dashboards.
 #
 #   kubectl create secret generic github-activity-exporter \
 #     --from-file=app-key.pem=./my-app.private-key.pem \
@@ -43,4 +43,7 @@ metrics:
     enabled: true
 
 dashboard:
-  enabled: true
+  kpi:
+    enabled: true
+  exporter:
+    enabled: true
