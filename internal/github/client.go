@@ -247,8 +247,10 @@ type graphqlRateLimit struct {
 // same transports as Query, and returns the response without decoding it into
 // a struct, so the caller sees which alias each error belongs to. A non-200
 // status or an undecodable body is an error; GraphQL errors are not. When the
-// data holds a rateLimit field, its remaining and resetAt are recorded as the
-// graphql pool state and its cost is logged at debug level.
+// data holds a rateLimit field, its cost is logged at debug level, and its
+// remaining and resetAt are recorded as the graphql pool state when the
+// response carries no X-RateLimit-Remaining header, which rateLimitTransport
+// has already recorded.
 func (c *Client) QueryRaw(ctx context.Context, query string, variables map[string]any) (*RawResponse, error) {
 	body, err := json.Marshal(struct {
 		Query     string         `json:"query"`
@@ -278,7 +280,9 @@ func (c *Client) QueryRaw(ctx context.Context, query string, variables map[strin
 	if raw, ok := out.Data["rateLimit"]; ok {
 		var rl *graphqlRateLimit
 		if err := json.Unmarshal(raw, &rl); err == nil && rl != nil {
-			c.updateRateLimit(sc.AttrGitHubApiRateLimitResourceGraphQL, rl.Remaining, rl.ResetAt)
+			if resp.Header.Get("X-RateLimit-Remaining") == "" {
+				c.updateRateLimit(sc.AttrGitHubApiRateLimitResourceGraphQL, rl.Remaining, rl.ResetAt)
+			}
 			c.logger.Debug("graphql query cost", "cost", rl.Cost, "remaining", rl.Remaining)
 		}
 	}

@@ -79,7 +79,7 @@ Points are not the constraint: 100 repos still cost 1 to 2 points, and 100 repos
 
 ### Rate-limit state
 
-`QueryRaw` decodes `data.rateLimit` and records `remaining` and `resetAt` on the `graphql` pool through the existing `updateRateLimit`, the function the header path calls, so pause and gauges stay in one place. Header and body report the same window; recording both is idempotent. The batch's `cost` is logged at debug level with the batch size, which is how the per-cycle point sum below is measured.
+`QueryRaw` decodes `data.rateLimit` and, when the response carries no `X-RateLimit-Remaining` header, records `remaining` and `resetAt` on the `graphql` pool through the existing `updateRateLimit`, the function the header path calls, so pause and gauges stay in one place. With the header, `rateLimitTransport` has already recorded the same window; recording it again would fire the rate-limit hooks twice per batch, and with concurrent batches (#91) a late body decode could overwrite a newer header snapshot. An error on `rateLimit` (a GHES instance without rate limiting may answer one) is ignored by the batch: it is not attributed to a repo and does not send the batch to per-repo queries. The batch's `cost` is logged at debug level with the batch size, which is how the per-cycle point sum below is measured.
 
 ### Worker-pool readiness
 
