@@ -334,3 +334,100 @@ func TestAuthResult_ConcurrentUnauthorized(t *testing.T) {
 		t.Errorf("401 reports = %d, others = %d, want %d and 0", unauthorized.Load(), ok.Load(), workers)
 	}
 }
+
+// A request waiting on a target pause that another response extends waits
+// for the extension before it is sent.
+func TestSecondaryRateLimit_PauseExtendedDuringWait(t *testing.T) {
+	srv, hits := scriptedServer(t, func(n int, _ *http.Request, w http.ResponseWriter) bool {
+		switch n {
+		case 0:
+			w.Header().Set("Retry-After", "30")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return true
+		case 1:
+			w.Header().Set("Retry-After", "60")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return true
+		}
+		return false
+	})
+	var c *internalgithub.Client
+	s := &sleeps{}
+	var nested atomic.Bool
+	sleep := func(ctx context.Context, d time.Duration) error {
+		_ = s.sleep(ctx, d)
+		// During the first wait, another worker's request extends the pause.
+		if nested.CompareAndSwap(false, true) {
+			if err := restCall(ctx, c); err != nil {
+				t.Errorf("nested call: %v", err)
+			}
+		}
+		return ctx.Err()
+	}
+	c = newPoolClient(t, srv.URL, internalgithub.WithSleep(sleep))
+
+	if err := graphqlCall(context.Background(), c); err != nil {
+		t.Fatalf("graphql call: %v", err)
+	}
+	if got := hits.Load(); got != 4 {
+		t.Errorf("requests = %d, want 4", got)
+	}
+	// Outer 30s, nested 30s, nested 60s, then the outer request waits for
+	// the extension.
+	d := s.all()
+	if len(d) != 4 || !about(d[3], 60*time.Second) {
+		t.Errorf("sleeps = %v, want a last one of about 60s for the outer request", d)
+	}
+}
+
+// A target pause that starts while a request waits on its pool's reset
+// holds the request too.
+func TestSecondaryRateLimit_PauseStartedDuringPoolWait(t *testing.T) {
+	reset := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+	srv, hits := scriptedServer(t, func(n int, _ *http.Request, w http.ResponseWriter) bool {
+		switch n {
+		case 0:
+			// Leaves the graphql pool paused until the reset.
+			w.Header().Set("X-RateLimit-Resource", "graphql")
+			w.Header().Set("X-RateLimit-Remaining", "100")
+			w.Header().Set("X-RateLimit-Reset", reset)
+			_, _ = w.Write([]byte(`{"data":{"viewer":{"login":"me"}}}`))
+			return true
+		case 1:
+			w.Header().Set("Retry-After", "30")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return true
+		}
+		return false
+	})
+	var c *internalgithub.Client
+	s := &sleeps{}
+	var nested atomic.Bool
+	sleep := func(ctx context.Context, d time.Duration) error {
+		_ = s.sleep(ctx, d)
+		// During the pool wait, a core request hits a secondary limit.
+		if nested.CompareAndSwap(false, true) {
+			if err := restCall(ctx, c); err != nil {
+				t.Errorf("nested call: %v", err)
+			}
+		}
+		return ctx.Err()
+	}
+	c = newPoolClient(t, srv.URL, internalgithub.WithSleep(sleep))
+	if err := graphqlCall(context.Background(), c); err != nil {
+		t.Fatalf("first graphql call: %v", err)
+	}
+
+	if err := graphqlCall(context.Background(), c); err != nil {
+		t.Fatalf("graphql call: %v", err)
+	}
+	if got := hits.Load(); got != 4 {
+		t.Errorf("requests = %d, want 4", got)
+	}
+	// Pool reset 1h, nested 30s, then the graphql request waits for the
+	// target pause.
+	d := s.all()
+	if len(d) != 3 || !about(d[0], time.Hour) || !about(d[2], 30*time.Second) {
+		t.Errorf("sleeps = %v, want about [1h 30s 30s]", d)
+	}
+}

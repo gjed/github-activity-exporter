@@ -442,14 +442,22 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 
 // waitIfTargetPaused blocks until a secondary rate limit pause of the
 // target ends, if one is in progress. It holds requests of every pool.
-func (c *Client) waitIfTargetPaused(ctx context.Context) error {
-	c.mu.Lock()
-	until := c.pausedUntil
-	c.mu.Unlock()
-	if d := time.Until(until); d > 0 {
-		return c.sleep(ctx, d)
+// waited is the end of the last pause the request already waited for: a
+// pause extended during the wait is waited for again, one already waited
+// for is not.
+func (c *Client) waitIfTargetPaused(ctx context.Context, waited *time.Time) error {
+	for {
+		c.mu.Lock()
+		until := c.pausedUntil
+		c.mu.Unlock()
+		if time.Until(until) <= 0 || !until.After(*waited) {
+			return nil
+		}
+		if err := c.sleep(ctx, time.Until(until)); err != nil {
+			return err
+		}
+		*waited = until
 	}
-	return nil
 }
 
 // pauseTarget holds every request of the target for d. A pause already in
@@ -555,11 +563,16 @@ type rateLimitTransport struct {
 func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	c := t.client
 	pool := c.classifyPool(req.URL)
+	var waited time.Time
 	for attempt := 1; ; attempt++ {
-		if err := c.waitIfTargetPaused(req.Context()); err != nil {
+		if err := c.waitIfTargetPaused(req.Context(), &waited); err != nil {
 			return nil, err
 		}
 		if err := c.waitIfPaused(req.Context(), pool); err != nil {
+			return nil, err
+		}
+		// A target pause may have started during the pool wait.
+		if err := c.waitIfTargetPaused(req.Context(), &waited); err != nil {
 			return nil, err
 		}
 
