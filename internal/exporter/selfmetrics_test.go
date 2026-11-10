@@ -271,7 +271,8 @@ func TestSelfMetrics_InitAPIErrors_ExportsZero(t *testing.T) {
 				got = append(got, v.AsString())
 			}
 			slices.Sort(got)
-			want := slices.Sorted(slices.Values(sc.AttrGitHubApiEndpointValues))
+			want := sc.AttrGitHubApiEndpointValues()
+			slices.Sort(want)
 			if !slices.Equal(got, want) {
 				t.Fatalf("endpoints = %v, want %v", got, want)
 			}
