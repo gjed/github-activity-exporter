@@ -92,6 +92,7 @@ type DashboardCollector struct {
 	botLogin  string
 	logger    *slog.Logger
 	batchSize int
+	limiter   *Limiter
 
 	// OTel instruments
 	queueGauge      metric.Int64ObservableGauge
@@ -131,17 +132,19 @@ func NewDashboardCollector(
 	botLogin string,
 	meter metric.Meter,
 	logger *slog.Logger,
-	opts ...BatchOption,
+	opts ...CollectorOption,
 ) (*DashboardCollector, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	o := applyOptions(opts)
 
 	c := &DashboardCollector{
 		gql:       gql,
 		botLogin:  botLogin,
 		logger:    logger,
-		batchSize: batchSize(opts),
+		batchSize: o.batchSize,
+		limiter:   o.limiter,
 	}
 
 	var err error
@@ -170,14 +173,17 @@ func NewDashboardCollector(
 func (c *DashboardCollector) Collect(ctx context.Context, target string, repos []discovery.Repo) (*DashboardCollection, error) {
 	coll := &DashboardCollection{}
 
-	for _, batch := range batches(repos, c.batchSize) {
-		issues, errs := c.findBatch(ctx, batch)
+	bs, found, errs := eachBatch(ctx, c.limiter, repos, c.batchSize, func(batch []discovery.Repo) ([]*dashboardNode, []error) {
+		return c.findBatch(ctx, batch)
+	})
+	for b, batch := range bs {
+		issues := found[b]
 		for i, repo := range batch {
-			if errs[i] != nil {
+			if errs[b][i] != nil {
 				c.logger.Error("dashboard collection failed",
 					"target", target,
 					"repo", repo.FullName,
-					"err", errs[i],
+					"err", errs[b][i],
 				)
 				coll.failed = append(coll.failed, repo.FullName)
 				continue

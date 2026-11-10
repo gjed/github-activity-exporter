@@ -28,7 +28,7 @@ func TestDashboardCollectorRunsOnlyWhenEnabled(t *testing.T) {
 		issues := &collector.FixtureIssueClient{}
 		target := config.Target{Name: "tgt", RenovateDashboard: config.RenovateDashboard{Enabled: enabled}}
 
-		dash, err := newDashboardCollector(target, issues, meter, nil)
+		dash, err := newDashboardCollector(target, issues, meter, nil, nil)
 		if err != nil {
 			t.Fatalf("enabled=%v: newDashboardCollector: %v", enabled, err)
 		}
@@ -64,7 +64,7 @@ func TestTargetsShareOneMeter(t *testing.T) {
 
 	for _, name := range []string{"a", "b"} {
 		target := config.Target{Name: name, RenovateDashboard: config.RenovateDashboard{Enabled: true}}
-		dash, err := newDashboardCollector(target, dashboardIssueClient(), meter, nil)
+		dash, err := newDashboardCollector(target, dashboardIssueClient(), meter, nil, nil)
 		if err != nil {
 			t.Fatalf("target %s: newDashboardCollector: %v", name, err)
 		}

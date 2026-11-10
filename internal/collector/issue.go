@@ -81,6 +81,7 @@ type IssueCollector struct {
 	filter    *filter.IssueFilter
 	logger    *slog.Logger
 	batchSize int
+	limiter   *Limiter
 
 	// states is the GraphQL $states variable for filters.issues.states:
 	// nil when unset (every state), empty when no valid state is listed.
@@ -131,17 +132,19 @@ func NewIssueCollector(
 	filterCfg config.IssueFilters,
 	meter metric.Meter,
 	logger *slog.Logger,
-	opts ...BatchOption,
+	opts ...CollectorOption,
 ) (*IssueCollector, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	o := applyOptions(opts)
 
 	c := &IssueCollector{
 		gql:        gql,
 		filter:     filter.NewIssueFilter(filterCfg),
 		logger:     logger,
-		batchSize:  batchSize(opts),
+		batchSize:  o.batchSize,
+		limiter:    o.limiter,
 		states:     issueStates(filterCfg.States),
 		listIssues: len(filterCfg.ExcludeTitleRegexps) > 0,
 	}
@@ -191,17 +194,27 @@ func (c *IssueCollector) Collect(ctx context.Context, target string, repos []dis
 	}
 
 	if c.listIssues || (c.states != nil && len(*c.states) == 0) {
-		for _, repo := range repos {
-			stats, err := c.collectRepo(ctx, target, repo)
-			add(repo, stats, err)
+		// One repo per unit; results are merged in repo order.
+		stats := make([]issueStats, len(repos))
+		errs := make([]error, len(repos))
+		for i := range errs {
+			errs[i] = errNotStarted
+		}
+		c.limiter.each(ctx, len(repos), func(i int) {
+			stats[i], errs[i] = c.collectRepo(ctx, target, repos[i])
+		})
+		for i, repo := range repos {
+			add(repo, stats[i], errs[i])
 		}
 		return coll, nil
 	}
 
-	for _, batch := range batches(repos, c.batchSize) {
-		stats, errs := c.countBatch(ctx, batch)
-		for i, repo := range batch {
-			add(repo, stats[i], errs[i])
+	bs, stats, errs := eachBatch(ctx, c.limiter, repos, c.batchSize, func(batch []discovery.Repo) ([]issueStats, []error) {
+		return c.countBatch(ctx, batch)
+	})
+	for i, batch := range bs {
+		for j, repo := range batch {
+			add(repo, stats[i][j], errs[i][j])
 		}
 	}
 	return coll, nil

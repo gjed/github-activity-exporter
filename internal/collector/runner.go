@@ -312,26 +312,39 @@ func (r *Runner) collect(ctx context.Context) bool {
 		dashColl *DashboardCollection
 	)
 
+	// The collectors run at the same time; their requests share the target's
+	// Limiter. Each goroutine writes only its own collection.
+	var wg sync.WaitGroup
 	if r.collectors.PR != nil {
-		prColl, err = r.collectors.PR.Collect(ctx, r.target, repos, lastCollectedAt, start)
-		if err != nil {
-			r.logger.Error("PR collection failed", "target", r.target, "err", err)
-		}
+		wg.Go(func() {
+			var err error
+			prColl, err = r.collectors.PR.Collect(ctx, r.target, repos, lastCollectedAt, start)
+			if err != nil {
+				r.logger.Error("PR collection failed", "target", r.target, "err", err)
+			}
+		})
 	}
 
 	if r.collectors.Issue != nil {
-		issColl, err = r.collectors.Issue.Collect(ctx, r.target, repos)
-		if err != nil {
-			r.logger.Error("issue collection failed", "target", r.target, "err", err)
-		}
+		wg.Go(func() {
+			var err error
+			issColl, err = r.collectors.Issue.Collect(ctx, r.target, repos)
+			if err != nil {
+				r.logger.Error("issue collection failed", "target", r.target, "err", err)
+			}
+		})
 	}
 
 	if r.collectors.Dashboard != nil {
-		dashColl, err = r.collectors.Dashboard.Collect(ctx, r.target, repos)
-		if err != nil {
-			r.logger.Error("dashboard collection failed", "target", r.target, "err", err)
-		}
+		wg.Go(func() {
+			var err error
+			dashColl, err = r.collectors.Dashboard.Collect(ctx, r.target, repos)
+			if err != nil {
+				r.logger.Error("dashboard collection failed", "target", r.target, "err", err)
+			}
+		})
 	}
+	wg.Wait()
 
 	// Advance lastCollectedAt only for repos whose PR collection succeeded;
 	// failed repos keep their previous timestamp. Repos no longer discovered

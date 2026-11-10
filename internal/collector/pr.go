@@ -69,6 +69,9 @@ type prQuery struct {
 type PRCollectorConfig struct {
 	// LookbackDays caps how far back the event window reaches. Defaults to 30.
 	LookbackDays int
+	// Limiter runs the repos of a cycle concurrently; nil runs them one at
+	// a time. Share one Limiter between the collectors of a target.
+	Limiter *Limiter
 }
 
 // PRCollector fetches PRs via GraphQL and records OTel metrics.
@@ -79,7 +82,8 @@ type PRCollector struct {
 	logger *slog.Logger
 
 	// windows holds each repo's event scan state, keyed by FullName. Only
-	// the Runner goroutine of the collector's target calls Collect.
+	// the Runner goroutine of the collector's target calls Collect, and only
+	// Collect itself reads or writes it, never the per-repo workers.
 	windows map[string]*eventWindow
 
 	// Server-side filter arguments derived from the PR filters; nil means
@@ -322,40 +326,62 @@ func (c *PRCollector) Collect(ctx context.Context, target string, repos []discov
 	coll := &PRCollection{}
 	current := make(map[string]bool, len(repos))
 
-	for _, repo := range repos {
+	// prRepo is one repo's work: its inputs, read from c.windows before the
+	// workers start, and its outcome, written by its worker only.
+	type prRepo struct {
+		since    time.Time
+		ok       bool
+		scanFrom time.Time
+		counted  map[eventKey]time.Time
+
+		stats  prStats
+		events prEvents
+		err    error
+	}
+	work := make([]prRepo, len(repos))
+	for i, repo := range repos {
 		current[repo.FullName] = true
-		since, ok := lastCollectedAt[repo.FullName]
-		scanFrom := since
-		var counted map[eventKey]time.Time
-		if w := c.windows[repo.FullName]; w != nil {
-			counted = w.counted
-			if w.scanFrom.Before(scanFrom) {
-				scanFrom = w.scanFrom
+		w := &work[i]
+		w.since, w.ok = lastCollectedAt[repo.FullName]
+		w.scanFrom = w.since
+		if win := c.windows[repo.FullName]; win != nil {
+			w.counted = win.counted
+			if win.scanFrom.Before(w.scanFrom) {
+				w.scanFrom = win.scanFrom
 			}
 		}
-		if scanFrom.Before(lookbackCutoff) {
-			scanFrom = lookbackCutoff
+		if w.scanFrom.Before(lookbackCutoff) {
+			w.scanFrom = lookbackCutoff
 		}
+		w.err = errNotStarted
+	}
 
-		stats, events, err := c.collectRepo(ctx, repo, ok, scanFrom, until, counted)
-		if err != nil {
+	c.cfg.Limiter.each(ctx, len(repos), func(i int) {
+		w := &work[i]
+		w.stats, w.events, w.err = c.collectRepo(ctx, repos[i], w.ok, w.scanFrom, until, w.counted)
+	})
+
+	// Merge in repo order, as a serial loop would.
+	for i, repo := range repos {
+		w := &work[i]
+		if w.err != nil {
 			c.logger.Error("PR collection failed for repo",
 				"target", target,
 				"repo", repo.FullName,
-				"err", err,
+				"err", w.err,
 			)
 			coll.failed = append(coll.failed, repo.FullName)
 			continue
 		}
-		c.recordEvents(ctx, target, repo, events)
-		if ok {
-			c.windows[repo.FullName] = nextWindow(since, counted, events.counted)
+		c.recordEvents(ctx, target, repo, w.events)
+		if w.ok {
+			c.windows[repo.FullName] = nextWindow(w.since, w.counted, w.events.counted)
 		}
 		coll.results = append(coll.results, CollectResult{
 			target: target,
 			org:    repo.Owner,
 			repo:   repo.Name,
-			stats:  stats,
+			stats:  w.stats,
 		})
 	}
 
