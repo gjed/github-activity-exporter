@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -112,5 +113,33 @@ func TestQueryRaw_RateLimitFromBody(t *testing.T) {
 	defer cancel()
 	if _, err := c.QueryRaw(ctx, "query { x }", nil); err == nil {
 		t.Error("second QueryRaw: err = nil, want the context deadline while the pool is paused")
+	}
+}
+
+// With X-RateLimit headers, the transport records the pool state and the body
+// does not record it again.
+func TestQueryRaw_RateLimitHeadersWin(t *testing.T) {
+	reset := time.Now().Add(time.Hour).Unix()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Resource", "graphql")
+		w.Header().Set("X-RateLimit-Remaining", "4000")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
+		_, _ = w.Write([]byte(`{"data": {"rateLimit": {"cost": 1, "remaining": 3999, "resetAt": "2030-01-01T00:00:00Z"}}}`))
+	}))
+	defer srv.Close()
+
+	var got []internalgithub.RateLimitState
+	c, err := internalgithub.NewClient(&mockAuthenticator{token: "tok"},
+		internalgithub.WithBaseURL(srv.URL),
+		internalgithub.WithRateLimitHook(func(s internalgithub.RateLimitState) { got = append(got, s) }),
+	)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if _, err := c.QueryRaw(context.Background(), "query { rateLimit { cost remaining resetAt } }", nil); err != nil {
+		t.Fatalf("QueryRaw: %v", err)
+	}
+	if len(got) != 1 || got[0].Remaining != 4000 || got[0].ResetAt.Unix() != reset {
+		t.Errorf("hook states = %+v, want one state from the headers (4000)", got)
 	}
 }

@@ -68,12 +68,17 @@ Each repo of a batch SHALL be addressed by an alias generated from its position 
 
 ### Requirement: Rate-limit state from batched queries
 
-Each batched query SHALL read `rateLimit { cost remaining resetAt }` and record `remaining` and `resetAt` as the target's `graphql` pool state, the state that pauses requests and drives `github_exporter.api.rate_limit.*`.
+Each batched query SHALL read `rateLimit { cost remaining resetAt }`. When the response carries no `X-RateLimit-Remaining` header, `remaining` and `resetAt` SHALL be recorded as the target's `graphql` pool state, the state that pauses requests and drives `github_exporter.api.rate_limit.*`; otherwise the header values, recorded for every GraphQL response, are the pool state.
 
-#### Scenario: Pool state after a batch
+#### Scenario: Pool state after a batch without rate-limit headers
 
-- **WHEN** a batched query returns `rateLimit { remaining: 150 }`
+- **WHEN** a batched query returns `rateLimit { remaining: 150 }` and no `X-RateLimit-*` headers
 - **THEN** the target's `graphql` pool is paused until `resetAt` and `github_exporter.api.rate_limit.remaining{github.api.rate_limit.resource="graphql"}` reports 150
+
+#### Scenario: Pool state after a batch with rate-limit headers
+
+- **WHEN** a batched query returns `X-RateLimit-Remaining: 4000` and `rateLimit { remaining: 4000 }`
+- **THEN** the `graphql` pool state is recorded once, from the headers
 
 ### Requirement: Batches usable concurrently
 
