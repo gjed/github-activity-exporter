@@ -20,9 +20,9 @@ type Config struct {
 	// Collection holds the collection defaults of every target.
 	Collection Collection `mapstructure:"collection"`
 	Export     Export     `mapstructure:"export"`
-	Health             Health        `mapstructure:"health"`
-	Telemetry          Telemetry     `mapstructure:"telemetry"`
-	Targets            []Target      `mapstructure:"targets"`
+	Health     Health     `mapstructure:"health"`
+	Telemetry  Telemetry  `mapstructure:"telemetry"`
+	Targets    []Target   `mapstructure:"targets"`
 }
 
 // Telemetry holds the self-telemetry toggles: telemetry about the exporter
