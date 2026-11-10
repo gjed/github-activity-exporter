@@ -56,7 +56,7 @@
 {%- for metric in ctx -%}
 {%- if metric.name is startingwith("github_exporter.") and metric.name not in st.used %}{{ dashboard_metric_without_panel(metric.name) }}{% endif -%}
 {%- endfor %}
-{% call m.tail("GitHub Activity Exporter", "github-activity-exporter-internals", ["github", "exporter", "generated"]) -%}
+{% call m.tail("GitHub Activity Exporter internals", "github-activity-exporter-internals", ["github", "exporter", "generated"]) -%}
 {#- job and exporter.target resolve from the collection cycles, recorded for
     every target whatever its collectors and the self-telemetry settings. -#}
 {{- m.check_metric(ctx, "github_exporter.scrape.duration") }}

@@ -203,7 +203,7 @@
   "time": { "from": "now-24h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
-  "title": "GitHub Activity Exporter",
+  "title": "GitHub Activity Exporter internals",
   "uid": "github-activity-exporter-internals",
   "version": 1
 }
