@@ -70,7 +70,7 @@ metrics:
     interval: ""
     scrapeTimeout: ""
 
-# ConfigMap carrying dashboards/github-activity.json for the Grafana dashboard sidecar.
+# ConfigMaps carrying the generated dashboards for the Grafana dashboard sidecar.
 dashboard:
   # Default of the dashboards' $min_step variable, the Min interval of every
   # panel: at least 2x config.export.interval and 2x config.collection_interval,
