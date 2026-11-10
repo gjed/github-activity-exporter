@@ -58,7 +58,7 @@ A `collector.Limiter` (buffered channel semaphore) is created per target in `mai
 
 The unit is a repo (PR collector, issue listing) or a batch (issue counts, dashboard lookup). A unit's requests stay serial (pages need the previous cursor; per-repo fallbacks follow their batch), so in-flight collection requests per target are bounded by `concurrency`. Discovery refresh and App token exchange run outside the limiter, as today.
 
-Plumbing: `BatchOption func(*int)` becomes `CollectorOption func(*collectorOptions)` holding batch size and limiter; `WithGraphQLBatchSize` keeps its name, `WithLimiter` is added; `PRCollectorConfig` gets a `Limiter` field.
+Plumbing: `BatchOption func(*int)` becomes `Option func(*collectorOptions)` holding batch size and limiter; `WithGraphQLBatchSize` keeps its name, `WithLimiter` is added; `PRCollectorConfig` gets a `Limiter` field.
 
 Alternatives: a limiter owned by the Runner and passed to `Collect` changes every `Collect` call site in tests for no behavioural gain; a limiter in the context hides a dependency.
 

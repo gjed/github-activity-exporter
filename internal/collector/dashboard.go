@@ -132,7 +132,7 @@ func NewDashboardCollector(
 	botLogin string,
 	meter metric.Meter,
 	logger *slog.Logger,
-	opts ...CollectorOption,
+	opts ...Option,
 ) (*DashboardCollector, error) {
 	if logger == nil {
 		logger = slog.Default()

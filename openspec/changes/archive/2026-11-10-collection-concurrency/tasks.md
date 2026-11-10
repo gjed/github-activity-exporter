@@ -7,7 +7,7 @@
 ## 2. Limiter and collectors
 
 - [x] 2.1 Add `collector.Limiter` with `each(ctx, n, fn)`; verify with unit tests that in-flight work never exceeds the limit across concurrent callers and that cancellation starts no new work
-- [x] 2.2 Replace `BatchOption` with `CollectorOption` (batch size and limiter), add `WithLimiter`, add `PRCollectorConfig.Limiter`
+- [x] 2.2 Replace `BatchOption` with `Option` (batch size and limiter), add `WithLimiter`, add `PRCollectorConfig.Limiter`
 - [x] 2.3 PR collector: read per-repo inputs before dispatch, run repos through the limiter into slots, merge results, failures, events and windows in repo order
 - [x] 2.4 Issue and dashboard collectors: run batches (and title-filter repos) through the limiter into slots, merge in order
 - [x] 2.5 Runner: run the three collectors concurrently and wait for all; verify `go test -race ./internal/collector/...` and a test that runs the same multi-cycle fixture sequence (events, failures, removed repos, batches with fallbacks) at concurrency 1 and 8 and compares the exported metrics from a ManualReader
