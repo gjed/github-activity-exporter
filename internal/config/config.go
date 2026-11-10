@@ -17,7 +17,9 @@ type Config struct {
 	// CollectionInterval is the period between the starts of consecutive
 	// collection cycles of a target. Defaults to 5m.
 	CollectionInterval time.Duration `mapstructure:"collection_interval"`
-	Export             Export        `mapstructure:"export"`
+	// Collection holds the collection defaults of every target.
+	Collection Collection `mapstructure:"collection"`
+	Export     Export     `mapstructure:"export"`
 	Health             Health        `mapstructure:"health"`
 	Telemetry          Telemetry     `mapstructure:"telemetry"`
 	Targets            []Target      `mapstructure:"targets"`
@@ -108,6 +110,29 @@ type Health struct {
 	UnauthorizedCycles int `mapstructure:"unauthorized_cycles"`
 }
 
+// Collection holds the top-level collection settings.
+type Collection struct {
+	// Concurrency is the default of TargetCollection.Concurrency.
+	// Defaults to DefaultConcurrency.
+	Concurrency int `mapstructure:"concurrency"`
+}
+
+// TargetCollection holds the collection settings of one target.
+type TargetCollection struct {
+	// Concurrency is the number of units of collection work (a repo or a
+	// batch of repos) the target runs at once, 1 to MaxConcurrency. nil
+	// in the file; Load sets it to the top-level collection.concurrency.
+	Concurrency *int `mapstructure:"concurrency"`
+}
+
+// DefaultConcurrency is the collection concurrency when neither the top
+// level nor a target sets one, and MaxConcurrency the largest accepted
+// value: GitHub's documented limit of concurrent requests.
+const (
+	DefaultConcurrency = 4
+	MaxConcurrency     = 100
+)
+
 // DefaultBaseURL is the GitHub REST API root used when a target sets no base_url.
 const DefaultBaseURL = "https://api.github.com"
 
@@ -138,6 +163,17 @@ type Target struct {
 	// Dashboard queries read per GraphQL request, 1 to MaxGraphQLBatchSize.
 	// nil means DefaultGraphQLBatchSize; see BatchSize.
 	GraphQLBatchSize *int `mapstructure:"graphql_batch_size"`
+	// Collection overrides the top-level collection settings.
+	Collection TargetCollection `mapstructure:"collection"`
+}
+
+// Concurrency returns Collection.Concurrency, or DefaultConcurrency when
+// unset. Load always sets it.
+func (t Target) Concurrency() int {
+	if t.Collection.Concurrency == nil {
+		return DefaultConcurrency
+	}
+	return *t.Collection.Concurrency
 }
 
 // BatchSize returns GraphQLBatchSize, or DefaultGraphQLBatchSize when unset.
@@ -238,6 +274,7 @@ func Load(path string) (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	v.SetDefault("collection_interval", "5m")
+	v.SetDefault("collection.concurrency", DefaultConcurrency)
 	v.SetDefault("export.interval", "60s")
 	v.SetDefault("export.otlp.protocol", "http")
 	v.SetDefault("export.prometheus.listen_address", ":9090")
@@ -286,6 +323,13 @@ func Load(path string) (*Config, error) {
 
 	if err := validate(&cfg); err != nil {
 		return nil, err
+	}
+
+	for i := range cfg.Targets {
+		if cfg.Targets[i].Collection.Concurrency == nil {
+			n := cfg.Collection.Concurrency
+			cfg.Targets[i].Collection.Concurrency = &n
+		}
 	}
 
 	if cfg.Health.StallTimeout == 0 {
@@ -405,6 +449,9 @@ func validate(cfg *Config) error {
 	if err := validateHealth(cfg); err != nil {
 		return err
 	}
+	if n := cfg.Collection.Concurrency; n < 1 || n > MaxConcurrency {
+		return fmt.Errorf("collection.concurrency must be between 1 and %d, got %d", MaxConcurrency, n)
+	}
 
 	names := make(map[string]bool)
 	for _, t := range cfg.Targets {
@@ -430,6 +477,10 @@ func validate(cfg *Config) error {
 
 		if n := t.BatchSize(); n < 1 || n > MaxGraphQLBatchSize {
 			return fmt.Errorf("target %q: graphql_batch_size must be between 1 and %d, got %d", t.Name, MaxGraphQLBatchSize, n)
+		}
+
+		if p := t.Collection.Concurrency; p != nil && (*p < 1 || *p > MaxConcurrency) {
+			return fmt.Errorf("target %q: collection.concurrency must be between 1 and %d, got %d", t.Name, MaxConcurrency, *p)
 		}
 	}
 	return nil
