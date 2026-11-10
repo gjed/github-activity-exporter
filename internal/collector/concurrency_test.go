@@ -240,4 +240,3 @@ func TestRunner_SharedLimiterAcrossCollectors(t *testing.T) {
 		}
 	}
 }
-
