@@ -1,271 +1,67 @@
 {#-
-  Grafana dashboard generated from the Weaver registry.
-
-  Every query is built from a metric's annotations.prometheus.name and
-  annotations.prometheus.type (the naming contract, see registry/signals.yaml):
-    counter   -> rate()
-    histogram -> histogram_quantile() over <name>_bucket
-    gauge     -> the raw series, aggregated
-  Names and UTF-8 label names are quoted (Prometheus 3.x / Mimir UTF-8
-  selector syntax). Legends use bare label names: Grafana looks up the text
-  between {{ }} as the label key.
-
-  A panel that references a metric the registry does not define, a label the
-  metric does not declare, or the wrong Prometheus type calls an undefined
-  function, which fails `make generate`.
-  SIMPLIFIED: minijinja has no raise. Weaver reports "value of type undefined
-  is not callable" with the template line of the failed check
-  (dashboard_metric_not_in_registry, dashboard_label_not_on_metric or
-  dashboard_wrong_prometheus_type), not the metric name.
+  KPI dashboard (dashboards/github-activity.json): the GitHub data only, the
+  github.* and renovate.* metrics. The exporter's own metrics are on the
+  exporter dashboard (exporter.json.j2). Macros: _macros.j2.
 -#}
-{%- set pos = namespace(x=0, y=0, id=1) -%}
-
-{#- min_step: default of the constant variable $min_step, every panel's Min
-    interval; $__rate_interval is at least $min_step + the data source scrape
-    interval. It must be at least 2x export.interval (default 60s), so a
-    window holds two pushes and rate() has a value, and 2x collection_interval
-    (default 5m), so a window holds a cycle and histogram_quantile() has an
-    observation. Raise the variable with either setting. -#}
-{%- set min_step = "10m" -%}
-
-{#- check_metric(name): fails generation unless the registry defines exactly one metric with that name. -#}
-{%- macro check_metric(name) -%}
-{%- if (ctx | selectattr("name", "equalto", name) | list | length) != 1 -%}{{ dashboard_metric_not_in_registry(name) }}{%- endif -%}
-{%- endmacro -%}
-
-{#- sel(m, suffix, matchers, per_target): UTF-8 selector filtered by the dashboard
-    variables. The org/repo filters are added only when the metric declares the
-    attribute; per_target=false drops the $target filter. -#}
-{%- macro sel(m, suffix="", matchers=[], per_target=true) -%}
-{%- set attrs = m.attributes | map(attribute="key") | list -%}
-{\"{{ m.annotations.prometheus.name }}{{ suffix }}\", job=~\"$job\"
-{%- if per_target %}, \"exporter.target\"=~\"$target\"{% endif -%}
-{%- if "github.org" in attrs %}, \"github.org\"=~\"$org\"{% endif -%}
-{%- if "github.repo" in attrs %}, \"github.repo\"=~\"$repo\"{% endif -%}
-{%- for l, op, v in matchers -%}
-{%- if l not in attrs %}{{ dashboard_label_not_on_metric(l) }}{% endif -%}
-, \"{{ l }}\"{{ op }}\"{{ v }}\"
-{%- endfor -%}
-}
-{%- endmacro -%}
-
-{%- macro by_clause(m, labels) -%}
-{%- set attrs = m.attributes | map(attribute="key") | list -%}
-{%- for l in labels -%}
-{%- if l not in attrs and l != "le" %}{{ dashboard_label_not_on_metric(l) }}{% endif -%}
-{%- if loop.first %} by ({% endif -%}
-{%- if l == "le" %}le{% else %}\"{{ l }}\"{% endif -%}
-{%- if loop.last %}){% else %}, {% endif -%}
-{%- endfor -%}
-{%- endmacro -%}
-
-{#- expr(name, shape, ...): the PromQL for one target, shape checked against
-    annotations.prometheus.type.
-      rate:     counter,   sum by (...) (rate(...)) * scale
-      quantile: histogram, histogram_quantile(q, sum by (le, ...) (rate(<name>_bucket)))
-      sum/max/min: gauge,  agg by (...) (last_over_time(...)) + offset
-    Gauges go through last_over_time so a series does not go stale between
-    pushes that are one export.interval apart. -#}
-{%- macro expr(name, shape, by=[], q="0.5", matchers=[], scale="", offset="", per_target=true) -%}
-{{- check_metric(name) -}}
-{%- set m = ctx | selectattr("name", "equalto", name) | first -%}
-{%- set type = m.annotations.prometheus.type -%}
-{%- if shape == "rate" -%}
-{%- if type != "counter" %}{{ dashboard_wrong_prometheus_type(name) }}{% endif -%}
-sum{{ by_clause(m, by) }} (rate({{ sel(m, "", matchers, per_target) }}[$__rate_interval])){{ scale }}
-{%- elif shape == "quantile" -%}
-{%- if type != "histogram" %}{{ dashboard_wrong_prometheus_type(name) }}{% endif -%}
-histogram_quantile({{ q }}, sum{{ by_clause(m, ["le"] + by) }} (rate({{ sel(m, "_bucket", matchers, per_target) }}[$__rate_interval])))
-{%- else -%}
-{%- if type != "gauge" %}{{ dashboard_wrong_prometheus_type(name) }}{% endif -%}
-{{ shape }}{{ by_clause(m, by) }} (last_over_time({{ sel(m, "", matchers, per_target) }}[$__rate_interval])){{ offset }}
-{%- endif -%}
-{%- endmacro -%}
-
-{#- brief(name or [names]): the metric briefs, joined, as a JSON string. -#}
-{%- macro brief(names) -%}
-{%- set names = [names] if names is string else names -%}
-{%- set out = namespace(briefs=[]) -%}
-{%- for name in names -%}
-{{- check_metric(name) -}}
-{%- set out.briefs = out.briefs + [(ctx | selectattr("name", "equalto", name) | first).brief | trim] -%}
-{%- endfor -%}
-{{- out.briefs | join(" ") | tojson -}}
-{%- endmacro -%}
-
-{%- macro target(ref, e, legend) -%}
-{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "{{ e }}", "legendFormat": {{ legend | tojson }}, "range": true, "refId": "{{ ref }}" }
-{%- endmacro -%}
-
-{#- row(title): a full-width row; starts a new grid line. -#}
-{%- macro row(title) -%}
-{%- if pos.x > 0 %}{% set pos.y = pos.y + 8 %}{% set pos.x = 0 %}{% endif -%}
-    {% if pos.id > 1 %},{% endif %}{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": {{ pos.y }} }, "id": {{ pos.id }}, "panels": [], "title": {{ title | tojson }}, "type": "row" }
-{%- set pos.y = pos.y + 1 -%}
-{%- set pos.id = pos.id + 1 -%}
-{%- endmacro -%}
-
-{#- panel(...): a 12x8 time series panel; caller() renders the targets. -#}
-{%- macro panel(title, description, unit) -%}
-    ,{
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": {{ description }},
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "{{ unit }}" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": {{ pos.x }}, "y": {{ pos.y }} },
-      "id": {{ pos.id }},
-      "interval": "$min_step",
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [
-        {{ caller() }}
-      ],
-      "title": {{ title | tojson }},
-      "type": "timeseries"
-    }
-{%- set pos.id = pos.id + 1 -%}
-{%- if pos.x == 0 %}{% set pos.x = 12 %}{% else %}{% set pos.x = 0 %}{% set pos.y = pos.y + 8 %}{% endif -%}
-{%- endmacro -%}
-
-{#- variable(name, label, selector, attr): a chained label-values query variable. -#}
-{%- macro variable(name, label, selector, attr) -%}
-{%- set q = "label_values(" ~ selector ~ ", " ~ attr ~ ")" -%}
-      {
-        "allValue": ".*",
-        "current": {},
-        "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "definition": {{ q | tojson }},
-        "includeAll": true,
-        "label": {{ label | tojson }},
-        "multi": true,
-        "name": "{{ name }}",
-        "options": [],
-        "query": { "qryType": 5, "query": {{ q | tojson }}, "refId": "PrometheusVariableQueryEditor-VariableQuery" },
-        "refresh": 2,
-        "regex": "",
-        "sort": 1,
-        "type": "query"
-      }
-{%- endmacro -%}
-
+{%- import "_macros.j2" as m -%}
+{%- set st = namespace(x=0, y=0, id=1, used=[]) -%}
 {%- set per_hour = " * 3600" -%}
 {%- set repo = ["github.org", "github.repo"] -%}
-{
-  "__inputs": [],
-  "__requires": [
-    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "11.0.0" },
-    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
-  ],
-  "annotations": { "list": [] },
-  "description": "Generated by OTel Weaver from registry/ (make generate). Queries use the UTF-8 names declared in annotations.prometheus; the backend must keep OTLP names as sent (translation strategy NoTranslation).",
-  "editable": true,
-  "graphTooltip": 1,
-  "id": null,
-  "links": [],
-  "panels": [
-{{ row("Pull requests") }}
-{% call panel("PRs created, merged and closed per hour", brief(["github.pr.created", "github.pr.merged", "github.pr.closed"]), "short") %}
-{{- target("A", expr("github.pr.created", "rate", scale=per_hour), "created") }},
-        {{ target("B", expr("github.pr.merged", "rate", scale=per_hour), "merged") }},
-        {{ target("C", expr("github.pr.closed", "rate", scale=per_hour), "closed") -}}
+{{ m.head() }}
+{{ m.row(st, "Pull requests") }}
+{% call m.panel(st, "PRs created, merged and closed per hour", m.brief(ctx, ["github.pr.created", "github.pr.merged", "github.pr.closed"]), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github.pr.created", "rate", scale=per_hour), "created") }},
+        {{ m.target("B", m.expr(ctx, st, "github.pr.merged", "rate", scale=per_hour), "merged") }},
+        {{ m.target("C", m.expr(ctx, st, "github.pr.closed", "rate", scale=per_hour), "closed") -}}
 {% endcall %}
-{% call panel("PRs created, merged and closed per hour by repo", brief(["github.pr.created", "github.pr.merged", "github.pr.closed"]), "short") %}
-{{- target("A", expr("github.pr.created", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}} created") }},
-        {{ target("B", expr("github.pr.merged", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}} merged") }},
-        {{ target("C", expr("github.pr.closed", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}} closed") -}}
+{% call m.panel(st, "PRs created, merged and closed per hour by repo", m.brief(ctx, ["github.pr.created", "github.pr.merged", "github.pr.closed"]), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github.pr.created", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}} created") }},
+        {{ m.target("B", m.expr(ctx, st, "github.pr.merged", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}} merged") }},
+        {{ m.target("C", m.expr(ctx, st, "github.pr.closed", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}} closed") -}}
 {% endcall %}
-{% call panel("Open PRs by state", brief("github.pr.count"), "short") %}
-{{- target("A", expr("github.pr.count", "sum", by=["github.pr.state"], matchers=[["github.pr.label", "=", ""]]), "{{github.pr.state}}") -}}
+{% call m.panel(st, "Open PRs by state", m.brief(ctx, "github.pr.count"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github.pr.count", "sum", by=["github.pr.state"], matchers=[["github.pr.label", "=", ""]]), "{{github.pr.state}}") -}}
 {% endcall %}
-{% call panel("Open PRs by review status", brief("github.pr.review_status"), "short") %}
-{{- target("A", expr("github.pr.review_status", "sum", by=["github.pr.review_status"]), "{{github.pr.review_status}}") -}}
+{% call m.panel(st, "Open PRs by review status", m.brief(ctx, "github.pr.review_status"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github.pr.review_status", "sum", by=["github.pr.review_status"]), "{{github.pr.review_status}}") -}}
 {% endcall %}
-{% call panel("Oldest open PR age by repo", brief("github.pr.age"), "s") %}
-{{- target("A", expr("github.pr.age", "max", by=repo), "{{github.org}}/{{github.repo}}") -}}
+{% call m.panel(st, "Oldest open PR age by repo", m.brief(ctx, "github.pr.age"), "s") %}
+{{- m.target("A", m.expr(ctx, st, "github.pr.age", "max", by=repo), "{{github.org}}/{{github.repo}}") -}}
 {% endcall %}
-{% call panel("PR close duration", brief("github.pr.close.duration"), "s") %}
-{{- target("A", expr("github.pr.close.duration", "quantile", q="0.5"), "p50") }},
-        {{ target("B", expr("github.pr.close.duration", "quantile", q="0.9"), "p90") -}}
+{% call m.panel(st, "PR close duration", m.brief(ctx, "github.pr.close.duration"), "s") %}
+{{- m.target("A", m.expr(ctx, st, "github.pr.close.duration", "quantile", q="0.5"), "p50") }},
+        {{ m.target("B", m.expr(ctx, st, "github.pr.close.duration", "quantile", q="0.9"), "p90") -}}
 {% endcall %}
-{% call panel("PRs automerged per hour", brief("github.pr.automerged"), "short") %}
-{{- target("A", expr("github.pr.automerged", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}}") -}}
+{% call m.panel(st, "PRs automerged per hour", m.brief(ctx, "github.pr.automerged"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github.pr.automerged", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}}") -}}
 {% endcall %}
-{{ row("Issues") }}
-{% call panel("Issues by state", brief("github.issue.count"), "short") %}
-{{- target("A", expr("github.issue.count", "sum", by=["github.issue.state"], matchers=[["github.issue.state", "!=", ""]]), "{{github.issue.state}}") -}}
+{{ m.row(st, "Issues") }}
+{% call m.panel(st, "Issues by state", m.brief(ctx, "github.issue.count"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github.issue.count", "sum", by=["github.issue.state"], matchers=[["github.issue.state", "!=", ""]]), "{{github.issue.state}}") -}}
 {% endcall %}
-{% call panel("Oldest open issue age by repo", brief("github.issue.age"), "s") %}
-{{- target("A", expr("github.issue.age", "max", by=repo), "{{github.org}}/{{github.repo}}") -}}
+{% call m.panel(st, "Oldest open issue age by repo", m.brief(ctx, "github.issue.age"), "s") %}
+{{- m.target("A", m.expr(ctx, st, "github.issue.age", "max", by=repo), "{{github.org}}/{{github.repo}}") -}}
 {% endcall %}
-{{ row("GitHub API") }}
-{% call panel("Rate limit remaining by pool", brief("github_exporter.api.rate_limit.remaining"), "short") %}
-{{- target("A", expr("github_exporter.api.rate_limit.remaining", "min", by=["exporter.target", "github.api.rate_limit.resource"]), "{{exporter.target}} {{github.api.rate_limit.resource}}") -}}
+{{ m.row(st, "Dependency Dashboard") }}
+{% call m.panel(st, "Renovate queue by section", m.brief(ctx, "renovate.dashboard.queue"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "renovate.dashboard.queue", "sum", by=["github.org", "github.repo", "renovate.dashboard.section"]), "{{github.org}}/{{github.repo}} {{renovate.dashboard.section}}") -}}
 {% endcall %}
-{% call panel("Time until rate limit reset by pool", brief("github_exporter.api.rate_limit.reset"), "s") %}
-{{- target("A", expr("github_exporter.api.rate_limit.reset", "max", by=["exporter.target", "github.api.rate_limit.resource"], offset=" - time()"), "{{exporter.target}} {{github.api.rate_limit.resource}}") -}}
+{% call m.panel(st, "Dependency Dashboard parse errors", m.brief(ctx, "renovate.dashboard.parse_error"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "renovate.dashboard.parse_error", "max", by=repo), "{{github.org}}/{{github.repo}}") -}}
 {% endcall %}
-{{ row("Exporter self-metrics") }}
-{% call panel("Collection cycle duration", brief("github_exporter.scrape.duration"), "s") %}
-{{- target("A", expr("github_exporter.scrape.duration", "quantile", by=["exporter.target"], q="0.5"), "{{exporter.target}} p50") }},
-        {{ target("B", expr("github_exporter.scrape.duration", "quantile", by=["exporter.target"], q="0.9"), "{{exporter.target}} p90") -}}
+{#- Scope: the KPI dashboard queries the GitHub data only. -#}
+{%- for name in st.used -%}
+{%- if not (name is startingwith("github.") or name is startingwith("renovate.")) %}{{ dashboard_metric_out_of_scope(name) }}{% endif -%}
+{%- endfor %}
+{% call m.tail("GitHub Activity", "github-activity-exporter", ["github", "renovate", "generated"]) -%}
+{#- job and exporter.target resolve from every series this dashboard queries,
+    never from a self-metric: a target is listed as soon as any panel has data
+    for it, whichever collectors it enables. Prometheus derives job from
+    service.namespace/service.name; the exporter's service.name is
+    github-activity-exporter. -#}
+{%- set series = '__name__=~"' ~ m.series_regex(ctx, st.used) ~ '"' -%}
+{{ m.variable("job", "Job", "{" ~ series ~ ', job=~"(.+/)?github-activity-exporter"}', "job") }},
+{{ m.variable("target", "exporter.target", "{" ~ series ~ ', job=~"$job"}', "exporter.target") }},
+{{ m.variable("org", "github.org", '{job=~"$job", "exporter.target"=~"$target", "github.org"!=""}', "github.org") }},
+{{ m.variable("repo", "github.repo", '{job=~"$job", "exporter.target"=~"$target", "github.org"=~"$org", "github.repo"!=""}', "github.repo") -}}
 {% endcall %}
-{% call panel("GitHub API errors per hour", brief("github_exporter.api.errors"), "short") %}
-{{- target("A", expr("github_exporter.api.errors", "rate", by=["exporter.target", "github.api.endpoint"], scale=per_hour), "{{exporter.target}} {{github.api.endpoint}}") -}}
-{% endcall %}
-{#- One OTLP exporter pushes for every target; its errors carry the exporter's
-    own exporter.target ("default"), not a configured target, so $target does
-    not apply. -#}
-{% call panel("OTLP push errors per hour", brief("github_exporter.otlp.errors"), "short") %}
-{{- target("A", expr("github_exporter.otlp.errors", "rate", by=["exporter.target"], scale=per_hour, per_target=false), "{{exporter.target}}") -}}
-{% endcall %}
-{{ row("Dependency Dashboard") }}
-{% call panel("Renovate queue by section", brief("renovate.dashboard.queue"), "short") %}
-{{- target("A", expr("renovate.dashboard.queue", "sum", by=["github.org", "github.repo", "renovate.dashboard.section"]), "{{github.org}}/{{github.repo}} {{renovate.dashboard.section}}") -}}
-{% endcall %}
-{% call panel("Dependency Dashboard parse errors", brief("renovate.dashboard.parse_error"), "short") %}
-{{- target("A", expr("renovate.dashboard.parse_error", "max", by=repo), "{{github.org}}/{{github.repo}}") -}}
-{% endcall %}
-{#- Exporter internals: self-telemetry metrics (#74), recorded only when
-    telemetry.enabled and telemetry.metrics.enabled are true. They describe the
-    process, not a target, so $target does not apply. -#}
-{{ row("Exporter internals") }}
-{% call panel("Go memory", brief(["go.memory.used", "go.memory.gc.goal", "go.memory.limit"]), "bytes") %}
-{{- target("A", expr("go.memory.used", "sum", by=["go.memory.type"], per_target=false), "used {{go.memory.type}}") }},
-        {{ target("B", expr("go.memory.gc.goal", "sum", per_target=false), "heap goal") }},
-        {{ target("C", expr("go.memory.limit", "max", per_target=false), "limit") -}}
-{% endcall %}
-{% call panel("Go heap allocation rate", brief("go.memory.allocated"), "Bps") %}
-{{- target("A", expr("go.memory.allocated", "rate", per_target=false), "allocated") -}}
-{% endcall %}
-{% call panel("Goroutines", brief("go.goroutine.count"), "short") %}
-{{- target("A", expr("go.goroutine.count", "sum", per_target=false), "goroutines") -}}
-{% endcall %}
-{% call panel("GitHub API request latency", brief("http.client.request.duration"), "s") %}
-{{- target("A", expr("http.client.request.duration", "quantile", by=["url.template", "http.response.status_code"], q="0.5", per_target=false), "{{url.template}} {{http.response.status_code}} p50") }},
-        {{ target("B", expr("http.client.request.duration", "quantile", by=["url.template", "http.response.status_code"], q="0.9", per_target=false), "{{url.template}} {{http.response.status_code}} p90") -}}
-{% endcall %}
-  ],
-  "refresh": "1m",
-  "schemaVersion": 39,
-  "tags": ["github", "renovate", "generated"],
-  "templating": {
-    "list": [
-      { "current": {}, "includeAll": false, "label": "Data source", "name": "datasource", "options": [], "query": "prometheus", "refresh": 1, "regex": "", "type": "datasource" },
-{#- job: Prometheus derives job from service.namespace/service.name; the
-    exporter's service.name is github-activity-exporter. -#}
-{{- check_metric("github_exporter.scrape.duration") }}
-{%- set cycles = ctx | selectattr("name", "equalto", "github_exporter.scrape.duration") | first -%}
-{%- if cycles.annotations.prometheus.type != "histogram" %}{{ dashboard_wrong_prometheus_type("github_exporter.scrape.duration") }}{% endif %}
-{%- set cycles_count = '"' ~ cycles.annotations.prometheus.name ~ '_count"' %}
-{{ variable("job", "Job", "{" ~ cycles_count ~ ', job=~"(.+/)?github-activity-exporter"}', "job") }},
-{{ variable("target", "exporter.target", "{" ~ cycles_count ~ ', job=~"$job"}', "exporter.target") }},
-{{ variable("org", "github.org", '{job=~"$job", "exporter.target"=~"$target", "github.org"!=""}', "github.org") }},
-{{ variable("repo", "github.repo", '{job=~"$job", "exporter.target"=~"$target", "github.org"=~"$org", "github.repo"!=""}', "github.repo") }},
-      { "current": { "text": "{{ min_step }}", "value": "{{ min_step }}" }, "description": "Min interval of every panel: at least 2x export.interval and 2x collection_interval.", "hide": 2, "label": "Min step", "name": "min_step", "options": [{ "selected": true, "text": "{{ min_step }}", "value": "{{ min_step }}" }], "query": "{{ min_step }}", "skipUrlSync": true, "type": "constant" }
-    ]
-  },
-  "time": { "from": "now-24h", "to": "now" },
-  "timepicker": {},
-  "timezone": "browser",
-  "title": "GitHub Activity Exporter",
-  "uid": "github-activity-exporter",
-  "version": 1
-}

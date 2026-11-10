@@ -1,6 +1,6 @@
 //go:build e2e
 
-// Package e2e checks the generated Grafana dashboard against a real Prometheus
+// Package e2e checks the generated Grafana dashboards against a real Prometheus
 // 3.x fed by the exporter binary. It runs a mock GitHub API, pushes OTLP through
 // a proxy that fails one push, and runs every panel and variable query.
 package e2e
@@ -35,41 +35,52 @@ const warmupSamples = int(2 * testCollectionInterval / testExportInterval)
 // enough samples for rate() and histogram_quantile().
 const pollDeadline = 3 * time.Minute
 
+// TestDashboardQueries runs every query of every generated dashboard twice:
+// with self-telemetry metrics on, and off. With them off, the queries of
+// self-telemetry metrics must return nothing and every other query data.
 func TestDashboardQueries(t *testing.T) {
 	requireDocker(t)
 
-	promURL := startPrometheus(t)
-	mock := newMockGitHub(t)
-	otlpURL := startOTLPProxy(t, promURL)
-	exited := startExporter(t, mock.URL+"/api/v3", otlpURL, testCollectionInterval)
+	for _, selfTelemetry := range []bool{true, false} {
+		name := "self-telemetry off"
+		if selfTelemetry {
+			name = "self-telemetry on"
+		}
+		t.Run(name, func(t *testing.T) {
+			promURL := startPrometheus(t)
+			mock := newMockGitHub(t)
+			otlpURL := startOTLPProxy(t, promURL)
+			exited := startExporter(t, mock.URL+"/api/v3", otlpURL, testCollectionInterval, selfTelemetry)
 
-	want := expectedSeriesNames(t)
-	waitForSamples(t, promURL, want, exited)
+			want := expectedSeriesNames(t, selfTelemetry)
+			waitForSamples(t, promURL, want, exited)
 
-	t.Run("registry metrics are in Prometheus", func(t *testing.T) {
-		got := promLabelValues(t, promURL, "__name__")
-		t.Logf("observed %d metric names in Prometheus: %s", len(got), strings.Join(got, ", "))
-		var missing []string
-		for _, name := range want {
-			if !slices.Contains(got, name) {
-				missing = append(missing, name)
+			t.Run("registry metrics are in Prometheus", func(t *testing.T) {
+				got := promLabelValues(t, promURL, "__name__")
+				t.Logf("observed %d metric names in Prometheus: %s", len(got), strings.Join(got, ", "))
+				var missing []string
+				for _, name := range want {
+					if !slices.Contains(got, name) {
+						missing = append(missing, name)
+					}
+				}
+				if len(missing) > 0 {
+					t.Errorf("registry metrics missing from Prometheus: %v", missing)
+				}
+			})
+
+			t.Run("dashboards", func(t *testing.T) {
+				runDashboardQueries(t, promURL, selfTelemetry)
+			})
+
+			t.Run("one target_info writer", func(t *testing.T) {
+				checkSingleWriter(t, promURL)
+			})
+
+			for _, u := range mock.unhandledRequests() {
+				t.Errorf("mock GitHub: unhandled request: %s", u)
 			}
-		}
-		if len(missing) > 0 {
-			t.Errorf("registry metrics missing from Prometheus: %v", missing)
-		}
-	})
-
-	t.Run("dashboard", func(t *testing.T) {
-		runDashboardQueries(t, promURL)
-	})
-
-	t.Run("one target_info writer", func(t *testing.T) {
-		checkSingleWriter(t, promURL)
-	})
-
-	for _, u := range mock.unhandledRequests() {
-		t.Errorf("mock GitHub: unhandled request: %s", u)
+		})
 	}
 }
 
@@ -82,7 +93,8 @@ const continuitySteps = 12
 const longCollectionInterval = 15 * time.Minute / timeScale
 
 // TestDashboardContinuity runs the exporter with collection_interval 15m and
-// the default export.interval, both scaled. Every rate() panel must have a
+// the default export.interval, both scaled. Every rate() panel of every
+// generated dashboard must have a
 // value at every step of the dashboard's default Min interval, and the cycle
 // counter must change once per cycle, not once per push.
 func TestDashboardContinuity(t *testing.T) {
@@ -91,16 +103,32 @@ func TestDashboardContinuity(t *testing.T) {
 	promURL := startPrometheus(t)
 	mock := newMockGitHub(t)
 	otlpURL := startOTLPProxy(t, promURL)
-	exited := startExporter(t, mock.URL+"/api/v3", otlpURL, longCollectionInterval)
-	waitForSamples(t, promURL, expectedSeriesNames(t), exited)
+	exited := startExporter(t, mock.URL+"/api/v3", otlpURL, longCollectionInterval, true)
+	waitForSamples(t, promURL, expectedSeriesNames(t, true), exited)
 
-	d, vars := loadDashboard(t)
-	for _, v := range d.Templating.List {
-		if v.Type == "query" {
-			if err := resolveVariable(promURL, v, vars); err != nil {
-				t.Fatalf("variable %q: %v", v.Name, err)
+	// Every dashboard has the same min_step; its variables resolve once, with
+	// the dashboard's targets, before the sampling window.
+	type dashTargets struct {
+		file    string
+		vars    map[string]string
+		targets []panelTarget
+	}
+	var dashboards []dashTargets
+	var vars map[string]string
+	for _, file := range dashboardFiles(t) {
+		d, dv := loadDashboard(t, file)
+		for _, v := range d.Templating.List {
+			if v.Type == "query" {
+				if err := resolveVariable(promURL, v, dv); err != nil {
+					t.Fatalf("%s: variable %q: %v", file, v.Name, err)
+				}
 			}
 		}
+		if vars != nil && dv["min_step"] != vars["min_step"] {
+			t.Fatalf("%s: min_step %s differs from %s", file, dv["min_step"], vars["min_step"])
+		}
+		vars = dv
+		dashboards = append(dashboards, dashTargets{file, dv, collectTargets(d.Panels)})
 	}
 	minStep, err := time.ParseDuration(vars["min_step"])
 	if err != nil {
@@ -116,33 +144,37 @@ func TestDashboardContinuity(t *testing.T) {
 	end := time.Now()
 	t.Logf("sampling %s..%s, step %s (min_step %s scaled), window %s", start.Format(time.RFC3339Nano), end.Format(time.RFC3339Nano), step, minStep, window)
 
-	withTime := map[string]string{"__rate_interval": promDuration(window), "__interval": promDuration(window)}
-	for k, v := range vars {
-		withTime[k] = v
-	}
-	var checked int
-	for _, pt := range collectTargets(d.Panels) {
-		if !strings.Contains(pt.expr, "rate(") || strings.HasPrefix(pt.expr, "histogram_quantile(") {
-			continue
+	for _, dt := range dashboards {
+		withTime := map[string]string{"__rate_interval": promDuration(window), "__interval": promDuration(window)}
+		for k, v := range dt.vars {
+			withTime[k] = v
 		}
-		checked++
-		t.Run(fmt.Sprintf("%s/%s", pt.panel, pt.refID), func(t *testing.T) {
-			expr, err := expandVars(pt.expr, withTime)
-			if err != nil {
-				t.Fatal(err)
+		t.Run(dt.file, func(t *testing.T) {
+			var checked int
+			for _, pt := range dt.targets {
+				if !strings.Contains(pt.expr, "rate(") || strings.HasPrefix(pt.expr, "histogram_quantile(") {
+					continue
+				}
+				checked++
+				t.Run(fmt.Sprintf("%s/%s", pt.panel, pt.refID), func(t *testing.T) {
+					expr, err := expandVars(pt.expr, withTime)
+					if err != nil {
+						t.Fatal(err)
+					}
+					got, want, err := stepsWithValue(promURL, expr, start, end, step)
+					if err != nil {
+						t.Fatalf("%v\nexpr: %s", err, expr)
+					}
+					if got != want {
+						t.Fatalf("value at %d of %d steps\nexpr: %s", got, want, expr)
+					}
+					t.Logf("OK panel %q refId %s: value at %d/%d steps", pt.panel, pt.refID, got, want)
+				})
 			}
-			got, want, err := stepsWithValue(promURL, expr, start, end, step)
-			if err != nil {
-				t.Fatalf("%v\nexpr: %s", err, expr)
+			if checked == 0 {
+				t.Fatal("dashboard has no rate() panel")
 			}
-			if got != want {
-				t.Fatalf("value at %d of %d steps\nexpr: %s", got, want, expr)
-			}
-			t.Logf("OK panel %q refId %s: value at %d/%d steps", pt.panel, pt.refID, got, want)
 		})
-	}
-	if checked == 0 {
-		t.Fatal("dashboard has no rate() panel")
 	}
 
 	t.Run("pushes repeat the cycle count", func(t *testing.T) {
@@ -306,16 +338,32 @@ type registryFile struct {
 	MetricRefinements []registryMetric `yaml:"metric_refinements"`
 }
 
+// selfTelemetryFile is the registry file of the self-telemetry metrics,
+// recorded only when telemetry.enabled and telemetry.metrics.enabled are true.
+const selfTelemetryFile = "telemetry.yaml"
+
 // expectedSeriesNames returns the Prometheus series names of every registry
-// metric. OTLP under NoTranslation keeps counter and gauge names bare, and a
-// histogram is stored as classic <name>_bucket, _sum and _count series.
-func expectedSeriesNames(t *testing.T) []string {
+// metric, without the self-telemetry metrics unless selfTelemetry is true.
+func expectedSeriesNames(t *testing.T, selfTelemetry bool) []string {
+	t.Helper()
+	product, self := registrySeriesNames(t)
+	if selfTelemetry {
+		return append(product, self...)
+	}
+	return product
+}
+
+// registrySeriesNames returns the Prometheus series names of the registry
+// metrics: the product metrics, and the self-telemetry metrics of
+// selfTelemetryFile. OTLP under NoTranslation keeps counter and gauge names
+// bare, and a histogram is stored as classic <name>_bucket, _sum and _count
+// series.
+func registrySeriesNames(t *testing.T) (product, self []string) {
 	t.Helper()
 	files, err := filepath.Glob(filepath.Join(repoRoot(), "registry", "*.yaml"))
 	if err != nil {
 		t.Fatalf("list registry: %v", err)
 	}
-	var metrics []registryMetric
 	for _, f := range files {
 		if filepath.Base(f) == "manifest.yaml" {
 			continue
@@ -328,22 +376,23 @@ func expectedSeriesNames(t *testing.T) []string {
 		if err := yaml.Unmarshal(raw, &rf); err != nil {
 			t.Fatalf("parse %s: %v", f, err)
 		}
-		metrics = append(metrics, rf.Metrics...)
-		metrics = append(metrics, rf.MetricRefinements...)
-	}
-	var names []string
-	for _, m := range metrics {
-		p := m.Annotations.Prometheus
-		if p.Name == "" {
-			t.Fatalf("registry metric %q has no annotations.prometheus.name", m.Name+m.Ref)
+		for _, m := range append(rf.Metrics, rf.MetricRefinements...) {
+			p := m.Annotations.Prometheus
+			if p.Name == "" {
+				t.Fatalf("registry metric %q has no annotations.prometheus.name", m.Name+m.Ref)
+			}
+			names := []string{p.Name}
+			if p.Type == "histogram" {
+				names = []string{p.Name + "_bucket", p.Name + "_sum", p.Name + "_count"}
+			}
+			if filepath.Base(f) == selfTelemetryFile {
+				self = append(self, names...)
+			} else {
+				product = append(product, names...)
+			}
 		}
-		if p.Type == "histogram" {
-			names = append(names, p.Name+"_bucket", p.Name+"_sum", p.Name+"_count")
-		} else {
-			names = append(names, p.Name)
-		}
 	}
-	return names
+	return product, self
 }
 
 // waitForSamples polls until every expected series has at least
