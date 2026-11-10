@@ -1,0 +1,11 @@
+export:
+  otlp:
+    endpoint: http://localhost:4318
+targets:
+  - name: t
+    collection:
+      concurrency: 101
+    auth:
+      token: ghp_t
+    orgs:
+      - org: o

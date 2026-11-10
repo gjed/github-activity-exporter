@@ -1,0 +1,25 @@
+export:
+  otlp:
+    endpoint: http://localhost:4318
+collection:
+  concurrency: 8
+targets:
+  - name: inherits
+    auth:
+      token: ghp_one
+    orgs:
+      - org: one-org
+  - name: override
+    collection:
+      concurrency: 2
+    auth:
+      token: ghp_two
+    orgs:
+      - org: two-org
+  - name: max
+    collection:
+      concurrency: 100
+    auth:
+      token: ghp_three
+    orgs:
+      - org: three-org

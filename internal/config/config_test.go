@@ -452,6 +452,47 @@ func TestLoad(t *testing.T) {
 			errContains: `target "t": graphql_batch_size must be between 1 and 100, got 101`,
 		},
 		{
+			name: "collection.concurrency defaults to 4",
+			file: "testdata/pat_token.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if got := cfg.Targets[0].Concurrency(); got != 4 {
+					t.Errorf("Concurrency() = %d, want 4", got)
+				}
+			},
+		},
+		{
+			name: "collection.concurrency global default and target override",
+			file: "testdata/concurrency.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				want := map[string]int{"inherits": 8, "override": 2, "max": 100}
+				for _, tg := range cfg.Targets {
+					if got := tg.Concurrency(); got != want[tg.Name] {
+						t.Errorf("target %q: Concurrency() = %d, want %d", tg.Name, got, want[tg.Name])
+					}
+				}
+			},
+		},
+		{
+			name:        "collection.concurrency 0 on a target is error",
+			file:        "testdata/concurrency_zero.yaml",
+			wantErr:     true,
+			errContains: `target "t": collection.concurrency must be between 1 and 100, got 0`,
+		},
+		{
+			name:        "collection.concurrency 101 on a target is error",
+			file:        "testdata/concurrency_101.yaml",
+			wantErr:     true,
+			errContains: `target "t": collection.concurrency must be between 1 and 100, got 101`,
+		},
+		{
+			name:        "top-level collection.concurrency 0 is error",
+			file:        "testdata/concurrency_global_zero.yaml",
+			wantErr:     true,
+			errContains: `collection.concurrency must be between 1 and 100, got 0`,
+		},
+		{
 			name: "telemetry defaults",
 			file: "testdata/pat_token.yaml",
 			check: func(t *testing.T, cfg *config.Config) {
