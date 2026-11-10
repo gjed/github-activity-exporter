@@ -28,8 +28,8 @@ type BatchGraphQLClient interface {
 	RawGraphQLClient
 }
 
-// CollectorOption configures the issue and Dependency Dashboard collectors.
-type CollectorOption func(*collectorOptions)
+// Option configures the issue and Dependency Dashboard collectors.
+type Option func(*collectorOptions)
 
 type collectorOptions struct {
 	batchSize int
@@ -38,19 +38,19 @@ type collectorOptions struct {
 
 // WithGraphQLBatchSize sets the number of repos per batched GraphQL query.
 // Values below 1 mean 1. Default config.DefaultGraphQLBatchSize.
-func WithGraphQLBatchSize(n int) CollectorOption {
+func WithGraphQLBatchSize(n int) Option {
 	return func(o *collectorOptions) { o.batchSize = n }
 }
 
 // WithLimiter runs the batches, or the repos of the issue title-filter
 // listing, of a cycle through l. Without it they run one at a time. Share
 // one Limiter between the collectors of a target.
-func WithLimiter(l *Limiter) CollectorOption {
+func WithLimiter(l *Limiter) Option {
 	return func(o *collectorOptions) { o.limiter = l }
 }
 
 // applyOptions applies opts to the defaults.
-func applyOptions(opts []CollectorOption) collectorOptions {
+func applyOptions(opts []Option) collectorOptions {
 	o := collectorOptions{batchSize: config.DefaultGraphQLBatchSize}
 	for _, opt := range opts {
 		opt(&o)

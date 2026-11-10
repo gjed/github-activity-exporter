@@ -132,7 +132,7 @@ func NewIssueCollector(
 	filterCfg config.IssueFilters,
 	meter metric.Meter,
 	logger *slog.Logger,
-	opts ...CollectorOption,
+	opts ...Option,
 ) (*IssueCollector, error) {
 	if logger == nil {
 		logger = slog.Default()
