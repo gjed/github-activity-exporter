@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -101,17 +102,41 @@ func promDuration(d time.Duration) string {
 	return fmt.Sprintf("%dms", d.Milliseconds())
 }
 
-// loadDashboard reads dashboards/github-activity.json and returns it with the
-// values of its constant variables (min_step).
-func loadDashboard(t *testing.T) (dashboardJSON, map[string]string) {
+// kpiDashboard is the GitHub Activity dashboard, which must not query a
+// self-telemetry metric.
+const kpiDashboard = "github-activity.json"
+
+// errEmptyResult is checkResult's error for a result with no series.
+var errEmptyResult = errors.New("empty result: 0 series")
+
+// dashboardFiles returns the file names of every generated dashboard in dashboards/.
+func dashboardFiles(t *testing.T) []string {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(repoRoot(), "dashboards", "github-activity.json"))
+	paths, err := filepath.Glob(filepath.Join(repoRoot(), "dashboards", "*.json"))
+	if err != nil {
+		t.Fatalf("list dashboards: %v", err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("no dashboards/*.json")
+	}
+	files := make([]string, 0, len(paths))
+	for _, p := range paths {
+		files = append(files, filepath.Base(p))
+	}
+	return files
+}
+
+// loadDashboard reads dashboards/<file> and returns it with the values of its
+// constant variables (min_step).
+func loadDashboard(t *testing.T, file string) (dashboardJSON, map[string]string) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(repoRoot(), "dashboards", file))
 	if err != nil {
 		t.Fatalf("read dashboard: %v", err)
 	}
 	var d dashboardJSON
 	if err := json.Unmarshal(raw, &d); err != nil {
-		t.Fatalf("parse dashboard: %v", err)
+		t.Fatalf("parse dashboard %s: %v", file, err)
 	}
 	vars := make(map[string]string)
 	for _, v := range d.Templating.List {
@@ -120,34 +145,57 @@ func loadDashboard(t *testing.T) (dashboardJSON, map[string]string) {
 		}
 	}
 	if vars["min_step"] == "" {
-		t.Fatal("dashboard has no min_step constant variable")
+		t.Fatalf("dashboard %s has no min_step constant variable", file)
 	}
 	return d, vars
 }
 
-// runDashboardQueries runs every panel target of dashboards/github-activity.json
-// against Prometheus, after resolving the dashboard variables.
-func runDashboardQueries(t *testing.T, promURL string) {
+// runDashboardQueries runs every panel target of every generated dashboard
+// against Prometheus, after resolving the dashboard variables, in one subtest
+// per dashboard file. A target that reads a self-telemetry metric must return
+// data when selfTelemetry is true and nothing when it is false; every other
+// target must return data. The KPI dashboard must not read one at all.
+func runDashboardQueries(t *testing.T, promURL string, selfTelemetry bool) {
 	t.Helper()
-	d, vars := loadDashboard(t)
-	for _, v := range d.Templating.List {
-		if v.Type != "query" {
-			continue
-		}
-		if err := resolveVariable(promURL, v, vars); err != nil {
-			t.Errorf("variable %q: %v", v.Name, err)
-		}
-	}
+	_, self := registrySeriesNames(t)
+	for _, file := range dashboardFiles(t) {
+		t.Run(file, func(t *testing.T) {
+			d, vars := loadDashboard(t, file)
+			for _, v := range d.Templating.List {
+				if v.Type != "query" {
+					continue
+				}
+				if err := resolveVariable(promURL, v, vars); err != nil {
+					t.Errorf("variable %q: %v", v.Name, err)
+				}
+			}
 
-	targets := collectTargets(d.Panels)
-	if len(targets) == 0 {
-		t.Fatal("dashboard has no panel targets")
-	}
-	for _, pt := range targets {
-		t.Run(fmt.Sprintf("%s/%s", pt.panel, pt.refID), func(t *testing.T) {
-			checkPanelTarget(t, promURL, pt, vars)
+			targets := collectTargets(d.Panels)
+			if len(targets) == 0 {
+				t.Fatal("dashboard has no panel targets")
+			}
+			for _, pt := range targets {
+				readsSelf := readsAny(pt.expr, self)
+				if readsSelf && file == kpiDashboard {
+					t.Errorf("panel %q refId %s reads a self-telemetry metric\nexpr: %s", pt.panel, pt.refID, pt.expr)
+				}
+				t.Run(fmt.Sprintf("%s/%s", pt.panel, pt.refID), func(t *testing.T) {
+					checkPanelTarget(t, promURL, pt, vars, readsSelf && !selfTelemetry)
+				})
+			}
 		})
 	}
+}
+
+// readsAny reports whether expr selects one of the series names, as the
+// generated queries do: {"<name>", ...}.
+func readsAny(expr string, names []string) bool {
+	for _, n := range names {
+		if strings.Contains(expr, `{"`+n+`"`) {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveVariable runs a query variable's label_values() against Prometheus,
@@ -239,9 +287,10 @@ func collectTargets(panels []dashPanel) []panelTarget {
 }
 
 // checkPanelTarget runs one target as an instant query and fails the subtest
-// on a query error, an empty result, or only NaN values. The message names
-// the panel, refId, expanded expression and Prometheus response.
-func checkPanelTarget(t *testing.T, promURL string, pt panelTarget, vars map[string]string) {
+// on a query error, an empty result, or only NaN values; with wantEmpty, on a
+// query error or any series. The message names the panel, refId, expanded
+// expression and Prometheus response.
+func checkPanelTarget(t *testing.T, promURL string, pt panelTarget, vars map[string]string, wantEmpty bool) {
 	t.Helper()
 	for _, r := range rangeRE.FindAllStringSubmatch(pt.expr, -1) {
 		if r[1] != "$__rate_interval" {
@@ -273,7 +322,13 @@ func checkPanelTarget(t *testing.T, promURL string, pt panelTarget, vars map[str
 	if err == nil {
 		var n int
 		n, err = checkResult(body)
-		if err == nil {
+		switch {
+		case wantEmpty && errors.Is(err, errEmptyResult):
+			t.Logf("OK panel %q refId %s: no series, self-telemetry metrics off", pt.panel, pt.refID)
+			return
+		case wantEmpty && err == nil:
+			err = fmt.Errorf("%d series with self-telemetry metrics off, want none", n)
+		case err == nil:
 			t.Logf("OK panel %q refId %s: %d series", pt.panel, pt.refID, n)
 			return
 		}
@@ -328,7 +383,7 @@ func checkResult(body []byte) (int, error) {
 	}
 
 	if len(values) == 0 {
-		return 0, fmt.Errorf("empty result: 0 series")
+		return 0, errEmptyResult
 	}
 	allNaN := true
 	for _, v := range values {

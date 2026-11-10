@@ -1,0 +1,68 @@
+{#-
+  Exporter dashboard (dashboards/github-activity-exporter.json): the exporter's
+  own metrics, every github_exporter.* metric and the self-telemetry runtime
+  and GitHub HTTP client metrics. Macros: _macros.j2.
+-#}
+{%- import "_macros.j2" as m -%}
+{%- set st = namespace(x=0, y=0, id=1, used=[]) -%}
+{%- set per_hour = " * 3600" -%}
+{%- set pool = ["exporter.target", "github.api.rate_limit.resource"] -%}
+{{ m.head() }}
+{{ m.row(st, "Collection") }}
+{% call m.panel(st, "Collection cycle duration", m.brief(ctx, "github_exporter.scrape.duration"), "s") %}
+{{- m.target("A", m.expr(ctx, st, "github_exporter.scrape.duration", "quantile", by=["exporter.target"], q="0.5"), "{{exporter.target}} p50") }},
+        {{ m.target("B", m.expr(ctx, st, "github_exporter.scrape.duration", "quantile", by=["exporter.target"], q="0.9"), "{{exporter.target}} p90") -}}
+{% endcall %}
+{% call m.panel(st, "Collection cycle overruns per hour", m.brief(ctx, "github_exporter.scrape.overruns"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github_exporter.scrape.overruns", "rate", by=["exporter.target"], scale=per_hour), "{{exporter.target}}") -}}
+{% endcall %}
+{{ m.row(st, "GitHub API") }}
+{% call m.panel(st, "GitHub API errors per hour", m.brief(ctx, "github_exporter.api.errors"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github_exporter.api.errors", "rate", by=["exporter.target", "github.api.endpoint"], scale=per_hour), "{{exporter.target}} {{github.api.endpoint}}") -}}
+{% endcall %}
+{% call m.panel(st, "Rate limit remaining by pool", m.brief(ctx, "github_exporter.api.rate_limit.remaining"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github_exporter.api.rate_limit.remaining", "min", by=pool), "{{exporter.target}} {{github.api.rate_limit.resource}}") -}}
+{% endcall %}
+{% call m.panel(st, "Time until rate limit reset by pool", m.brief(ctx, "github_exporter.api.rate_limit.reset"), "s") %}
+{{- m.target("A", m.expr(ctx, st, "github_exporter.api.rate_limit.reset", "max", by=pool, offset=" - time()"), "{{exporter.target}} {{github.api.rate_limit.resource}}") -}}
+{% endcall %}
+{{ m.row(st, "OTLP export") }}
+{#- One OTLP exporter pushes for every target; its errors carry the exporter's
+    own exporter.target ("default"), not a configured target, so $target does
+    not apply. -#}
+{% call m.panel(st, "OTLP push errors per hour", m.brief(ctx, "github_exporter.otlp.errors"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github_exporter.otlp.errors", "rate", by=["exporter.target"], scale=per_hour, per_target=false), "{{exporter.target}}") -}}
+{% endcall %}
+{#- Self-telemetry metrics (#74), recorded only when telemetry.enabled and
+    telemetry.metrics.enabled are true. They describe the process, not a
+    target, so $target does not apply. -#}
+{{ m.row(st, "Self-telemetry") }}
+{% call m.panel(st, "Go memory", m.brief(ctx, ["go.memory.used", "go.memory.gc.goal", "go.memory.limit"]), "bytes") %}
+{{- m.target("A", m.expr(ctx, st, "go.memory.used", "sum", by=["go.memory.type"], per_target=false), "used {{go.memory.type}}") }},
+        {{ m.target("B", m.expr(ctx, st, "go.memory.gc.goal", "sum", per_target=false), "heap goal") }},
+        {{ m.target("C", m.expr(ctx, st, "go.memory.limit", "max", per_target=false), "limit") -}}
+{% endcall %}
+{% call m.panel(st, "Go heap allocation rate", m.brief(ctx, "go.memory.allocated"), "Bps") %}
+{{- m.target("A", m.expr(ctx, st, "go.memory.allocated", "rate", per_target=false), "allocated") -}}
+{% endcall %}
+{% call m.panel(st, "Goroutines", m.brief(ctx, "go.goroutine.count"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "go.goroutine.count", "sum", per_target=false), "goroutines") -}}
+{% endcall %}
+{% call m.panel(st, "GitHub API request latency", m.brief(ctx, "http.client.request.duration"), "s") %}
+{{- m.target("A", m.expr(ctx, st, "http.client.request.duration", "quantile", by=["url.template", "http.response.status_code"], q="0.5", per_target=false), "{{url.template}} {{http.response.status_code}} p50") }},
+        {{ m.target("B", m.expr(ctx, st, "http.client.request.duration", "quantile", by=["url.template", "http.response.status_code"], q="0.9", per_target=false), "{{url.template}} {{http.response.status_code}} p90") -}}
+{% endcall %}
+{#- Coverage: every github_exporter.* metric of the registry has a panel. -#}
+{%- for metric in ctx -%}
+{%- if metric.name is startingwith("github_exporter.") and metric.name not in st.used %}{{ dashboard_metric_without_panel(metric.name) }}{% endif -%}
+{%- endfor %}
+{% call m.tail("GitHub Activity Exporter", "github-activity-exporter-internals", ["github", "exporter", "generated"]) -%}
+{#- job and exporter.target resolve from the collection cycles, recorded for
+    every target whatever its collectors and the self-telemetry settings. -#}
+{{- m.check_metric(ctx, "github_exporter.scrape.duration") }}
+{%- set cycles = ctx | selectattr("name", "equalto", "github_exporter.scrape.duration") | first -%}
+{%- if cycles.annotations.prometheus.type != "histogram" %}{{ dashboard_wrong_prometheus_type("github_exporter.scrape.duration") }}{% endif %}
+{%- set cycles_count = '"' ~ cycles.annotations.prometheus.name ~ '_count"' %}
+{{ m.variable("job", "Job", "{" ~ cycles_count ~ ', job=~"(.+/)?github-activity-exporter"}', "job") }},
+{{ m.variable("target", "exporter.target", "{" ~ cycles_count ~ ', job=~"$job"}', "exporter.target") -}}
+{% endcall %}

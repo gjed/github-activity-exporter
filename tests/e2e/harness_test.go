@@ -109,10 +109,10 @@ func startOTLPProxy(t *testing.T, promURL string) string {
 // startExporter builds the exporter binary and runs it with a temp config that
 // uses apiURL (the mock REST root, .../api/v3), collects every
 // collectionInterval and pushes OTLP to otlpURL every testExportInterval. Its
-// output goes to the test log. Self-telemetry metrics are on and inherit
-// export.otlp, so they travel in the same pushes. The returned channel closes
-// once the process has exited.
-func startExporter(t *testing.T, apiURL, otlpURL string, collectionInterval time.Duration) <-chan struct{} {
+// output goes to the test log. selfTelemetry turns self-telemetry metrics on;
+// they inherit export.otlp, so they travel in the same pushes. The returned
+// channel closes once the process has exited.
+func startExporter(t *testing.T, apiURL, otlpURL string, collectionInterval time.Duration, selfTelemetry bool) <-chan struct{} {
 	t.Helper()
 	root := repoRoot()
 	bin := filepath.Join(t.TempDir(), "github-activity-exporter")
@@ -134,7 +134,7 @@ export:
 health:
   listen_address: 127.0.0.1:%d
 telemetry:
-  enabled: true
+  enabled: %t
   traces:
     enabled: false
   logs:
@@ -150,7 +150,7 @@ targets:
       - org: acme
     renovate_dashboard:
       enabled: true
-`, collectionInterval, testExportInterval, otlpURL, freePort(t), apiURL)
+`, collectionInterval, testExportInterval, otlpURL, freePort(t), selfTelemetry, apiURL)
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}

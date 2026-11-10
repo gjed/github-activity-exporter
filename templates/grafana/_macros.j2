@@ -1,0 +1,207 @@
+{#-
+  Macros shared by the generated Grafana dashboards (dashboard.json.j2 and
+  exporter.json.j2), imported with {% import "_macros.j2" as m %}. An import
+  does not share the caller's globals, so the registry (ctx) and the
+  dashboard's state namespace (st) are passed explicitly:
+    st = namespace(x=0, y=0, id=1, used=[])
+  x, y and id place the panels on the grid; used lists the registry metrics
+  the dashboard queries, in order, for the scope checks and the series
+  selector of the variables.
+
+  Every query is built from a metric's annotations.prometheus.name and
+  annotations.prometheus.type (the naming contract, see registry/signals.yaml):
+    counter   -> rate()
+    histogram -> histogram_quantile() over <name>_bucket
+    gauge     -> the raw series, aggregated
+  Names and UTF-8 label names are quoted (Prometheus 3.x / Mimir UTF-8
+  selector syntax). Legends use bare label names: Grafana looks up the text
+  between {{ }} as the label key.
+
+  A panel that references a metric the registry does not define, a label the
+  metric does not declare, or the wrong Prometheus type calls an undefined
+  function, which fails `make generate`.
+  SIMPLIFIED: minijinja has no raise. Weaver reports "value of type undefined
+  is not callable" with the template line of the failed check
+  (dashboard_metric_not_in_registry, dashboard_label_not_on_metric,
+  dashboard_wrong_prometheus_type, dashboard_metric_out_of_scope or
+  dashboard_metric_without_panel), not the metric name.
+-#}
+
+{#- check_metric(ctx, name): fails generation unless the registry defines exactly one metric with that name. -#}
+{%- macro check_metric(ctx, name) -%}
+{%- if (ctx | selectattr("name", "equalto", name) | list | length) != 1 -%}{{ dashboard_metric_not_in_registry(name) }}{%- endif -%}
+{%- endmacro -%}
+
+{#- sel(m, suffix, matchers, per_target): UTF-8 selector filtered by the dashboard
+    variables. The org/repo filters are added only when the metric declares the
+    attribute; per_target=false drops the $target filter. -#}
+{%- macro sel(m, suffix="", matchers=[], per_target=true) -%}
+{%- set attrs = m.attributes | map(attribute="key") | list -%}
+{\"{{ m.annotations.prometheus.name }}{{ suffix }}\", job=~\"$job\"
+{%- if per_target %}, \"exporter.target\"=~\"$target\"{% endif -%}
+{%- if "github.org" in attrs %}, \"github.org\"=~\"$org\"{% endif -%}
+{%- if "github.repo" in attrs %}, \"github.repo\"=~\"$repo\"{% endif -%}
+{%- for l, op, v in matchers -%}
+{%- if l not in attrs %}{{ dashboard_label_not_on_metric(l) }}{% endif -%}
+, \"{{ l }}\"{{ op }}\"{{ v }}\"
+{%- endfor -%}
+}
+{%- endmacro -%}
+
+{%- macro by_clause(m, labels) -%}
+{%- set attrs = m.attributes | map(attribute="key") | list -%}
+{%- for l in labels -%}
+{%- if l not in attrs and l != "le" %}{{ dashboard_label_not_on_metric(l) }}{% endif -%}
+{%- if loop.first %} by ({% endif -%}
+{%- if l == "le" %}le{% else %}\"{{ l }}\"{% endif -%}
+{%- if loop.last %}){% else %}, {% endif -%}
+{%- endfor -%}
+{%- endmacro -%}
+
+{#- expr(ctx, st, name, shape, ...): the PromQL for one target, shape checked
+    against annotations.prometheus.type; records name in st.used.
+      rate:     counter,   sum by (...) (rate(...)) * scale
+      quantile: histogram, histogram_quantile(q, sum by (le, ...) (rate(<name>_bucket)))
+      sum/max/min: gauge,  agg by (...) (last_over_time(...)) + offset
+    Gauges go through last_over_time so a series does not go stale between
+    pushes that are one export.interval apart. -#}
+{%- macro expr(ctx, st, name, shape, by=[], q="0.5", matchers=[], scale="", offset="", per_target=true) -%}
+{{- check_metric(ctx, name) -}}
+{%- if name not in st.used %}{% set st.used = st.used + [name] %}{% endif -%}
+{%- set m = ctx | selectattr("name", "equalto", name) | first -%}
+{%- set type = m.annotations.prometheus.type -%}
+{%- if shape == "rate" -%}
+{%- if type != "counter" %}{{ dashboard_wrong_prometheus_type(name) }}{% endif -%}
+sum{{ by_clause(m, by) }} (rate({{ sel(m, "", matchers, per_target) }}[$__rate_interval])){{ scale }}
+{%- elif shape == "quantile" -%}
+{%- if type != "histogram" %}{{ dashboard_wrong_prometheus_type(name) }}{% endif -%}
+histogram_quantile({{ q }}, sum{{ by_clause(m, ["le"] + by) }} (rate({{ sel(m, "_bucket", matchers, per_target) }}[$__rate_interval])))
+{%- else -%}
+{%- if type != "gauge" %}{{ dashboard_wrong_prometheus_type(name) }}{% endif -%}
+{{ shape }}{{ by_clause(m, by) }} (last_over_time({{ sel(m, "", matchers, per_target) }}[$__rate_interval])){{ offset }}
+{%- endif -%}
+{%- endmacro -%}
+
+{#- series_regex(ctx, names): the Prometheus series names of the metrics
+    (a histogram by its _count series), regexp-escaped and joined with "|",
+    for a {__name__=~"..."} matcher. -#}
+{%- macro series_regex(ctx, names) -%}
+{%- set out = namespace(series=[]) -%}
+{%- for name in names -%}
+{{- check_metric(ctx, name) -}}
+{%- set p = (ctx | selectattr("name", "equalto", name) | first).annotations.prometheus -%}
+{%- set out.series = out.series + [(p.name ~ ("_count" if p.type == "histogram" else "")) | replace(".", "\\\\.")] -%}
+{%- endfor -%}
+{{- out.series | join("|") -}}
+{%- endmacro -%}
+
+{#- brief(ctx, name or [names]): the metric briefs, joined, as a JSON string. -#}
+{%- macro brief(ctx, names) -%}
+{%- set names = [names] if names is string else names -%}
+{%- set out = namespace(briefs=[]) -%}
+{%- for name in names -%}
+{{- check_metric(ctx, name) -}}
+{%- set out.briefs = out.briefs + [(ctx | selectattr("name", "equalto", name) | first).brief | trim] -%}
+{%- endfor -%}
+{{- out.briefs | join(" ") | tojson -}}
+{%- endmacro -%}
+
+{%- macro target(ref, e, legend) -%}
+{ "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "{{ e }}", "legendFormat": {{ legend | tojson }}, "range": true, "refId": "{{ ref }}" }
+{%- endmacro -%}
+
+{#- row(st, title): a full-width row; starts a new grid line. -#}
+{%- macro row(st, title) -%}
+{%- if st.x > 0 %}{% set st.y = st.y + 8 %}{% set st.x = 0 %}{% endif -%}
+    {% if st.id > 1 %},{% endif %}{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": {{ st.y }} }, "id": {{ st.id }}, "panels": [], "title": {{ title | tojson }}, "type": "row" }
+{%- set st.y = st.y + 1 -%}
+{%- set st.id = st.id + 1 -%}
+{%- endmacro -%}
+
+{#- panel(st, ...): a 12x8 time series panel; caller() renders the targets. -#}
+{%- macro panel(st, title, description, unit) -%}
+    ,{
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": {{ description }},
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "{{ unit }}" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": {{ st.x }}, "y": {{ st.y }} },
+      "id": {{ st.id }},
+      "interval": "$min_step",
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {{ caller() }}
+      ],
+      "title": {{ title | tojson }},
+      "type": "timeseries"
+    }
+{%- set st.id = st.id + 1 -%}
+{%- if st.x == 0 %}{% set st.x = 12 %}{% else %}{% set st.x = 0 %}{% set st.y = st.y + 8 %}{% endif -%}
+{%- endmacro -%}
+
+{#- variable(name, label, selector, attr): a chained label-values query variable. -#}
+{%- macro variable(name, label, selector, attr) -%}
+{%- set q = "label_values(" ~ selector ~ ", " ~ attr ~ ")" -%}
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "definition": {{ q | tojson }},
+        "includeAll": true,
+        "label": {{ label | tojson }},
+        "multi": true,
+        "name": "{{ name }}",
+        "options": [],
+        "query": { "qryType": 5, "query": {{ q | tojson }}, "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+{%- endmacro -%}
+
+{#- head(): the dashboard up to the opening of its panel list. -#}
+{%- macro head() -%}
+{
+  "__inputs": [],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "11.0.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
+  ],
+  "annotations": { "list": [] },
+  "description": "Generated by OTel Weaver from registry/ (make generate). Queries use the UTF-8 names declared in annotations.prometheus; the backend must keep OTLP names as sent (translation strategy NoTranslation).",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+{%- endmacro -%}
+
+{#- tail(title, uid, tags): closes the panel list and adds the variables:
+    datasource, caller()'s query variables, then min_step.
+    min_step: default of the constant variable $min_step, every panel's Min
+    interval; $__rate_interval is at least $min_step + the data source scrape
+    interval. It must be at least 2x export.interval (default 60s), so a
+    window holds two pushes and rate() has a value, and 2x collection_interval
+    (default 5m), so a window holds a cycle and histogram_quantile() has an
+    observation. Raise the variable with either setting. -#}
+{%- macro tail(title, uid, tags) -%}
+{%- set min_step = "10m" -%}
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": {{ tags | tojson }},
+  "templating": {
+    "list": [
+      { "current": {}, "includeAll": false, "label": "Data source", "name": "datasource", "options": [], "query": "prometheus", "refresh": 1, "regex": "", "type": "datasource" },
+{{ caller() }},
+      { "current": { "text": "{{ min_step }}", "value": "{{ min_step }}" }, "description": "Min interval of every panel: at least 2x export.interval and 2x collection_interval.", "hide": 2, "label": "Min step", "name": "min_step", "options": [{ "selected": true, "text": "{{ min_step }}", "value": "{{ min_step }}" }], "query": "{{ min_step }}", "skipUrlSync": true, "type": "constant" }
+    ]
+  },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": {{ title | tojson }},
+  "uid": {{ uid | tojson }},
+  "version": 1
+}
+{%- endmacro -%}
