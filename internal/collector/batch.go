@@ -112,6 +112,11 @@ func runRepoBatch(ctx context.Context, gql RawGraphQLClient, q repoBatchQuery, r
 		return retryAll()
 	}
 	for _, e := range resp.Errors {
+		if len(e.Path) > 0 && e.Path[0] == "rateLimit" {
+			// rateLimit is read for the pool state only; an error on it (a
+			// GHES instance without rate limiting) says nothing about the repos.
+			continue
+		}
 		i, ok := aliasIndex(e.Path, len(repos))
 		if !ok {
 			// Not attributable to one repo: the whole response is suspect.

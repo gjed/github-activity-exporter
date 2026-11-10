@@ -55,6 +55,11 @@ A repo SHALL be finished with per-repo requests when its batched result is incom
 - **WHEN** GitHub answers a batch request with an HTTP 502 or a GraphQL error not attributed to a repo
 - **THEN** each repo of the batch is collected with its per-repo request, and only repos whose per-repo request fails are reported as failed
 
+#### Scenario: Error on rateLimit
+
+- **WHEN** GitHub answers a batch with an error whose path is `rateLimit`, and data for every repo
+- **THEN** every repo of the batch is collected from that response, without per-repo requests
+
 ### Requirement: Repo identity in a batch
 
 Each repo of a batch SHALL be addressed by an alias generated from its position in the batch, with its owner and name passed as query variables. Repo names SHALL NOT appear in the query text.

@@ -100,3 +100,24 @@ func (f rawFunc) QueryRaw(_ context.Context, query string, vars map[string]any) 
 	f(query, vars)
 	return &ghclient.RawResponse{}, nil
 }
+
+// An error on rateLimit leaves the repos of the batch to the response's data.
+func TestRunRepoBatch_RateLimitErrorIgnored(t *testing.T) {
+	fake := respFunc{&ghclient.RawResponse{
+		Data:   map[string]json.RawMessage{"rateLimit": json.RawMessage("null"), "r0": json.RawMessage(`{"a":1}`), "r1": json.RawMessage(`{"a":2}`)},
+		Errors: []ghclient.GraphQLError{{Type: "FORBIDDEN", Path: []any{"rateLimit"}, Message: "rate limiting is disabled"}},
+	}}
+	out := runRepoBatch(context.Background(), fake, issueCountBatch, []discovery.Repo{{Owner: "o", Name: "a"}, {Owner: "o", Name: "b"}})
+	for i := range 2 {
+		if out.retry[i] || out.failed[i] != nil || out.data[i] == nil {
+			t.Errorf("repo %d: retry = %v, failed = %v, data = %s, want the data", i, out.retry[i], out.failed[i], out.data[i])
+		}
+	}
+}
+
+// respFunc is a RawGraphQLClient that answers every query with one response.
+type respFunc struct{ resp *ghclient.RawResponse }
+
+func (r respFunc) QueryRaw(context.Context, string, map[string]any) (*ghclient.RawResponse, error) {
+	return r.resp, nil
+}
