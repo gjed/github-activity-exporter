@@ -266,7 +266,7 @@ func (c *Client) QueryRaw(ctx context.Context, query string, variables map[strin
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("graphql: non-200 OK status code: %v body: %q", resp.Status, b)
