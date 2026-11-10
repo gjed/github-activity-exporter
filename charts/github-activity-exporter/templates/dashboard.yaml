@@ -5,6 +5,9 @@
 {{- end }}
 {{- with .Values.dashboard.minStep }}
 {{- $minStep := toString . }}
+{{- if not (regexMatch "^[0-9]+(ms|[smhdwMy])$" $minStep) }}
+{{- fail (printf "dashboard.minStep %q is not a Grafana interval such as 30m" $minStep) }}
+{{- end }}
 {{- $parsed := $dashboard | fromJson }}
 {{- $found := false }}
 {{- range $parsed.templating.list }}
