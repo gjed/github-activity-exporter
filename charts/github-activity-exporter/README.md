@@ -15,6 +15,7 @@ Examples:
 - [`examples/github-app-values.yaml`](examples/github-app-values.yaml): an org through a GitHub App, with the Prometheus bridge, a ServiceMonitor and both Grafana dashboards.
 - [`examples/self-telemetry-values.yaml`](examples/self-telemetry-values.yaml): one org with a PAT, plus self-telemetry metrics (Go runtime and GitHub API client metrics).
 - [`examples/profiles-values.yaml`](examples/profiles-values.yaml): Renovate PRs of one org, with profiles pushed to an in-cluster OpenTelemetry Collector.
+- [`examples/large-org-values.yaml`](examples/large-org-values.yaml): a large org through a GitHub App, with `collection.concurrency` sized for a 5m `collection_interval`.
 
 ## Config
 
