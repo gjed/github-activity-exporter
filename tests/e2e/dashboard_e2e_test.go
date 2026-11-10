@@ -94,9 +94,9 @@ const longCollectionInterval = 15 * time.Minute / timeScale
 
 // TestDashboardContinuity runs the exporter with collection_interval 15m and
 // the default export.interval, both scaled. Every rate() panel of every
-// generated dashboard must have a
-// value at every step of the dashboard's default Min interval, and the cycle
-// counter must change once per cycle, not once per push.
+// generated dashboard must have a value at every step of the dashboard's
+// default Min interval, and the cycle counter must change once per cycle, not
+// once per push.
 func TestDashboardContinuity(t *testing.T) {
 	requireDocker(t)
 
