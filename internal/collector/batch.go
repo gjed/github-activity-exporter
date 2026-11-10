@@ -28,22 +28,35 @@ type BatchGraphQLClient interface {
 	RawGraphQLClient
 }
 
-// BatchOption configures the batched queries of a collector.
-type BatchOption func(*int)
+// CollectorOption configures the issue and Dependency Dashboard collectors.
+type CollectorOption func(*collectorOptions)
+
+type collectorOptions struct {
+	batchSize int
+	limiter   *Limiter
+}
 
 // WithGraphQLBatchSize sets the number of repos per batched GraphQL query.
 // Values below 1 mean 1. Default config.DefaultGraphQLBatchSize.
-func WithGraphQLBatchSize(n int) BatchOption {
-	return func(size *int) { *size = n }
+func WithGraphQLBatchSize(n int) CollectorOption {
+	return func(o *collectorOptions) { o.batchSize = n }
 }
 
-// batchSize applies opts to the default batch size.
-func batchSize(opts []BatchOption) int {
-	size := config.DefaultGraphQLBatchSize
-	for _, o := range opts {
-		o(&size)
+// WithLimiter runs the batches, or the repos of the issue title-filter
+// listing, of a cycle through l. Without it they run one at a time. Share
+// one Limiter between the collectors of a target.
+func WithLimiter(l *Limiter) CollectorOption {
+	return func(o *collectorOptions) { o.limiter = l }
+}
+
+// applyOptions applies opts to the defaults.
+func applyOptions(opts []CollectorOption) collectorOptions {
+	o := collectorOptions{batchSize: config.DefaultGraphQLBatchSize}
+	for _, opt := range opts {
+		opt(&o)
 	}
-	return max(size, 1)
+	o.batchSize = max(o.batchSize, 1)
+	return o
 }
 
 // errResourceLimits is the GraphQL error type GitHub returns, on an alias or
@@ -161,6 +174,26 @@ func aliasIndex(path []any, n int) (int, bool) {
 		return 0, false
 	}
 	return i, true
+}
+
+// eachBatch runs fn on every batch of at most size repos through l, and
+// returns fn's per-repo results and errors indexed like the batches. A repo
+// of a batch that never ran fails with errNotStarted.
+func eachBatch[T any](ctx context.Context, l *Limiter, repos []discovery.Repo, size int, fn func([]discovery.Repo) ([]T, []error)) ([][]discovery.Repo, [][]T, [][]error) {
+	bs := batches(repos, size)
+	results := make([][]T, len(bs))
+	errs := make([][]error, len(bs))
+	for i, b := range bs {
+		results[i] = make([]T, len(b))
+		errs[i] = make([]error, len(b))
+		for j := range errs[i] {
+			errs[i][j] = errNotStarted
+		}
+	}
+	l.each(ctx, len(bs), func(i int) {
+		results[i], errs[i] = fn(bs[i])
+	})
+	return bs, results, errs
 }
 
 // batches splits repos into consecutive slices of at most size repos.

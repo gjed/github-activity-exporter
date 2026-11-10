@@ -286,7 +286,9 @@ func buildTargetRunner(
 		}),
 	)
 
-	prCfg := collector.PRCollectorConfig{LookbackDays: 30}
+	// One limiter per target, shared by its collectors.
+	limiter := collector.NewLimiter(t.Concurrency())
+	prCfg := collector.PRCollectorConfig{LookbackDays: 30, Limiter: limiter}
 	prColl, err := collector.NewPRCollector(ghc.GraphQL(), t.Filters.PRs, prCfg, otelMeter, logger)
 	if err != nil {
 		return nil, fmt.Errorf("build PR collector: %w", err)
@@ -298,12 +300,13 @@ func buildTargetRunner(
 		otelMeter,
 		logger,
 		collector.WithGraphQLBatchSize(t.BatchSize()),
+		collector.WithLimiter(limiter),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build issue collector: %w", err)
 	}
 
-	dashColl, err := newDashboardCollector(t, ghc, otelMeter, logger)
+	dashColl, err := newDashboardCollector(t, ghc, otelMeter, logger, limiter)
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard collector: %w", err)
 	}
@@ -334,6 +337,7 @@ func newDashboardCollector(
 	gql collector.BatchGraphQLClient,
 	meter metric.Meter,
 	logger *slog.Logger,
+	limiter *collector.Limiter,
 ) (*collector.DashboardCollector, error) {
 	if !t.RenovateDashboard.Enabled {
 		return nil, nil
@@ -344,6 +348,7 @@ func newDashboardCollector(
 		meter,
 		logger,
 		collector.WithGraphQLBatchSize(t.BatchSize()),
+		collector.WithLimiter(limiter),
 	)
 }
 
