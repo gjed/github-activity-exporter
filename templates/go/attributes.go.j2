@@ -58,7 +58,7 @@ const (
 )
 
 // Enum value lists, in registry order, for code that must cover every value.
-var (
+// Each call returns a new slice, so callers may sort or append to it.
 {%- for group in ctx %}
 {%- for attr in group.attributes %}
 {%- if attr.type is mapping and attr.type.members is defined %}
@@ -66,13 +66,15 @@ var (
                   | replace("Reviewstatus", "ReviewStatus")
                   | replace("Ratelimit", "RateLimit")
                   | replace("Github", "GitHub") %}
-	// Attr{{ attr_id }}Values lists every {{ attr.name }} value.
-	Attr{{ attr_id }}Values = []string{
+
+// Attr{{ attr_id }}Values returns every {{ attr.name }} value.
+func Attr{{ attr_id }}Values() []string {
+	return []string{
 {%- for member in attr.type.members %}
 		"{{ member.value }}",
 {%- endfor %}
 	}
+}
 {%- endif %}
 {%- endfor %}
 {%- endfor %}
-)

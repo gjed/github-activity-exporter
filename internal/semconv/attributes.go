@@ -128,14 +128,19 @@ AttrRenovateDashboardSectionPending = "pending"
 )
 
 // Enum value lists, in registry order, for code that must cover every value.
-var (
-	// AttrGitHubApiEndpointValues lists every github.api.endpoint value.
-	AttrGitHubApiEndpointValues = []string{
+// Each call returns a new slice, so callers may sort or append to it.
+
+// AttrGitHubApiEndpointValues returns every github.api.endpoint value.
+func AttrGitHubApiEndpointValues() []string {
+	return []string{
 		"graphql",
 		"rest.repos",
 	}
-	// AttrGitHubApiRateLimitResourceValues lists every github.api.rate_limit.resource value.
-	AttrGitHubApiRateLimitResourceValues = []string{
+}
+
+// AttrGitHubApiRateLimitResourceValues returns every github.api.rate_limit.resource value.
+func AttrGitHubApiRateLimitResourceValues() []string {
+	return []string{
 		"core",
 		"search",
 		"code_search",
@@ -151,30 +156,42 @@ var (
 		"audit_log",
 		"other",
 	}
-	// AttrGitHubIssueStateValues lists every github.issue.state value.
-	AttrGitHubIssueStateValues = []string{
+}
+
+// AttrGitHubIssueStateValues returns every github.issue.state value.
+func AttrGitHubIssueStateValues() []string {
+	return []string{
 		"open",
 		"closed",
 	}
-	// AttrGitHubPrReviewStatusValues lists every github.pr.review_status value.
-	AttrGitHubPrReviewStatusValues = []string{
+}
+
+// AttrGitHubPrReviewStatusValues returns every github.pr.review_status value.
+func AttrGitHubPrReviewStatusValues() []string {
+	return []string{
 		"approved",
 		"changes_requested",
 		"pending",
 		"none",
 	}
-	// AttrGitHubPrStateValues lists every github.pr.state value.
-	AttrGitHubPrStateValues = []string{
+}
+
+// AttrGitHubPrStateValues returns every github.pr.state value.
+func AttrGitHubPrStateValues() []string {
+	return []string{
 		"open",
 		"closed",
 		"draft",
 		"merged",
 	}
-	// AttrRenovateDashboardSectionValues lists every renovate.dashboard.section value.
-	AttrRenovateDashboardSectionValues = []string{
+}
+
+// AttrRenovateDashboardSectionValues returns every renovate.dashboard.section value.
+func AttrRenovateDashboardSectionValues() []string {
+	return []string{
 		"awaiting-schedule",
 		"rate-limited",
 		"pending-approval",
 		"pending",
 	}
-)
+}

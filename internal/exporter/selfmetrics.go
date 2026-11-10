@@ -118,7 +118,7 @@ func (s *SelfMetrics) InitOverruns(ctx context.Context, target string) {
 // github.api.endpoint value, so each series is exported from the first push
 // and increase() sees the first error.
 func (s *SelfMetrics) InitAPIErrors(ctx context.Context, target string) {
-	for _, endpoint := range sc.AttrGitHubApiEndpointValues {
+	for _, endpoint := range sc.AttrGitHubApiEndpointValues() {
 		s.apiErrors.Add(ctx, 0,
 			metric.WithAttributes(
 				attribute.String(sc.AttrExporterTarget, target),
