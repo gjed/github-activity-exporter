@@ -197,6 +197,52 @@ func TestSelfMetrics_InitOverruns_ExportsZero(t *testing.T) {
 	t.Fatalf("metric %s not collected", sc.MetricGitHubExporterScrapeOverruns)
 }
 
+// TestSelfMetrics_SecondaryRateLimits asserts the secondary rate limit
+// series of a target is 0 after init and counts each hit.
+func TestSelfMetrics_SecondaryRateLimits(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	sm, err := exporter.NewSelfMetrics(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test"))
+	if err != nil {
+		t.Fatalf("NewSelfMetrics: %v", err)
+	}
+	ctx := context.Background()
+	value := func() int64 {
+		t.Helper()
+		var rm metricdata.ResourceMetrics
+		if err := reader.Collect(ctx, &rm); err != nil {
+			t.Fatalf("Collect: %v", err)
+		}
+		for _, scope := range rm.ScopeMetrics {
+			for _, m := range scope.Metrics {
+				if m.Name != sc.MetricGitHubExporterApiSecondaryRateLimits {
+					continue
+				}
+				sum, ok := m.Data.(metricdata.Sum[int64])
+				if !ok || len(sum.DataPoints) != 1 || !sum.IsMonotonic {
+					t.Fatalf("unexpected data %#v", m.Data)
+				}
+				dp := sum.DataPoints[0]
+				if v, _ := dp.Attributes.Value(attribute.Key(sc.AttrExporterTarget)); v.AsString() != "tgt" {
+					t.Errorf("%s = %q, want tgt", sc.AttrExporterTarget, v.AsString())
+				}
+				return dp.Value
+			}
+		}
+		t.Fatalf("metric %s not collected", sc.MetricGitHubExporterApiSecondaryRateLimits)
+		return 0
+	}
+
+	sm.InitSecondaryRateLimits(ctx, "tgt")
+	if got := value(); got != 0 {
+		t.Errorf("after init = %d, want 0", got)
+	}
+	sm.RecordSecondaryRateLimit(ctx, "tgt")
+	sm.RecordSecondaryRateLimit(ctx, "tgt")
+	if got := value(); got != 2 {
+		t.Errorf("after two hits = %d, want 2", got)
+	}
+}
+
 // TestSelfMetrics_ScrapeDurationBuckets asserts the bucket boundaries and that
 // a 1040 s cycle lands in the 1800 bucket, not +Inf.
 func TestSelfMetrics_ScrapeDurationBuckets(t *testing.T) {

@@ -267,6 +267,9 @@ func buildTargetRunner(
 		ghclient.WithAuthResultHook(func(unauthorized bool) {
 			tracker.AuthResult(t.Name, unauthorized)
 		}),
+		ghclient.WithSecondaryRateLimitHook(func() {
+			selfMetrics.RecordSecondaryRateLimit(context.Background(), t.Name)
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build github client: %w", err)
@@ -285,6 +288,8 @@ func buildTargetRunner(
 			selfMetrics.RecordAPIError(context.Background(), t.Name, semconv.AttrGitHubApiEndpointRestRepos)
 		}),
 	)
+
+	selfMetrics.InitSecondaryRateLimits(ctx, t.Name)
 
 	// One limiter per target, shared by its collectors.
 	limiter := collector.NewLimiter(t.Concurrency())
