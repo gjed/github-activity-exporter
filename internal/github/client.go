@@ -32,6 +32,19 @@ const (
 	// window reset. The exporter makes no search calls. Upgrade path: derive
 	// the threshold per pool from X-RateLimit-Limit.
 	rateLimitPauseThreshold = 200
+
+	// maxRateLimitRetries is how many times a request answered with a rate
+	// limit (403 or 429) is sent again after the pause.
+	maxRateLimitRetries = 3
+
+	// secondaryFallbackWait is the pause after a secondary rate limit
+	// response that gives no Retry-After, doubled on each further one of the
+	// same request, as GitHub's guidance asks.
+	secondaryFallbackWait = time.Minute
+
+	// secondaryBodyLimit is how much of a 403 body is read to look for a
+	// secondary rate limit message.
+	secondaryBodyLimit = 64 << 10
 )
 
 // documentedPools are the X-RateLimit-Resource values GitHub documents
@@ -65,6 +78,11 @@ type RateLimitState struct {
 // It is invoked from the response transport, so implementations must not block.
 type RateLimitHook func(state RateLimitState)
 
+// SecondaryRateLimitHook is called once per GitHub response treated as a
+// secondary rate limit. It runs in the client transport, so implementations
+// must not block.
+type SecondaryRateLimitHook func()
+
 // AuthResultHook is called once per GitHub HTTP response with whether GitHub
 // answered 401 Unauthorized, and with true when a GitHub App installation
 // token exchange is rejected with 401. It runs in the client transport, so
@@ -94,6 +112,13 @@ type Client struct {
 	rlHooks []RateLimitHook
 
 	authHooks []AuthResultHook
+
+	secondaryHooks []SecondaryRateLimitHook
+	// pausedUntil holds every request of the target until then, after a
+	// secondary rate limit; guarded by mu.
+	pausedUntil time.Time
+	// sleep waits for d or until ctx is done; replaced in tests.
+	sleep func(ctx context.Context, d time.Duration) error
 
 	// base is the transport under the rate limit transport.
 	base http.RoundTripper
@@ -130,6 +155,14 @@ func WithAuthResultHook(hook AuthResultHook) ClientOption {
 	}
 }
 
+// WithSecondaryRateLimitHook registers a callback invoked on every response
+// treated as a secondary rate limit.
+func WithSecondaryRateLimitHook(hook SecondaryRateLimitHook) ClientOption {
+	return func(c *Client) {
+		c.secondaryHooks = append(c.secondaryHooks, hook)
+	}
+}
+
 // WithBaseTransport sets the transport the client sends requests through,
 // under its rate limit and auth handling; see NewTransport. Default
 // http.DefaultTransport.
@@ -162,6 +195,7 @@ func NewClient(auth Authenticator, opts ...ClientOption) (*Client, error) {
 		baseURL: defaultGitHubAPIURL,
 		rlPools: make(map[string]*poolState),
 		base:    http.DefaultTransport,
+		sleep:   sleepCtx,
 	}
 	for _, o := range opts {
 		o(c)
@@ -391,13 +425,111 @@ func (c *Client) waitIfPaused(ctx context.Context, resource string) error {
 		"resource", resource,
 		"wait", waitDur.Round(time.Second),
 	)
+	return c.sleep(ctx, waitDur)
+}
 
+// sleepCtx waits for d or until ctx is done.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
 	select {
-	case <-time.After(waitDur):
+	case <-timer.C:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// waitIfTargetPaused blocks until a secondary rate limit pause of the
+// target ends, if one is in progress. It holds requests of every pool.
+func (c *Client) waitIfTargetPaused(ctx context.Context) error {
+	c.mu.Lock()
+	until := c.pausedUntil
+	c.mu.Unlock()
+	if d := time.Until(until); d > 0 {
+		return c.sleep(ctx, d)
+	}
+	return nil
+}
+
+// pauseTarget holds every request of the target for d. A pause already in
+// progress that ends later is kept, so concurrent rate limited requests do
+// not shorten each other's pause.
+func (c *Client) pauseTarget(d time.Duration) {
+	until := time.Now().Add(d)
+	c.mu.Lock()
+	if until.After(c.pausedUntil) {
+		c.pausedUntil = until
+	}
+	c.mu.Unlock()
+}
+
+// rateLimitKind classifies a response as no rate limit, a primary rate
+// limit (its pool is exhausted) or a secondary rate limit.
+type rateLimitKind uint8
+
+const (
+	notRateLimited rateLimitKind = iota
+	primaryRateLimit
+	secondaryRateLimit
+)
+
+// classifyRateLimit tells whether resp is a rate limit and, for a secondary
+// one, how long to pause the target: Retry-After when present, else
+// secondaryFallbackWait doubled for each earlier attempt. A primary limit
+// (X-RateLimit-Remaining: 0) pauses only its pool, through updateRateLimit.
+// A 403 is a secondary limit only with Retry-After or a body naming one; any
+// other 403 (no access) is returned as is. The body, when read, is restored.
+func classifyRateLimit(resp *http.Response, attempt int) (rateLimitKind, time.Duration) {
+	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusTooManyRequests {
+		return notRateLimited, 0
+	}
+	if resp.Header.Get("X-RateLimit-Remaining") == "0" {
+		return primaryRateLimit, 0
+	}
+	if ra := resp.Header.Get("Retry-After"); ra != "" {
+		if secs, err := strconv.Atoi(ra); err == nil {
+			return secondaryRateLimit, max(time.Duration(secs)*time.Second, 0)
+		}
+		if at, err := http.ParseTime(ra); err == nil {
+			return secondaryRateLimit, max(time.Until(at), 0)
+		}
+	}
+	fallback := secondaryFallbackWait << (attempt - 1)
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return secondaryRateLimit, fallback
+	}
+	if resp.Body == nil {
+		return notRateLimited, 0
+	}
+	head, _ := io.ReadAll(io.LimitReader(resp.Body, secondaryBodyLimit))
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(head), resp.Body), resp.Body}
+	if bytes.Contains(bytes.ToLower(head), []byte("secondary rate limit")) {
+		return secondaryRateLimit, fallback
+	}
+	return notRateLimited, 0
+}
+
+// retryRequest returns req ready to be sent again: req itself without a
+// body, else a clone with a fresh body. ok is false when the body cannot be
+// replayed.
+func retryRequest(req *http.Request) (next *http.Request, ok bool) {
+	if req.Body == nil || req.Body == http.NoBody {
+		return req, true
+	}
+	if req.GetBody == nil {
+		return nil, false
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return nil, false
+	}
+	next = req.Clone(req.Context())
+	next.Body = body
+	return next, true
 }
 
 // reportAuthResult invokes the auth result hooks.
@@ -416,48 +548,101 @@ type rateLimitTransport struct {
 	inner  http.RoundTripper
 }
 
+// RoundTrip sends req once the target's secondary rate limit pause and its
+// pool's pause are over. A response that is a rate limit is retried after
+// the pause, at most maxRateLimitRetries times; then, or when the body
+// cannot be replayed, it is returned to the caller.
 func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	pool := t.client.classifyPool(req.URL)
-	if err := t.client.waitIfPaused(req.Context(), pool); err != nil {
-		return nil, err
-	}
+	c := t.client
+	pool := c.classifyPool(req.URL)
+	for attempt := 1; ; attempt++ {
+		if err := c.waitIfTargetPaused(req.Context()); err != nil {
+			return nil, err
+		}
+		if err := c.waitIfPaused(req.Context(), pool); err != nil {
+			return nil, err
+		}
 
-	resp, err := t.inner.RoundTrip(req)
-	if err != nil {
-		return nil, err
-	}
-
-	t.client.reportAuthResult(resp.StatusCode == http.StatusUnauthorized)
-
-	// Parse rate limit headers (REST and GraphQL send the same ones).
-	if rem := resp.Header.Get("X-RateLimit-Remaining"); rem != "" {
-		remaining, err := strconv.Atoi(rem)
+		resp, err := t.inner.RoundTrip(req)
 		if err != nil {
-			// Malformed header — skip the update rather than defaulting to 0
-			// (defaulting to 0 would spuriously trigger the pause logic).
-			t.client.logger.Debug("ignoring malformed X-RateLimit-Remaining header", "value", rem)
-		} else {
-			var resetAt time.Time
-			if resetStr := resp.Header.Get("X-RateLimit-Reset"); resetStr != "" {
-				if resetUnix, err := strconv.ParseInt(resetStr, 10, 64); err == nil {
-					resetAt = time.Unix(resetUnix, 0)
-				}
+			return nil, err
+		}
+		c.reportAuthResult(resp.StatusCode == http.StatusUnauthorized)
+		resource := t.recordRateLimit(resp, pool)
+
+		kind, wait := classifyRateLimit(resp, attempt)
+		if kind == notRateLimited {
+			return resp, nil
+		}
+		if kind == secondaryRateLimit {
+			for _, h := range c.secondaryHooks {
+				h()
 			}
-			// Only enter paused state if we have a valid future reset time.
-			// Without a reset time, pause would block indefinitely (zero time → no wait).
-			resource := responsePool(resp.Header.Get("X-RateLimit-Resource"), pool)
-			if remaining < rateLimitPauseThreshold && resetAt.IsZero() {
-				t.client.logger.Warn("rate limit low but X-RateLimit-Reset missing; applying 60s fallback backoff",
-					"resource", resource,
-					"remaining", remaining,
-				)
-				resetAt = time.Now().Add(60 * time.Second)
+			c.pauseTarget(wait)
+		}
+		next, ok := retryRequest(req)
+		if attempt > maxRateLimitRetries || !ok {
+			c.logger.Warn("rate limited: giving up on the request",
+				"status", resp.StatusCode,
+				"resource", resource,
+				"secondary", kind == secondaryRateLimit,
+				"attempts", attempt,
+			)
+			return resp, nil
+		}
+		if kind == secondaryRateLimit {
+			c.logger.Warn("secondary rate limit: pausing all requests of the target",
+				"status", resp.StatusCode,
+				"resource", resource,
+				"wait", wait.Round(time.Second),
+				"attempt", attempt,
+			)
+		} else if resource != pool {
+			// The next attempt waits on the request's pool; wait on the
+			// exhausted one too.
+			if err := c.waitIfPaused(req.Context(), resource); err != nil {
+				_ = resp.Body.Close()
+				return nil, err
 			}
-			t.client.updateRateLimit(resource, remaining, resetAt)
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, secondaryBodyLimit))
+		_ = resp.Body.Close()
+		req = next
+	}
+}
+
+// recordRateLimit records the X-RateLimit-* headers of resp, sent for a
+// request classified in pool, and returns the pool they belong to.
+func (t *rateLimitTransport) recordRateLimit(resp *http.Response, pool string) string {
+	resource := responsePool(resp.Header.Get("X-RateLimit-Resource"), pool)
+	rem := resp.Header.Get("X-RateLimit-Remaining")
+	if rem == "" {
+		return resource
+	}
+	remaining, err := strconv.Atoi(rem)
+	if err != nil {
+		// Malformed header — skip the update rather than defaulting to 0
+		// (defaulting to 0 would spuriously trigger the pause logic).
+		t.client.logger.Debug("ignoring malformed X-RateLimit-Remaining header", "value", rem)
+		return resource
+	}
+	var resetAt time.Time
+	if resetStr := resp.Header.Get("X-RateLimit-Reset"); resetStr != "" {
+		if resetUnix, err := strconv.ParseInt(resetStr, 10, 64); err == nil {
+			resetAt = time.Unix(resetUnix, 0)
 		}
 	}
-
-	return resp, nil
+	// Only enter paused state if we have a valid future reset time.
+	// Without a reset time, pause would block indefinitely (zero time → no wait).
+	if remaining < rateLimitPauseThreshold && resetAt.IsZero() {
+		t.client.logger.Warn("rate limit low but X-RateLimit-Reset missing; applying 60s fallback backoff",
+			"resource", resource,
+			"remaining", remaining,
+		)
+		resetAt = time.Now().Add(60 * time.Second)
+	}
+	t.client.updateRateLimit(resource, remaining, resetAt)
+	return resource
 }
 
 // ---------------------------------------------------------------------------
