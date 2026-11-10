@@ -110,7 +110,8 @@ const DefaultBaseURL = "https://api.github.com"
 
 // DefaultGraphQLBatchSize is the number of repos per batched GraphQL query
 // when a target sets no graphql_batch_size, and MaxGraphQLBatchSize the
-// largest accepted value. See openspec/changes/graphql-batching/design.md for
+// largest accepted value. See
+// openspec/changes/archive/2026-11-09-graphql-batching/design.md for
 // how the default was measured.
 const (
 	DefaultGraphQLBatchSize = 20
