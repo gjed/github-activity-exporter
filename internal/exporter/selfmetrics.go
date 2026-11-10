@@ -16,6 +16,7 @@ type SelfMetrics struct {
 	scrapeDuration metric.Float64Histogram
 	overruns       metric.Int64Counter
 	apiErrors      metric.Int64Counter
+	secondaryRL    metric.Int64Counter
 	otlpErrors     metric.Int64Counter
 	rlRemaining    metric.Int64Gauge
 	rlReset        metric.Int64Gauge
@@ -56,6 +57,15 @@ func NewSelfMetrics(meter metric.Meter) (*SelfMetrics, error) {
 		return nil, err
 	}
 
+	secondaryRL, err := meter.Int64Counter(
+		sc.MetricGitHubExporterApiSecondaryRateLimits,
+		metric.WithDescription("Number of GitHub API responses treated as a secondary rate limit."),
+		metric.WithUnit("{response}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	otlpErrors, err := meter.Int64Counter(
 		sc.MetricGitHubExporterOTLPErrors,
 		metric.WithDescription("Number of OTLP push failures."),
@@ -87,6 +97,7 @@ func NewSelfMetrics(meter metric.Meter) (*SelfMetrics, error) {
 		scrapeDuration: scrapeDuration,
 		overruns:       overruns,
 		apiErrors:      apiErrors,
+		secondaryRL:    secondaryRL,
 		otlpErrors:     otlpErrors,
 		rlRemaining:    rlRemaining,
 		rlReset:        rlReset,
@@ -148,6 +159,19 @@ func (s *SelfMetrics) RecordAPIError(ctx context.Context, target, endpoint strin
 			attribute.String(sc.AttrGitHubApiEndpoint, endpoint),
 		),
 	)
+}
+
+// InitSecondaryRateLimits adds 0 to the secondary rate limit counter of
+// target, so its series is exported from the first push and increase() sees
+// the first hit.
+func (s *SelfMetrics) InitSecondaryRateLimits(ctx context.Context, target string) {
+	s.secondaryRL.Add(ctx, 0, metric.WithAttributes(attribute.String(sc.AttrExporterTarget, target)))
+}
+
+// RecordSecondaryRateLimit increments the secondary rate limit counter: a
+// GitHub response of target was a secondary rate limit.
+func (s *SelfMetrics) RecordSecondaryRateLimit(ctx context.Context, target string) {
+	s.secondaryRL.Add(ctx, 1, metric.WithAttributes(attribute.String(sc.AttrExporterTarget, target)))
 }
 
 // RecordOTLPError increments the OTLP push error counter.

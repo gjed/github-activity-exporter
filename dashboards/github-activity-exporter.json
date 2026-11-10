@@ -58,10 +58,24 @@
     }
 ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Number of GitHub API requests remaining in the current rate limit window.",
+      "description": "Number of GitHub API responses treated as a secondary rate limit.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
       "id": 6,
+      "interval": "$min_step",
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"exporter.target\") (rate({\"github_exporter.api.secondary_rate_limits\", job=~\"$job\", \"exporter.target\"=~\"$target\"}[$__rate_interval])) * 3600", "legendFormat": "{{exporter.target}}", "range": true, "refId": "A" }
+      ],
+      "title": "Secondary rate limits per hour",
+      "type": "timeseries"
+    }
+,{
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Number of GitHub API requests remaining in the current rate limit window.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "id": 7,
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -74,8 +88,8 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "Unix time, in seconds, at which the current GitHub API rate limit window resets.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
-      "id": 7,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "id": 8,
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -84,12 +98,12 @@
       "title": "Time until rate limit reset by pool",
       "type": "timeseries"
     }
-,{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 26 }, "id": 8, "panels": [], "title": "OTLP export", "type": "row" },{
+,{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 26 }, "id": 9, "panels": [], "title": "OTLP export", "type": "row" },{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "Number of OTLP push failures.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
-      "id": 9,
+      "id": 10,
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -97,13 +111,13 @@
       ],
       "title": "OTLP push errors per hour",
       "type": "timeseries"
-    },{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 }, "id": 10, "panels": [], "title": "Self-telemetry", "type": "row" }
+    },{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 }, "id": 11, "panels": [], "title": "Self-telemetry", "type": "row" }
 ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "Memory used by the Go runtime. Heap size target for the end of the GC cycle. Go runtime memory limit configured by the user, if a limit exists.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "bytes" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
-      "id": 11,
+      "id": 12,
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -119,7 +133,7 @@
       "description": "Memory allocated to the heap by the application.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "Bps" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
-      "id": 12,
+      "id": 13,
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -133,7 +147,7 @@
       "description": "Count of live goroutines.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 44 },
-      "id": 13,
+      "id": 14,
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -147,7 +161,7 @@
       "description": "Duration of HTTP client requests.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 44 },
-      "id": 14,
+      "id": 15,
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [

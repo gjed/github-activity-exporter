@@ -330,6 +330,26 @@ metrics:
       - ref: github.api.endpoint
         requirement_level: required
 
+  - name: github_exporter.api.secondary_rate_limits
+    instrument: counter
+    annotations:
+      prometheus:
+        name: github_exporter.api.secondary_rate_limits
+        type: counter
+    unit: "{response}"
+    stability: development
+    requirement_level: recommended
+    brief: Number of GitHub API responses treated as a secondary rate limit.
+    note: >
+      Incremented once per 403 or 429 response that carries Retry-After, or
+      that is a 429 or names a secondary rate limit in its body, with
+      X-RateLimit-Remaining not 0. Each one pauses every request of the target
+      and is retried; retries are counted too. Exported with value 0 for every
+      target from the first push.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+
   - name: github_exporter.api.rate_limit.remaining
     instrument: gauge
     annotations:

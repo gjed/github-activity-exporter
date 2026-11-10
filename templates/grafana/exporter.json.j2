@@ -20,6 +20,9 @@
 {% call m.panel(st, "GitHub API errors per hour", m.brief(ctx, "github_exporter.api.errors"), "short") %}
 {{- m.target("A", m.expr(ctx, st, "github_exporter.api.errors", "rate", by=["exporter.target", "github.api.endpoint"], scale=per_hour), "{{exporter.target}} {{github.api.endpoint}}") -}}
 {% endcall %}
+{% call m.panel(st, "Secondary rate limits per hour", m.brief(ctx, "github_exporter.api.secondary_rate_limits"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github_exporter.api.secondary_rate_limits", "rate", by=["exporter.target"], scale=per_hour), "{{exporter.target}}") -}}
+{% endcall %}
 {% call m.panel(st, "Rate limit remaining by pool", m.brief(ctx, "github_exporter.api.rate_limit.remaining"), "short") %}
 {{- m.target("A", m.expr(ctx, st, "github_exporter.api.rate_limit.remaining", "min", by=pool), "{{exporter.target}} {{github.api.rate_limit.resource}}") -}}
 {% endcall %}

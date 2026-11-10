@@ -59,6 +59,10 @@ const (
 	// Unix time, in seconds, at which the current GitHub API rate limit window resets.
 	// Instrument: gauge, Unit: s, Stability: development
 	MetricGitHubExporterApiRateLimitReset = "github_exporter.api.rate_limit.reset"
+// MetricGitHubExporterApiSecondaryRateLimits is the metric name for github_exporter.api.secondary_rate_limits.
+	// Number of GitHub API responses treated as a secondary rate limit.
+	// Instrument: counter, Unit: {response}, Stability: development
+	MetricGitHubExporterApiSecondaryRateLimits = "github_exporter.api.secondary_rate_limits"
 // MetricGitHubExporterOTLPErrors is the metric name for github_exporter.otlp.errors.
 	// Number of OTLP push failures.
 	// Instrument: counter, Unit: {error}, Stability: development
@@ -105,6 +109,7 @@ var Metrics = []MetricDef{
 	{Name: MetricGitHubExporterApiErrors, Instrument: "counter", Unit: "{error}"},
 	{Name: MetricGitHubExporterApiRateLimitRemaining, Instrument: "gauge", Unit: "{request}"},
 	{Name: MetricGitHubExporterApiRateLimitReset, Instrument: "gauge", Unit: "s"},
+	{Name: MetricGitHubExporterApiSecondaryRateLimits, Instrument: "counter", Unit: "{response}"},
 	{Name: MetricGitHubExporterOTLPErrors, Instrument: "counter", Unit: "{error}"},
 	{Name: MetricGitHubExporterScrapeDuration, Instrument: "histogram", Unit: "s"},
 	{Name: MetricGitHubExporterScrapeOverruns, Instrument: "counter", Unit: "{cycle}"},
