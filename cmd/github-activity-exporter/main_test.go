@@ -2,7 +2,13 @@ package main
 
 import (
 	"context"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -12,6 +18,8 @@ import (
 	"github.com/gjed/github-activity-exporter/internal/collector"
 	"github.com/gjed/github-activity-exporter/internal/config"
 	"github.com/gjed/github-activity-exporter/internal/discovery"
+	"github.com/gjed/github-activity-exporter/internal/exporter"
+	"github.com/gjed/github-activity-exporter/internal/health"
 	sc "github.com/gjed/github-activity-exporter/internal/semconv"
 	"github.com/gjed/github-activity-exporter/internal/telemetry"
 )
@@ -97,5 +105,47 @@ func TestTargetsShareOneMeter(t *testing.T) {
 	}
 	if !targets["a"] || !targets["b"] {
 		t.Errorf("series by target = %v, want a and b", targets)
+	}
+}
+
+func TestPermissionCheckOwners(t *testing.T) {
+	orgs := config.Target{Orgs: []config.OrgConfig{{Org: "a"}, {Org: "b"}}, RenovateDashboard: config.RenovateDashboard{Enabled: true}}
+	if got := permissionCheck(orgs); !slices.Equal(got.Owners, []string{"a", "b"}) || !got.Dashboard {
+		t.Errorf("orgs target: %+v", got)
+	}
+	repos := config.Target{Orgs: []config.OrgConfig{{Org: "ignored"}}, Repos: []string{"x/1", "y/2", "x/3"}}
+	if got := permissionCheck(repos); !slices.Equal(got.Owners, []string{"x", "y"}) || got.Dashboard {
+		t.Errorf("repos target: %+v", got)
+	}
+}
+
+// A target whose token lacks a permission fails to build and never becomes
+// ready.
+func TestBuildTargetRunnerFailsOnMissingPermission(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-OAuth-Scopes", "read:org")
+		_, _ = w.Write([]byte(`{"login":"me"}`))
+	}))
+	defer srv.Close()
+
+	meter := sdkmetric.NewMeterProvider().Meter("test")
+	self, err := exporter.NewSelfMetrics(meter)
+	if err != nil {
+		t.Fatalf("NewSelfMetrics: %v", err)
+	}
+	tracker := health.NewTracker(time.Hour, 3)
+	tracker.Register("tgt")
+	target := config.Target{Name: "tgt", BaseURL: srv.URL, Auth: config.Auth{Token: "ghp_x"}, Orgs: []config.OrgConfig{{Org: "acme"}}}
+
+	_, err = buildRunners(context.Background(), &config.Config{Targets: []config.Target{target}},
+		slog.New(slog.DiscardHandler), meter, nil, self, tracker)
+	if err == nil || !strings.Contains(err.Error(), `target "tgt"`) || !strings.Contains(err.Error(), "missing OAuth scope: repo") {
+		t.Fatalf("buildRunners error = %v, want the target and the missing repo scope", err)
+	}
+
+	rec := httptest.NewRecorder()
+	tracker.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "credential check pending") {
+		t.Errorf("/readyz = %d %q, want 503 credential check pending", rec.Code, rec.Body.String())
 	}
 }

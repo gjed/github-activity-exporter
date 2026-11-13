@@ -99,6 +99,17 @@ type AppAuthenticator struct {
 	mu          sync.Mutex
 	cachedToken string
 	expiresAt   time.Time
+	grants      InstallationGrants
+}
+
+// InstallationGrants is what a GitHub App installation grants, as returned
+// with each installation token.
+type InstallationGrants struct {
+	// Permissions maps a permission (e.g. "pull_requests") to its access
+	// level ("read", "write" or "admin").
+	Permissions map[string]string
+	// RepositorySelection is "all" or "selected".
+	RepositorySelection string
 }
 
 // NewAppAuthenticator creates an AppAuthenticator, loading the private key eagerly.
@@ -130,15 +141,27 @@ func (a *AppAuthenticator) Token(ctx context.Context) (string, error) {
 
 	// Refresh if the token is missing or expires within 5 minutes.
 	if a.cachedToken == "" || time.Until(a.expiresAt) < 5*time.Minute {
-		token, exp, err := a.fetchInstallationToken(ctx)
+		token, exp, grants, err := a.fetchInstallationToken(ctx)
 		if err != nil {
 			return "", err
 		}
 		a.cachedToken = token
 		a.expiresAt = exp
+		a.grants = grants
 	}
 
 	return a.cachedToken, nil
+}
+
+// Grants returns what the installation grants, from the cached installation
+// token, exchanging one first if needed. It sends no other request.
+func (a *AppAuthenticator) Grants(ctx context.Context) (InstallationGrants, error) {
+	if _, err := a.Token(ctx); err != nil {
+		return InstallationGrants{}, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.grants, nil
 }
 
 // Ping calls GET /app to verify the GitHub App credentials.
@@ -164,24 +187,25 @@ func (a *AppAuthenticator) generateJWT() (string, error) {
 }
 
 // fetchInstallationToken exchanges a JWT for a GitHub App installation token.
-func (a *AppAuthenticator) fetchInstallationToken(ctx context.Context) (string, time.Time, error) {
+func (a *AppAuthenticator) fetchInstallationToken(ctx context.Context) (string, time.Time, InstallationGrants, error) {
+	var none InstallationGrants
 	jwtToken, err := a.generateJWT()
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("generating JWT: %w", err)
+		return "", time.Time{}, none, fmt.Errorf("generating JWT: %w", err)
 	}
 
 	url := fmt.Sprintf("%s/app/installations/%d/access_tokens", a.opts.BaseURL, a.opts.InstallationID)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("creating installation token request: %w", err)
+		return "", time.Time{}, none, fmt.Errorf("creating installation token request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := a.opts.HTTPClient.Do(req)
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("requesting installation token: %w", err)
+		return "", time.Time{}, none, fmt.Errorf("requesting installation token: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -191,23 +215,23 @@ func (a *AppAuthenticator) fetchInstallationToken(ctx context.Context) (string, 
 		if resp.StatusCode == http.StatusUnauthorized {
 			err = fmt.Errorf("%w: %w", ErrUnauthorized, err)
 		}
-		return "", time.Time{}, err
+		return "", time.Time{}, none, err
 	}
 
-	// Parse the JSON response manually to avoid pulling in encoding/json for just two fields.
-	// We use a simple struct instead.
 	var result struct {
-		Token     string `json:"token"`
-		ExpiresAt string `json:"expires_at"`
+		Token               string            `json:"token"`
+		ExpiresAt           string            `json:"expires_at"`
+		Permissions         map[string]string `json:"permissions"`
+		RepositorySelection string            `json:"repository_selection"`
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("reading installation token response: %w", err)
+		return "", time.Time{}, none, fmt.Errorf("reading installation token response: %w", err)
 	}
 
 	if err := json.Unmarshal(body, &result); err != nil {
-		return "", time.Time{}, fmt.Errorf("parsing installation token response: %w", err)
+		return "", time.Time{}, none, fmt.Errorf("parsing installation token response: %w", err)
 	}
 
 	exp, err := time.Parse(time.RFC3339, result.ExpiresAt)
@@ -216,7 +240,8 @@ func (a *AppAuthenticator) fetchInstallationToken(ctx context.Context) (string, 
 		exp = time.Now().Add(55 * time.Minute)
 	}
 
-	return result.Token, exp, nil
+	grants := InstallationGrants{Permissions: result.Permissions, RepositorySelection: result.RepositorySelection}
+	return result.Token, exp, grants, nil
 }
 
 // ---------------------------------------------------------------------------
