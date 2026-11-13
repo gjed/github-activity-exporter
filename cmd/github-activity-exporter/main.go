@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -280,6 +282,13 @@ func buildTargetRunner(
 	if err := auth.Ping(pingCtx); err != nil {
 		return nil, fmt.Errorf("credential ping failed: %w", err)
 	}
+	// Before the first cycle and outside the collection limiter; probes wait
+	// on the client's rate limit pauses.
+	checkCtx, cancelCheck := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancelCheck()
+	if err := ghc.CheckPermissions(checkCtx, permissionCheck(t)); err != nil {
+		return nil, err
+	}
 	tracker.CredentialChecked(t.Name)
 
 	disc := discovery.New(t, ghc.REST(),
@@ -332,6 +341,25 @@ func buildTargetRunner(
 		go disc.Start(ctx)
 	}
 	return r, nil
+}
+
+// permissionCheck describes what target t reads: its orgs entries, or the
+// owners of its explicit repos, and whether the dashboard collector runs.
+func permissionCheck(t config.Target) ghclient.PermissionCheck {
+	var owners []string
+	for _, o := range t.Orgs {
+		owners = append(owners, o.Org)
+	}
+	if len(t.Repos) > 0 {
+		owners = nil
+		for _, r := range t.Repos {
+			owner, _, _ := strings.Cut(r, "/")
+			if !slices.Contains(owners, owner) {
+				owners = append(owners, owner)
+			}
+		}
+	}
+	return ghclient.PermissionCheck{Target: t.Name, Owners: owners, Dashboard: t.RenovateDashboard.Enabled}
 }
 
 // newDashboardCollector builds the Renovate Dependency Dashboard collector,
