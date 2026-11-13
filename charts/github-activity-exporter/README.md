@@ -68,6 +68,39 @@ The checksum annotation covers a chart-managed Secret only. After rotating an ex
 
 For anything else, `env`, `envFrom`, `extraVolumes` and `extraVolumeMounts` are passed to the pod as is, for example the standard `OTEL_RESOURCE_ATTRIBUTES`.
 
+## GitHub permissions
+
+Each target's credential needs read access only:
+
+| GitHub call                                        | Used by                                                       | GitHub App          | Classic PAT              | Fine-grained PAT    |
+| -------------------------------------------------- | ------------------------------------------------------------- | ------------------- | ------------------------ | ------------------- |
+| `GET /users/{owner}`                               | owner type lookup, every `orgs` entry                         | none                | none                     | none                |
+| `GET /orgs/{org}/repos`                            | discovery, organization                                       | Metadata: read      | `repo` for private repos | Metadata: read      |
+| `GET /user`, `GET /user/repos?affiliation=owner`   | discovery, user account owning the PAT                        | n/a                 | `repo` for private repos | Metadata: read      |
+| `GET /users/{user}/repos`                          | discovery, user account not owning the PAT (public only)      | n/a                 | none                     | none                |
+| `GET /installation/repositories`                   | discovery, user account with the App installed                | Metadata: read      | n/a                      | n/a                 |
+| GraphQL `repository.pullRequests`                  | PR collector                                                  | Pull requests: read | `repo`                   | Pull requests: read |
+| GraphQL `repository.issues`                        | issue collector                                               | Issues: read        | `repo`                   | Issues: read        |
+| GraphQL `repository.issues(filterBy: {createdBy})` | Dependency Dashboard collector (`renovate_dashboard.enabled`) | Issues: read        | `repo`                   | Issues: read        |
+
+The minimum is Metadata, Pull requests and Issues read-only for a GitHub App or a fine-grained PAT, and the `repo` scope for a classic PAT. At startup the exporter checks them per target and exits with an error naming the target and every missing permission, so the pod restarts until the credential is fixed and never becomes ready. See [GitHub permissions](https://github.com/gjed/github-activity-exporter#github-permissions) for how each auth mode is checked.
+
+A GitHub App for an organization: post this manifest as the `manifest` form field to `https://github.com/organizations/<org>/settings/apps/new` ([registering a GitHub App from a manifest](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest)). It has no webhook. Install it on the organization and wire its private key as in [Secrets](#secrets).
+
+```json
+{
+  "name": "github-activity-exporter",
+  "url": "https://github.com/gjed/github-activity-exporter",
+  "public": false,
+  "default_permissions": {
+    "metadata": "read",
+    "pull_requests": "read",
+    "issues": "read"
+  },
+  "default_events": []
+}
+```
+
 ## Probes
 
 The liveness probe calls `/healthz` and the readiness probe `/readyz` on the health port. No Service exposes that port.
