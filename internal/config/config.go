@@ -115,6 +115,8 @@ type Collection struct {
 	// Concurrency is the default of TargetCollection.Concurrency.
 	// Defaults to DefaultConcurrency.
 	Concurrency int `mapstructure:"concurrency"`
+	// PRAuthor is the default of TargetCollection.PRAuthor. Defaults to false.
+	PRAuthor bool `mapstructure:"pr_author"`
 }
 
 // TargetCollection holds the collection settings of one target.
@@ -123,6 +125,10 @@ type TargetCollection struct {
 	// batch of repos) the target runs at once, 1 to MaxConcurrency. nil
 	// in the file; Load sets it to the top-level collection.concurrency.
 	Concurrency *int `mapstructure:"concurrency"`
+	// PRAuthor adds the github.pr.author attribute to the PR size and close
+	// duration histograms. nil in the file; Load sets it to the top-level
+	// collection.pr_author.
+	PRAuthor *bool `mapstructure:"pr_author"`
 }
 
 // DefaultConcurrency is the collection concurrency when neither the top
@@ -174,6 +180,11 @@ func (t Target) Concurrency() int {
 		return DefaultConcurrency
 	}
 	return *t.Collection.Concurrency
+}
+
+// PRAuthor returns Collection.PRAuthor, or false when unset. Load always sets it.
+func (t Target) PRAuthor() bool {
+	return t.Collection.PRAuthor != nil && *t.Collection.PRAuthor
 }
 
 // BatchSize returns GraphQLBatchSize, or DefaultGraphQLBatchSize when unset.
@@ -275,6 +286,7 @@ func Load(path string) (*Config, error) {
 
 	v.SetDefault("collection_interval", "5m")
 	v.SetDefault("collection.concurrency", DefaultConcurrency)
+	v.SetDefault("collection.pr_author", false)
 	v.SetDefault("export.interval", "60s")
 	v.SetDefault("export.otlp.protocol", "http")
 	v.SetDefault("export.prometheus.listen_address", ":9090")
@@ -329,6 +341,10 @@ func Load(path string) (*Config, error) {
 		if cfg.Targets[i].Collection.Concurrency == nil {
 			n := cfg.Collection.Concurrency
 			cfg.Targets[i].Collection.Concurrency = &n
+		}
+		if cfg.Targets[i].Collection.PRAuthor == nil {
+			b := cfg.Collection.PRAuthor
+			cfg.Targets[i].Collection.PRAuthor = &b
 		}
 	}
 

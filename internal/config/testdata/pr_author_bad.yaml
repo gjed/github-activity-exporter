@@ -1,0 +1,11 @@
+export:
+  otlp:
+    endpoint: http://localhost:4318
+targets:
+  - name: t
+    collection:
+      pr_author: maybe
+    auth:
+      token: ghp_one
+    orgs:
+      - org: one-org
