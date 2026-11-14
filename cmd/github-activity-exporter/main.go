@@ -46,9 +46,13 @@ func main() {
 		return
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	// Everything built before self-telemetry logs to stdout only, among
+	// them the OTLP exporters, whose errors must not be exported over OTLP.
+	const logLevel = slog.LevelInfo
+	stdout := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: logLevel,
+	})
+	logger := slog.New(stdout)
 	slog.SetDefault(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -122,6 +126,8 @@ func main() {
 		logger.Error("failed to initialise self-telemetry", "err", err)
 		os.Exit(1)
 	}
+	// From here on, records also go over OTLP when the logs signal is active.
+	logger = tel.Logger(stdout, logLevel)
 	// Self-telemetry metrics inheriting export.otlp ride in the product push:
 	// one writer for the shared resource's target_info.
 	if p := tel.Producer(); p != nil {
