@@ -164,10 +164,31 @@ func TestCheckPermissions_ClassicScopes(t *testing.T) {
 	}
 }
 
-const forbidden = `{"type":"FORBIDDEN","path":["repositoryOwner","repositories","nodes",0,"%s"],"message":"Resource not accessible by personal access token"}`
+// probeData builds a probe response as GitHub answers it: the repo alias
+// names the private repo, a granted alias holds the repo node, and a
+// forbidden alias holds a null node with a FORBIDDEN error on its field.
+func probeData(owner string, forbidden ...string) string {
+	repo := `{"repositories":{"nodes":[{"nameWithOwner":"` + owner + `/secret"}]}}`
+	granted := `{"repositories":{"nodes":[{"x":{"totalCount":1}}]}}`
+	denied := `{"repositories":{"nodes":[null]}}`
+	data := map[string]string{"repo": repo, "pulls": granted, "issues": granted}
+	var errs []string
+	for _, alias := range forbidden {
+		data[alias] = denied
+		errs = append(errs, `{"type":"FORBIDDEN","path":["`+alias+`","repositories","nodes",0,"x"],"message":"Resource not accessible by personal access token"}`)
+	}
+	var fields []string
+	for _, k := range []string{"repo", "pulls", "issues"} {
+		fields = append(fields, `"`+k+`":`+data[k])
+	}
+	out := `{"data":{` + strings.Join(fields, ",") + `}`
+	if errs != nil {
+		out += `,"errors":[` + strings.Join(errs, ",") + `]`
+	}
+	return out + `}`
+}
 
 func TestCheckPermissions_FineGrained(t *testing.T) {
-	private := `{"repositoryOwner":{"repositories":{"nodes":[{"nameWithOwner":"acme/secret"}]}}}`
 	tests := []struct {
 		name    string
 		respond func(owner string) string
@@ -175,33 +196,36 @@ func TestCheckPermissions_FineGrained(t *testing.T) {
 	}{
 		{
 			name:    "granted",
-			respond: func(string) string { return `{"data":` + private + `}` },
+			respond: func(owner string) string { return probeData(owner) },
 		},
 		{
 			name: "no private repo",
 			respond: func(string) string {
-				return `{"data":{"repositoryOwner":{"repositories":{"nodes":[]}}}}`
+				empty := `{"repositories":{"nodes":[]}}`
+				return `{"data":{"repo":` + empty + `,"pulls":` + empty + `,"issues":` + empty + `}}`
 			},
 		},
 		{
-			name: "missing pull requests",
-			respond: func(string) string {
-				return `{"data":` + private + `,"errors":[` + strings.ReplaceAll(forbidden, "%s", "pulls") + `]}`
-			},
-			want: []string{"pull_requests: read (PR collector)", "probed on acme/secret"},
+			name:    "missing pull requests",
+			respond: func(owner string) string { return probeData(owner, "pulls") },
+			want:    []string{"pull_requests: read (PR collector)", "probed on acme/secret"},
 		},
 		{
-			name: "missing both, across owners",
+			name:    "missing both on one repo",
+			respond: func(owner string) string { return probeData(owner, "pulls", "issues") },
+			want:    []string{"pull_requests: read (PR collector)", "issues: read (issue collector)"},
+		},
+		{
+			name: "missing one per owner",
 			respond: func(owner string) string {
-				alias := map[string]string{"acme": "pulls", "other": "issues"}[owner]
-				return `{"data":` + strings.ReplaceAll(private, "acme", owner) + `,"errors":[` + strings.ReplaceAll(forbidden, "%s", alias) + `]}`
+				return probeData(owner, map[string]string{"acme": "pulls", "other": "issues"}[owner])
 			},
 			want: []string{"pull_requests: read (PR collector)", "issues: read (issue collector)", "acme/secret, other/secret"},
 		},
 		{
 			name: "other error",
 			respond: func(string) string {
-				return `{"errors":[{"type":"INTERNAL","path":["repositoryOwner"],"message":"boom"}]}`
+				return `{"errors":[{"type":"INTERNAL","path":["repo"],"message":"boom"}]}`
 			},
 			want: []string{"boom"},
 		},

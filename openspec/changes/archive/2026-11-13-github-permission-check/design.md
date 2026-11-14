@@ -50,18 +50,13 @@ No `X-OAuth-Scopes` header means scopes cannot be read. Every fine-grained PAT r
 
 ```graphql
 query($owner: String!) {
-  repositoryOwner(login: $owner) {
-    repositories(first: 1, privacy: PRIVATE) {
-      nodes {
-        pullRequests(first: 1) { totalCount }
-        issues(first: 1) { totalCount }
-      }
-    }
-  }
+  repo: repositoryOwner(login: $owner) { repositories(first: 1, privacy: PRIVATE) { nodes { nameWithOwner } } }
+  pulls: repositoryOwner(login: $owner) { repositories(first: 1, privacy: PRIVATE) { nodes { pullRequests(first: 1) { totalCount } } } }
+  issues: repositoryOwner(login: $owner) { repositories(first: 1, privacy: PRIVATE) { nodes { issues(first: 1) { totalCount } } } }
 }
 ```
 
-The dashboard's `issues(filterBy: {createdBy: $login})` field is added when the collector is enabled. A GraphQL error of type `FORBIDDEN` whose path ends in a probed field maps to its permission. No private repo means nothing to check for that owner. Discovery's REST calls are not probed: they need only Metadata, which a fine-grained PAT always has. Other request errors fail startup, as Ping does today.
+The dashboard's issues field gets its own alias when the collector is enabled. Each field has its own alias because GitHub nulls the repo node on its first forbidden field and reports no error for the other fields of that node, measured with a real fine-grained PAT. A GraphQL error of type `FORBIDDEN` under a probe alias maps to its permission. No private repo means nothing to check for that owner. Discovery's REST calls are not probed: they need only Metadata, which a fine-grained PAT always has. Other request errors fail startup, as Ping does today.
 
 ### Rate limits and concurrency
 
