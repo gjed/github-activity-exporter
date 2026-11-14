@@ -3,6 +3,8 @@ package github_test
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-github/v93/github"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -289,6 +292,27 @@ func TestTrace_CancelledWait(t *testing.T) {
 	for _, s := range spansNamed(rec, sc.SpanGitHubExporterRateLimitWait) {
 		if s.Status().Code != codes.Error {
 			t.Errorf("cancelled wait status = %v, want Error", s.Status())
+		}
+	}
+}
+
+// ErrorType maps go-github's REST and rate limit errors to their status code,
+// wrapped or not, and anything else to _OTHER.
+func TestErrorType(t *testing.T) {
+	resp := func(code int) *http.Response { return &http.Response{StatusCode: code, Request: &http.Request{}} }
+	for _, tc := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"graphql", internalgithub.GraphQLError{Type: "NOT_FOUND"}, "NOT_FOUND"},
+		{"rest", &github.ErrorResponse{Response: resp(404)}, "404"},
+		{"primary rate limit", fmt.Errorf("discovery: %w", &github.RateLimitError{Response: resp(403)}), "403"},
+		{"secondary rate limit", fmt.Errorf("discovery: %w", &github.AbuseRateLimitError{Response: resp(429)}), "429"},
+		{"other", errors.New("boom"), "_OTHER"},
+	} {
+		if got := internalgithub.ErrorType(tc.err); got != tc.want {
+			t.Errorf("%s: ErrorType = %q, want %q", tc.name, got, tc.want)
 		}
 	}
 }
