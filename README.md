@@ -312,7 +312,7 @@ telemetry:
 
 A signal is active only when `telemetry.enabled` and its own `enabled` are both true, `OTEL_SDK_DISABLED` is not `true`, and, for traces, metrics and logs, `OTEL_<SIGNAL>_EXPORTER` is not `none`. Environment variables can turn a signal off, never on. Every key can be overridden with `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_ENABLED`, `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_<SIGNAL>_ENABLED` and `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_PROFILES_{ENDPOINT,INTERVAL,MUTEX_FRACTION,BLOCK_RATE}`; a value of the wrong type is a startup error. The startup log lists the active signals under `self_telemetry`.
 
-Metrics are described in [Self-telemetry metrics](#self-telemetry-metrics), traces in [Traces](#traces) and profiles in [Profiles](#profiles). OTLP logs come in [#76](https://github.com/gjed/github-activity-exporter/issues/76).
+Metrics are described in [Self-telemetry metrics](#self-telemetry-metrics), traces in [Traces](#traces), logs in [Logs](#logs) and profiles in [Profiles](#profiles).
 
 Self-telemetry runs on its own OTel SDK providers. No `telemetry` key and no `OTEL_*` variable other than `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` changes what the GitHub metrics export, where, how or when: their OTLP push is configured by `export.otlp` only. The `github_exporter.*` metrics (`scrape.duration`, `scrape.overruns`, `api.errors`, `api.secondary_rate_limits`, `otlp.errors`, `api.rate_limit.*`) belong to the GitHub metrics and are always on; the exporter dashboard uses all of them. When the Prometheus bridge is enabled, self-telemetry metrics are also served on `/metrics`.
 
@@ -381,6 +381,25 @@ env:
   - name: OTEL_TRACES_SAMPLER_ARG
     value: "0.1"   # one cycle in ten
 ```
+
+### Logs
+
+The exporter logs JSON lines to stdout in every mode. With self-telemetry logs active ([#76](https://github.com/gjed/github-activity-exporter/issues/76)), each line is also an OTLP log record with the message as body, the same attributes, the shared resource and the instrumentation scope `github.com/gjed/github-activity-exporter`. The level is `info` for both outputs. The severity follows the [OTel log data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/#field-severitynumber): `DEBUG`, `INFO`, `WARN` and `ERROR` are SeverityNumber 5, 9, 13 and 17, with the level as SeverityText.
+
+With traces active too, a line logged inside a span carries the span's trace and span IDs: as the trace context of the OTLP record, and as `trace_id` and `span_id` on the stdout line. The cycle lines carry the cycle span, a failed collector its `github_exporter.collect` span, a failed repo its `github_exporter.repo` or `github_exporter.batch` span, and the rate limit lines the span of the repo or batch whose request hit the limit. Lines outside a cycle, such as startup lines, carry neither.
+
+Attribute keys are the registry attribute names, on stdout too:
+
+| Key before [#76](https://github.com/gjed/github-activity-exporter/issues/76) | Key now                                 |
+| ---------------------------------------------------------------------------- | --------------------------------------- |
+| `target`                                                                     | `exporter.target`                       |
+| `repo` (`owner/name`)                                                        | `github.org` and `github.repo` (`name`) |
+| `owner`                                                                      | `github.org`                            |
+| `resource` (rate limit pool)                                                 | `github.api.rate_limit.resource`        |
+
+Some lines stay on stdout only: lines logged before self-telemetry starts (config, health server), the Prometheus bridge and profiles lines, and the errors of the OTLP exporters themselves (`OTLP export failed`, the unauthorized push hint, `opentelemetry error`), so an OTLP backend that is down never gets its own export errors queued for export. A cycle's `metrics flush failed` is a cycle line and is exported. While the backend is down, the batch processor drops records once its queue is full; stdout keeps them all. No line, on either output, carries a GitHub token, a GitHub App key or an OTLP header value.
+
+With logs inactive, the exporter creates no log exporter and opens no connection for logs, and the stdout lines have no `trace_id` or `span_id`.
 
 ### Profiles
 

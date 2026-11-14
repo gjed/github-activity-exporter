@@ -1,7 +1,8 @@
-# One org with a PAT, plus self-telemetry metrics and traces. The Go runtime
-# and GitHub API HTTP client metrics are pushed with the GitHub metrics to
-# export.otlp every export.interval; one trace per collection cycle goes to
-# the same endpoint (/v1/traces). Logs and profiles stay off.
+# One org with a PAT, plus self-telemetry metrics, traces and logs. The Go
+# runtime and GitHub API HTTP client metrics are pushed with the GitHub
+# metrics to export.otlp every export.interval; one trace per collection
+# cycle goes to the same endpoint (/v1/traces), and the log lines, with the
+# trace_id and span_id of their span, to /v1/logs. Profiles stay off.
 #
 #   kubectl create secret generic github-activity-exporter \
 #     --from-literal=github-token="$GITHUB_TOKEN"
@@ -16,7 +17,7 @@ config:
     traces:
       enabled: true
     logs:
-      enabled: false
+      enabled: true
     profiles:
       enabled: false
   targets:
