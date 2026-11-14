@@ -369,3 +369,22 @@ func TestTrace_FlushInterruptedByShutdown(t *testing.T) {
 		}
 	}
 }
+
+// With tracing off, the cycle outcome is never written onto a recording span
+// the caller's context already holds.
+func TestTrace_OffLeavesCallerSpanAlone(t *testing.T) {
+	tp, rec := newRecorder(t)
+	mp, _ := newTestMeterProvider()
+	r, err := collector.NewRunner(config.Target{Name: "tgt"}, failingSource{}, collector.RunnerCollectors{},
+		mp.Meter("t"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, outer := tp.Tracer("test").Start(context.Background(), "caller")
+	r.RunOnce(ctx)
+	outer.End()
+	s := rec.Ended()[0]
+	if s.Status().Code == codes.Error || len(s.Attributes()) != 0 {
+		t.Errorf("caller span got status %v attributes %v", s.Status(), s.Attributes())
+	}
+}

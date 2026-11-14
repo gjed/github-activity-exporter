@@ -279,7 +279,7 @@ func (r *Runner) runOnce(ctx context.Context) {
 		return []trace.SpanStartOption{trace.WithNewRoot(),
 			trace.WithAttributes(attribute.String(semconv.AttrExporterTarget, r.target))}
 	})
-	discoveryOK := r.collect(ctx)
+	discoveryOK := r.collect(ctx, span)
 	r.flushMetrics(ctx)
 	span.End()
 	if r.observer != nil {
@@ -315,8 +315,9 @@ func (r *Runner) flushMetrics(ctx context.Context) {
 }
 
 // collect discovers repos, runs all collectors, updates snapshots and
-// advances lastCollectedAt. It reports whether repo discovery succeeded.
-func (r *Runner) collect(ctx context.Context) bool {
+// advances lastCollectedAt. It records the outcome on cycle, the cycle span.
+// It reports whether repo discovery succeeded.
+func (r *Runner) collect(ctx context.Context, cycle trace.Span) bool {
 	start := time.Now()
 	r.logger.Debug("collection cycle started", "target", r.target)
 
@@ -327,7 +328,6 @@ func (r *Runner) collect(ctx context.Context) bool {
 	}
 	r.mu.RUnlock()
 
-	cycle := trace.SpanFromContext(ctx)
 	repos, err := r.source.Repos(ctx)
 	if err != nil {
 		r.logger.Error("repo discovery failed", "target", r.target, "err", err)
