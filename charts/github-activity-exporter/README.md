@@ -16,6 +16,7 @@ Examples:
 - [`examples/self-telemetry-values.yaml`](examples/self-telemetry-values.yaml): one org with a PAT, plus self-telemetry metrics (Go runtime and GitHub API client metrics).
 - [`examples/profiles-values.yaml`](examples/profiles-values.yaml): Renovate PRs of one org, with profiles pushed to an in-cluster OpenTelemetry Collector.
 - [`examples/large-org-values.yaml`](examples/large-org-values.yaml): a large org through a GitHub App, with `collection.concurrency` sized for a 5m `collection_interval`.
+- [`examples/pr-author-values.yaml`](examples/pr-author-values.yaml): one org with a PAT, with the PR author on the PR size and close duration histograms (see [PR author cardinality](#pr-author-cardinality)).
 
 ## Config
 
@@ -129,6 +130,10 @@ The pod runs as UID/GID 65532 with a read-only root filesystem, no privilege esc
 ## Profiles
 
 [`examples/profiles-values.yaml`](examples/profiles-values.yaml) turns on profiles: the exporter pushes Go pprof profiles to the `pprof` receiver of an OpenTelemetry Collector, which forwards them as OTLP profiles (see [Profiles](https://github.com/gjed/github-activity-exporter#profiles)). The push is outbound only, so the chart opens no port for it and there is no `/debug/pprof/` endpoint on the health port. The push has no authentication: point `telemetry.profiles.endpoint` at a Collector inside the cluster, never at one reachable from outside it. A bad profiles setting is logged as an error and the pod runs with profiles off.
+
+## PR author cardinality
+
+`collection.pr_author: true` adds the `github.pr.author` attribute to `github.pr.lines.added`, `github.pr.lines.removed` and `github.pr.close.duration` (see [PR size and author](https://github.com/gjed/github-activity-exporter#pr-size-and-author)). Warning: it is unbounded. Each author and repo pair that merges or closes a PR adds 38 series, and pairs stay until the pod restarts. On one org of 392 repos it took those histograms from 6,422 to 19,418 series in 30 days. Turn it on per target, for orgs where the author breakdown is worth the series, and watch the active series of your backend after enabling it. Past 2,000 attribute sets on one histogram, new sets are recorded without the author under `otel.metric.overflow="true"`.
 
 ## Grafana dashboards
 
