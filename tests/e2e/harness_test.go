@@ -150,6 +150,8 @@ targets:
       - org: acme
     renovate_dashboard:
       enabled: true
+    collection:
+      pr_author: true
 `, collectionInterval, testExportInterval, otlpURL, freePort(t), selfTelemetry, apiURL)
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)

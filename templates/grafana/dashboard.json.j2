@@ -32,6 +32,21 @@
 {{- m.target("A", m.expr(ctx, st, "github.pr.close.duration", "quantile", q="0.5"), "p50") }},
         {{ m.target("B", m.expr(ctx, st, "github.pr.close.duration", "quantile", q="0.9"), "p90") -}}
 {% endcall %}
+{% call m.panel(st, "PR lines added by repo", m.brief(ctx, "github.pr.lines.added"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github.pr.lines.added", "quantile", by=repo, q="0.5"), "{{github.org}}/{{github.repo}} p50") }},
+        {{ m.target("B", m.expr(ctx, st, "github.pr.lines.added", "quantile", by=repo, q="0.9"), "{{github.org}}/{{github.repo}} p90") -}}
+{% endcall %}
+{% call m.panel(st, "PR lines removed by repo", m.brief(ctx, "github.pr.lines.removed"), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github.pr.lines.removed", "quantile", by=repo, q="0.5"), "{{github.org}}/{{github.repo}} p50") }},
+        {{ m.target("B", m.expr(ctx, st, "github.pr.lines.removed", "quantile", by=repo, q="0.9"), "{{github.org}}/{{github.repo}} p90") -}}
+{% endcall %}
+{#- Empty unless a target sets collection.pr_author: the matcher drops the
+    series recorded without github.pr.author. -#}
+{%- set by_author = [["github.pr.author", "!=", ""]] %}
+{% call m.panel(st, "PR lines added and removed p90 by author", m.brief(ctx, ["github.pr.lines.added", "github.pr.lines.removed"]), "short") %}
+{{- m.target("A", m.expr(ctx, st, "github.pr.lines.added", "quantile", by=["github.pr.author"], q="0.9", matchers=by_author), "{{github.pr.author}} added") }},
+        {{ m.target("B", m.expr(ctx, st, "github.pr.lines.removed", "quantile", by=["github.pr.author"], q="0.9", matchers=by_author), "{{github.pr.author}} removed") -}}
+{% endcall %}
 {% call m.panel(st, "PRs automerged per hour", m.brief(ctx, "github.pr.automerged"), "short") %}
 {{- m.target("A", m.expr(ctx, st, "github.pr.automerged", "rate", by=repo, scale=per_hour), "{{github.org}}/{{github.repo}}") -}}
 {% endcall %}
