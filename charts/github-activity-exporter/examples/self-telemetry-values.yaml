@@ -1,6 +1,7 @@
-# One org with a PAT, plus self-telemetry metrics: Go runtime and GitHub API
-# HTTP client metrics, pushed with the GitHub metrics to export.otlp every
-# export.interval. The other self-telemetry signals stay off.
+# One org with a PAT, plus self-telemetry metrics and traces. The Go runtime
+# and GitHub API HTTP client metrics are pushed with the GitHub metrics to
+# export.otlp every export.interval; one trace per collection cycle goes to
+# the same endpoint (/v1/traces). Logs and profiles stay off.
 #
 #   kubectl create secret generic github-activity-exporter \
 #     --from-literal=github-token="$GITHUB_TOKEN"
@@ -13,7 +14,7 @@ config:
     metrics:
       enabled: true
     traces:
-      enabled: false
+      enabled: true
     logs:
       enabled: false
     profiles:
@@ -33,3 +34,9 @@ env:
   # default container memory limit (resources.limits.memory, 256Mi).
   - name: GOMEMLIMIT
     value: 230MiB
+  # One cycle in ten is traced; drop both to trace every cycle (the default,
+  # parentbased_always_on). See the README, "Traces", for the span volume.
+  - name: OTEL_TRACES_SAMPLER
+    value: parentbased_traceidratio
+  - name: OTEL_TRACES_SAMPLER_ARG
+    value: "0.1"
