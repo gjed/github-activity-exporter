@@ -36,7 +36,7 @@ func TestDashboardCollectorRunsOnlyWhenEnabled(t *testing.T) {
 		issues := &collector.FixtureIssueClient{}
 		target := config.Target{Name: "tgt", RenovateDashboard: config.RenovateDashboard{Enabled: enabled}}
 
-		dash, err := newDashboardCollector(target, issues, meter, nil, nil)
+		dash, err := newDashboardCollector(target, issues, meter, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("enabled=%v: newDashboardCollector: %v", enabled, err)
 		}
@@ -72,7 +72,7 @@ func TestTargetsShareOneMeter(t *testing.T) {
 
 	for _, name := range []string{"a", "b"} {
 		target := config.Target{Name: name, RenovateDashboard: config.RenovateDashboard{Enabled: true}}
-		dash, err := newDashboardCollector(target, dashboardIssueClient(), meter, nil, nil)
+		dash, err := newDashboardCollector(target, dashboardIssueClient(), meter, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("target %s: newDashboardCollector: %v", name, err)
 		}
@@ -138,7 +138,7 @@ func TestBuildTargetRunnerFailsOnMissingPermission(t *testing.T) {
 	target := config.Target{Name: "tgt", BaseURL: srv.URL, Auth: config.Auth{Token: "ghp_x"}, Orgs: []config.OrgConfig{{Org: "acme"}}}
 
 	_, err = buildRunners(context.Background(), &config.Config{Targets: []config.Target{target}},
-		slog.New(slog.DiscardHandler), meter, nil, self, tracker)
+		slog.New(slog.DiscardHandler), meter, nil, traces{}, self, tracker)
 	if err == nil || !strings.Contains(err.Error(), `target "tgt"`) || !strings.Contains(err.Error(), "missing OAuth scope: repo") {
 		t.Fatalf("buildRunners error = %v, want the target and the missing repo scope", err)
 	}
