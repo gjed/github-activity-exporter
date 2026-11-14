@@ -345,3 +345,27 @@ func BenchmarkCycle(b *testing.B) {
 		}
 	})
 }
+
+// A flush that shutdown interrupts is not a failed span: shutdown performs
+// its own final flush.
+func TestTrace_FlushInterruptedByShutdown(t *testing.T) {
+	tp, rec := newRecorder(t)
+	mp, _ := newTestMeterProvider()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r, err := collector.NewRunner(config.Target{Name: "tgt"}, &mutableRepoSource{repos: batchRepos(1)},
+		collector.RunnerCollectors{}, mp.Meter("t"), nil, collector.WithCycleTracer(tp.Tracer("test")),
+		collector.WithFlush(func(context.Context) error {
+			cancel()
+			return context.Canceled
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.RunOnce(ctx)
+	for _, s := range rec.Ended() {
+		if s.Name() == sc.SpanGitHubExporterFlush && s.Status().Code == codes.Error {
+			t.Errorf("flush span status %v, want unset", s.Status())
+		}
+	}
+}
