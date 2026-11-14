@@ -308,7 +308,7 @@ telemetry:
 
 A signal is active only when `telemetry.enabled` and its own `enabled` are both true, `OTEL_SDK_DISABLED` is not `true`, and, for traces, metrics and logs, `OTEL_<SIGNAL>_EXPORTER` is not `none`. Environment variables can turn a signal off, never on. Every key can be overridden with `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_ENABLED`, `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_<SIGNAL>_ENABLED` and `GITHUB_ACTIVITY_EXPORTER_TELEMETRY_PROFILES_{ENDPOINT,INTERVAL,MUTEX_FRACTION,BLOCK_RATE}`; a value of the wrong type is a startup error. The startup log lists the active signals under `self_telemetry`.
 
-Metrics are described in [Self-telemetry metrics](#self-telemetry-metrics) and profiles in [Profiles](#profiles). The other signals come in [#75](https://github.com/gjed/github-activity-exporter/issues/75) (traces) and [#76](https://github.com/gjed/github-activity-exporter/issues/76) (OTLP logs).
+Metrics are described in [Self-telemetry metrics](#self-telemetry-metrics), traces in [Traces](#traces) and profiles in [Profiles](#profiles). OTLP logs come in [#76](https://github.com/gjed/github-activity-exporter/issues/76).
 
 Self-telemetry runs on its own OTel SDK providers. No `telemetry` key and no `OTEL_*` variable other than `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` changes what the GitHub metrics export, where, how or when: their OTLP push is configured by `export.otlp` only. The `github_exporter.*` metrics (`scrape.duration`, `scrape.overruns`, `api.errors`, `api.secondary_rate_limits`, `otlp.errors`, `api.rate_limit.*`) belong to the GitHub metrics and are always on; the exporter dashboard uses all of them. When the Prometheus bridge is enabled, self-telemetry metrics are also served on `/metrics`.
 
@@ -346,6 +346,37 @@ With self-telemetry metrics inactive, no `go.*` or `http.*` metric is exported a
 When the self-telemetry metrics inherit `export.otlp`, they travel in the GitHub metrics push, every `export.interval` and after each cycle, and `OTEL_METRIC_EXPORT_INTERVAL` does not apply. One push carries the shared resource, so its `target_info` series has one writer and increasing timestamps: the backend needs no out-of-order ingestion. The e2e runs a stock Prometheus 3.x, without `out_of_order_time_window`, and checks that it rejects no sample ([#99](https://github.com/gjed/github-activity-exporter/issues/99)).
 
 With `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT` set, the self-telemetry metrics are pushed on their own, every `OTEL_METRIC_EXPORT_INTERVAL`. If that endpoint is the backend of `export.otlp`, both pushes write the same `target_info` series on separate schedules, and the backend needs out-of-order ingestion (Prometheus `storage.tsdb.out_of_order_time_window`, Mimir and Grafana Cloud Metrics the per-tenant `out_of_order_time_window`) or it rejects pushes, GitHub metric pushes included, with `out of order sample`.
+
+### Traces
+
+With self-telemetry traces active ([#75](https://github.com/gjed/github-activity-exporter/issues/75)), each collection cycle of a target is one trace, exported over OTLP:
+
+```text
+github_exporter.cycle                      exporter.target, github_exporter.cycle.repos, github_exporter.cycle.outcome
+├── GET /orgs/{org}/repos                  discovery, first cycle only
+├── github_exporter.collect                github_exporter.collector (pr, issue, dashboard), github_exporter.failed_repos
+│   ├── github_exporter.repo               github.org, github.repo: one per repo (PR scan, issue title-filter listing)
+│   │   ├── github_exporter.rate_limit.wait  github.api.rate_limit.resource, github_exporter.rate_limit.reason (primary, secondary)
+│   │   └── POST /graphql                  one per request and per attempt
+│   └── github_exporter.batch              github_exporter.batch.size, github_exporter.failed_repos: one per issue or dashboard batch
+└── github_exporter.flush                  the push of the cycle's metrics
+```
+
+GitHub requests are HTTP client spans per the [HTTP client span conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/#http-client), named `{method} {url.template}` (`{method}` for a path with no `url.template`, see [Self-telemetry metrics](#self-telemetry-metrics)), so the name carries the API root on GitHub Enterprise Server (`POST /api/graphql`). GraphQL requests carry `graphql.operation.type` and, for the batched queries, `graphql.operation.name` (`IssueCountBatch`, `DashboardBatch`); a retried request carries `http.request.resend_count`. A request that waits for a paused pool or a secondary rate limit pause records a `github_exporter.rate_limit.wait` span lasting as long as the wait. No trace context is sent to GitHub.
+
+A failed span has status `Error` and `error.type`: the GraphQL error type of a batched query (`NOT_FOUND`), the HTTP status code, or `_OTHER`. Exceptions are not recorded as span events, which the semantic conventions deprecate. The exporter never traces its own OTLP exports. The startup credential and permission checks, the background repo discovery refresh and the GitHub App token exchange send requests outside a cycle: each request is a one-span trace. Span names and attributes are declared in [`registry/traces.yaml`](registry/traces.yaml).
+
+With traces inactive, the exporter uses the no-op tracer, creates no trace exporter and opens no connection for traces; the GitHub metrics are the same either way.
+
+Traces are sampled once per cycle by `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG` (default `parentbased_always_on`), so a cycle is kept or dropped whole. A cycle has about 3 spans per repo (the repo span and its two PR scan requests) plus 2 per batch, plus one per extra page, retry and rate limit wait. Measured on a 392-repo org with the Dependency Dashboard enabled, at the default `collection.concurrency` and `graphql_batch_size`: 877 spans for the first cycle, which has no event scan, and about 1,270 per cycle after it, about 366,000 spans a day per target at the default `collection_interval` of 5m. For a large org, sample a fraction of the cycles:
+
+```yaml
+env:
+  - name: OTEL_TRACES_SAMPLER
+    value: parentbased_traceidratio
+  - name: OTEL_TRACES_SAMPLER_ARG
+    value: "0.1"   # one cycle in ten
+```
 
 ### Profiles
 
