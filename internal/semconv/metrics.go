@@ -39,6 +39,14 @@ const (
 	// Number of pull requests created.
 	// Instrument: counter, Unit: {pr}, Stability: development
 	MetricGitHubPrCreated = "github.pr.created"
+// MetricGitHubPrLinesAdded is the metric name for github.pr.lines.added.
+	// Lines added by a pull request.
+	// Instrument: histogram, Unit: {line}, Stability: development
+	MetricGitHubPrLinesAdded = "github.pr.lines.added"
+// MetricGitHubPrLinesRemoved is the metric name for github.pr.lines.removed.
+	// Lines removed by a pull request.
+	// Instrument: histogram, Unit: {line}, Stability: development
+	MetricGitHubPrLinesRemoved = "github.pr.lines.removed"
 // MetricGitHubPrMerged is the metric name for github.pr.merged.
 	// Number of pull requests merged.
 	// Instrument: counter, Unit: {pr}, Stability: development
@@ -104,6 +112,8 @@ var Metrics = []MetricDef{
 	{Name: MetricGitHubPrClosed, Instrument: "counter", Unit: "{pr}"},
 	{Name: MetricGitHubPrCount, Instrument: "updowncounter", Unit: "{pr}"},
 	{Name: MetricGitHubPrCreated, Instrument: "counter", Unit: "{pr}"},
+	{Name: MetricGitHubPrLinesAdded, Instrument: "histogram", Unit: "{line}"},
+	{Name: MetricGitHubPrLinesRemoved, Instrument: "histogram", Unit: "{line}"},
 	{Name: MetricGitHubPrMerged, Instrument: "counter", Unit: "{pr}"},
 	{Name: MetricGitHubPrReviewStatus, Instrument: "gauge", Unit: "{pr}"},
 	{Name: MetricGitHubExporterApiErrors, Instrument: "counter", Unit: "{error}"},

@@ -43,6 +43,16 @@ attributes:
     brief: A label applied to the pull request.
     examples: ["renovate", "dependencies", "automerge"]
 
+  - key: github.pr.author
+    type: string
+    stability: development
+    brief: Login of the pull request author, as the GitHub GraphQL API returns it.
+    note: >
+      A GitHub App bot is reported without the "[bot]" suffix of its REST
+      login (renovate, not renovate[bot]). Recorded only when the target sets
+      collection.pr_author; one value per distinct author.
+    examples: ["octocat", "renovate"]
+
   - key: github.pr.review_status
     type:
       allow_custom_values: false

@@ -71,6 +71,54 @@ metrics:
         requirement_level: required
       - ref: github.repo
         requirement_level: required
+      - ref: github.pr.author
+        requirement_level: opt_in
+
+  - name: github.pr.lines.added
+    instrument: histogram
+    annotations:
+      prometheus:
+        name: github.pr.lines.added
+        type: histogram
+    unit: "{line}"
+    stability: development
+    requirement_level: recommended
+    brief: Lines added by a pull request.
+    note: >
+      Recorded once per selected PR merged or closed since the previous
+      collection cycle, with the additions count GitHub reports for the PR.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
+      - ref: github.pr.author
+        requirement_level: opt_in
+
+  - name: github.pr.lines.removed
+    instrument: histogram
+    annotations:
+      prometheus:
+        name: github.pr.lines.removed
+        type: histogram
+    unit: "{line}"
+    stability: development
+    requirement_level: recommended
+    brief: Lines removed by a pull request.
+    note: >
+      Recorded once per selected PR merged or closed since the previous
+      collection cycle, with the deletions count GitHub reports for the PR.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
+      - ref: github.pr.author
+        requirement_level: opt_in
 
   - name: github.pr.automerged
     instrument: counter

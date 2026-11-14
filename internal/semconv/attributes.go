@@ -32,6 +32,10 @@ const (
 	// GitHub organization or user account name.
 	// Stability: development
 	AttrGitHubOrg = "github.org"
+// AttrGitHubPrAuthor is the key for the github.pr.author attribute.
+	// Login of the pull request author, as the GitHub GraphQL API returns it.
+	// Stability: development
+	AttrGitHubPrAuthor = "github.pr.author"
 // AttrGitHubPrLabel is the key for the github.pr.label attribute.
 	// A label applied to the pull request.
 	// Stability: development
@@ -117,6 +121,8 @@ AttrGitHubApiRateLimitResourceOther = "other"
 // Values for github.issue.state
 AttrGitHubIssueStateOpen = "open"
 AttrGitHubIssueStateClosed = "closed"
+
+
 
 
 
