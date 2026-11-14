@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+
+	sc "github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
 // PermissionCheck describes what a target reads, which decides the GitHub
@@ -72,7 +74,7 @@ func (c *Client) CheckPermissions(ctx context.Context, p PermissionCheck) error 
 		if err := checkScopes(header); err != nil {
 			return err
 		}
-		c.logger.Info("GitHub permissions checked", "target", p.Target, "credential", "classic token", "scopes", header)
+		c.logger.Info("GitHub permissions checked", sc.AttrExporterTarget, p.Target, "credential", "classic token", "scopes", header)
 		return nil
 	}
 	return c.probeFineGrained(ctx, p.Target, p.Owners, reqs)
@@ -96,7 +98,7 @@ func (c *Client) checkApp(ctx context.Context, app *AppAuthenticator, target str
 	if err := missingError("GitHub App installation", missing); err != nil {
 		return err
 	}
-	c.logger.Info("GitHub permissions checked", "target", target, "credential", "GitHub App",
+	c.logger.Info("GitHub permissions checked", sc.AttrExporterTarget, target, "credential", "GitHub App",
 		"repository_selection", grants.RepositorySelection, "permissions", grants.Permissions)
 	return nil
 }
@@ -169,7 +171,7 @@ func (c *Client) probeFineGrained(ctx context.Context, target string, owners []s
 			probed = append(probed, repo.Repositories.Nodes[0].NameWithOwner)
 		} else if len(resp.Errors) == 0 {
 			c.logger.Info("fine-grained token sees no private repo of owner, nothing to check",
-				"target", target, "owner", owner)
+				sc.AttrExporterTarget, target, sc.AttrGitHubOrg, owner)
 			continue
 		}
 		for _, e := range resp.Errors {
@@ -183,7 +185,7 @@ func (c *Client) probeFineGrained(ctx context.Context, target string, owners []s
 	if err := missingError("fine-grained token, probed on "+strings.Join(probed, ", "), missing); err != nil {
 		return err
 	}
-	c.logger.Info("GitHub permissions checked", "target", target, "credential", "fine-grained token", "probed", probed)
+	c.logger.Info("GitHub permissions checked", sc.AttrExporterTarget, target, "credential", "fine-grained token", "probed", probed)
 	return nil
 }
 

@@ -188,7 +188,7 @@ func main() {
 			defer wg.Done()
 			r.Run(ctx)
 			if ctx.Err() == nil {
-				logger.Error("collection loop exited before shutdown", "target", name)
+				logger.Error("collection loop exited before shutdown", semconv.AttrExporterTarget, name)
 				tracker.LoopExited(name)
 			}
 		}()

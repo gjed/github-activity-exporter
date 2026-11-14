@@ -56,7 +56,7 @@ func (e *errorCountingExporter) Export(ctx context.Context, rm *metricdata.Resou
 		if isAuthRejection(err) {
 			e.authWarned.Do(func() {
 				e.logger.Warn("OTLP endpoint rejected a push as unauthorized; check export.otlp.headers and export.otlp.headers_env",
-					"target", e.target)
+					sc.AttrExporterTarget, e.target)
 			})
 		}
 		e.logger.Warn("OTLP export failed — will retry next cycle", "err", err)

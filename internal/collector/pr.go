@@ -411,8 +411,9 @@ func (c *PRCollector) Collect(ctx context.Context, target string, repos []discov
 		w := &work[i]
 		if w.err != nil {
 			c.logger.Error("PR collection failed for repo",
-				"target", target,
-				"repo", repo.FullName,
+				semconv.AttrExporterTarget, target,
+				semconv.AttrGitHubOrg, repo.Owner,
+				semconv.AttrGitHubRepo, repo.Name,
 				"err", w.err,
 			)
 			coll.failed = append(coll.failed, repo.FullName)

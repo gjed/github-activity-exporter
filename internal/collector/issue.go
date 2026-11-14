@@ -185,8 +185,9 @@ func (c *IssueCollector) Collect(ctx context.Context, target string, repos []dis
 	add := func(repo discovery.Repo, stats issueStats, err error) {
 		if err != nil {
 			c.logger.Error("issue collection failed for repo",
-				"target", target,
-				"repo", repo.FullName,
+				semconv.AttrExporterTarget, target,
+				semconv.AttrGitHubOrg, repo.Owner,
+				semconv.AttrGitHubRepo, repo.Name,
 				"err", err,
 			)
 			coll.failed = append(coll.failed, repo.FullName)
