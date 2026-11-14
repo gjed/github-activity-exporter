@@ -18,6 +18,7 @@ import (
 	"github.com/gjed/github-activity-exporter/internal/config"
 	"github.com/gjed/github-activity-exporter/internal/discovery"
 	ghclient "github.com/gjed/github-activity-exporter/internal/github"
+	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
 // inFlight tracks the GitHub requests in flight across the fake clients of
@@ -79,6 +80,8 @@ type concurrencyRun struct {
 	series    []string
 	apiErrors []string
 	peak      int64
+	// sized is the total count of github.pr.lines.added.
+	sized uint64
 }
 
 // runCycles runs four cycles of all three collectors over 30 repos with the
@@ -118,7 +121,7 @@ func runCycles(t *testing.T, concurrency int, tracer trace.Tracer) concurrencyRu
 	gql := trackedIssueClient{FixtureIssueClient: issues, track: track}
 
 	prColl, err := collector.NewPRCollector(pr, config.PRFilters{},
-		collector.PRCollectorConfig{LookbackDays: 30, Limiter: limiter, Tracer: tracer}, meter, nil)
+		collector.PRCollectorConfig{LookbackDays: 30, Limiter: limiter, Tracer: tracer, PRAuthor: true}, meter, nil)
 	if err != nil {
 		t.Fatalf("NewPRCollector: %v", err)
 	}
@@ -149,8 +152,8 @@ func runCycles(t *testing.T, concurrency int, tracer trace.Tracer) concurrencyRu
 	for i, repo := range repos {
 		f := pr.repos[repo.Name]
 		f.Nodes = append(f.Nodes,
-			collector.ExportedPRNode{Number: 100, State: "MERGED", CreatedAt: at.Add(-90 * time.Minute), MergedAt: &at, Author: "renovate", AuthorIsBot: true},
-			collector.ExportedPRNode{Number: 101, State: "CLOSED", CreatedAt: at.Add(-time.Duration(i) * time.Hour), ClosedAt: &at},
+			collector.ExportedPRNode{Number: 100, State: "MERGED", CreatedAt: at.Add(-90 * time.Minute), MergedAt: &at, Author: "renovate", AuthorIsBot: true, Additions: i, Deletions: 1},
+			collector.ExportedPRNode{Number: 101, State: "CLOSED", CreatedAt: at.Add(-time.Duration(i) * time.Hour), ClosedAt: &at, Author: fmt.Sprintf("user%d", i%3), Additions: 10 * i},
 		)
 	}
 	pr.failing[repos[3].Name] = true
@@ -161,11 +164,16 @@ func runCycles(t *testing.T, concurrency int, tracer trace.Tracer) concurrencyRu
 	r.RunOnce(ctx) // cycle 3: repo 3 recovers and counts its events; repo 29 removed
 	r.RunOnce(ctx) // cycle 4: nothing new
 
-	return concurrencyRun{
-		series:    exportedSeries(t, collectMetrics(t, reader)),
+	rm := collectMetrics(t, reader)
+	run := concurrencyRun{
+		series:    exportedSeries(t, rm),
 		apiErrors: self.apiErrors,
 		peak:      track.peak.Load(),
 	}
+	for _, dp := range findIntHistogram(t, rm, semconv.MetricGitHubPrLinesAdded) {
+		run.sized += dp.Count
+	}
+	return run
 }
 
 type mutableRepoSource struct{ repos []discovery.Repo }
@@ -192,6 +200,10 @@ func exportedSeries(t *testing.T, rm metricdata.ResourceMetrics) []string {
 			case metricdata.Gauge[float64]:
 				for _, dp := range d.DataPoints {
 					out = append(out, fmt.Sprintf("%s{%s}", m.Name, attrString(dp.Attributes)))
+				}
+			case metricdata.Histogram[int64]:
+				for _, dp := range d.DataPoints {
+					out = append(out, fmt.Sprintf("%s{%s}=%d/%d%v", m.Name, attrString(dp.Attributes), dp.Count, dp.Sum, dp.BucketCounts))
 				}
 			case metricdata.Histogram[float64]:
 				for _, dp := range d.DataPoints {
@@ -223,6 +235,11 @@ func TestRunner_SerialAndConcurrentExportTheSame(t *testing.T) {
 	}
 	if !slices.Equal(serial.series, concurrent.series) {
 		t.Errorf("series differ:\nserial:     %v\nconcurrent: %v", serial.series, concurrent.series)
+	}
+	// Each of the 30 repos merges and closes one PR: every one is recorded
+	// once, repo 3 on its recovery cycle.
+	if serial.sized != 60 || concurrent.sized != 60 {
+		t.Errorf("lines.added count = %d serial, %d concurrent, want 60", serial.sized, concurrent.sized)
 	}
 	if !slices.Equal(serial.apiErrors, concurrent.apiErrors) {
 		t.Errorf("api.errors differ: serial %v, concurrent %v", serial.apiErrors, concurrent.apiErrors)

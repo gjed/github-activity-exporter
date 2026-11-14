@@ -39,6 +39,8 @@ type prNode struct {
 	MergedAt    *time.Time
 	ClosedAt    *time.Time
 	HeadRefName string
+	Additions   int
+	Deletions   int
 	// Author is nil when the author account was deleted.
 	Author *struct {
 		Typename string `graphql:"__typename"`
@@ -77,6 +79,9 @@ type PRCollectorConfig struct {
 	// Tracer records each repo as a github_exporter.repo span under the
 	// context passed to Collect; nil records nothing.
 	Tracer trace.Tracer
+	// PRAuthor adds github.pr.author to the close duration and size
+	// histograms.
+	PRAuthor bool
 }
 
 // PRCollector fetches PRs via GraphQL and records OTel metrics.
@@ -105,6 +110,8 @@ type PRCollector struct {
 	prCount      metric.Int64ObservableUpDownCounter
 	prAge        metric.Float64ObservableGauge
 	closeDur     metric.Float64Histogram
+	linesAdded   metric.Int64Histogram
+	linesRemoved metric.Int64Histogram
 	automerged   metric.Int64Counter
 	created      metric.Int64Counter
 	merged       metric.Int64Counter
@@ -165,6 +172,26 @@ func NewPRCollector(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("register %s: %w", semconv.MetricGitHubPrCloseDuration, err)
+	}
+
+	// Shared by both size histograms; see
+	// openspec/changes/archive/2026-11-14-pr-author-and-size/design.md.
+	lineBuckets := metric.WithExplicitBucketBoundaries(0, 10, 50, 100, 250, 500, 1000, 2500, 5000, 10000)
+	c.linesAdded, err = meter.Int64Histogram(semconv.MetricGitHubPrLinesAdded,
+		metric.WithDescription("Lines added by a pull request."),
+		metric.WithUnit("{line}"),
+		lineBuckets,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("register %s: %w", semconv.MetricGitHubPrLinesAdded, err)
+	}
+	c.linesRemoved, err = meter.Int64Histogram(semconv.MetricGitHubPrLinesRemoved,
+		metric.WithDescription("Lines removed by a pull request."),
+		metric.WithUnit("{line}"),
+		lineBuckets,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("register %s: %w", semconv.MetricGitHubPrLinesRemoved, err)
 	}
 
 	c.automerged, err = meter.Int64Counter(semconv.MetricGitHubPrAutomerged,
@@ -266,9 +293,17 @@ type stateLabel struct{ state, label string }
 // recorded only once both scans of the repo succeed.
 type prEvents struct {
 	created, merged, closed, automerged int64
-	closeDurations                      []float64
+	// ended holds the PRs merged or closed in the window.
+	ended []endedPR
 	// counted maps each event counted in this scan to its time.
 	counted map[eventKey]time.Time
+}
+
+// endedPR is one merged or closed PR, recorded on the histograms.
+type endedPR struct {
+	duration       float64 // seconds from creation to merge or close
+	added, removed int64
+	author         string // GraphQL login; empty when deleted
 }
 
 type eventKind uint8
@@ -529,13 +564,13 @@ func (c *PRCollector) scanEvents(ctx context.Context, repo discovery.Repo, since
 		switch {
 		case state == semconv.AttrGitHubPrStateMerged && count(pr.Number, eventMerged, pr.MergedAt):
 			ev.merged++
-			ev.closeDurations = append(ev.closeDurations, pr.MergedAt.Sub(pr.CreatedAt).Seconds())
+			ev.ended = append(ev.ended, ended(pr, *pr.MergedAt))
 			if !hasApprovedReview(pr.Reviews.Nodes) {
 				ev.automerged++
 			}
 		case state == semconv.AttrGitHubPrStateClosed && count(pr.Number, eventClosed, pr.ClosedAt):
 			ev.closed++
-			ev.closeDurations = append(ev.closeDurations, pr.ClosedAt.Sub(pr.CreatedAt).Seconds())
+			ev.ended = append(ev.ended, ended(pr, *pr.ClosedAt))
 		}
 		return cont
 	})
@@ -543,6 +578,19 @@ func (c *PRCollector) scanEvents(ctx context.Context, repo discovery.Repo, since
 		return prEvents{}, err
 	}
 	return ev, nil
+}
+
+// ended returns the histogram values of a PR merged or closed at t.
+func ended(pr *prNode, t time.Time) endedPR {
+	e := endedPR{
+		duration: t.Sub(pr.CreatedAt).Seconds(),
+		added:    int64(pr.Additions),
+		removed:  int64(pr.Deletions),
+	}
+	if pr.Author != nil {
+		e.author = pr.Author.Login
+	}
+	return e
 }
 
 // paginate runs the PR query with the given states and order, calling visit
@@ -601,23 +649,31 @@ func (c *PRCollector) match(pr *prNode) (state string, labels []string, ok bool)
 	return state, labels, ok
 }
 
-// recordEvents adds a repo's window events to the counters and histogram.
+// recordEvents adds a repo's window events to the counters and histograms.
 // The counters are always added to, even with zero, so their series exist
 // from a repo's first cycle.
 func (c *PRCollector) recordEvents(ctx context.Context, target string, repo discovery.Repo, ev prEvents) {
-	attrs := metric.WithAttributes(
+	base := []attribute.KeyValue{
 		attribute.String(semconv.AttrExporterTarget, target),
 		attribute.String(semconv.AttrGitHubOrg, repo.Owner),
 		attribute.String(semconv.AttrGitHubRepo, repo.Name),
-	)
+	}
+	attrs := metric.WithAttributes(base...)
 	c.created.Add(ctx, ev.created, attrs)
 	c.merged.Add(ctx, ev.merged, attrs)
 	c.closed.Add(ctx, ev.closed, attrs)
 	if ev.automerged > 0 {
 		c.automerged.Add(ctx, ev.automerged, attrs)
 	}
-	for _, d := range ev.closeDurations {
-		c.closeDur.Record(ctx, d, attrs)
+	for _, e := range ev.ended {
+		hattrs := attrs
+		if c.cfg.PRAuthor && e.author != "" {
+			hattrs = metric.WithAttributes(append(base[:len(base):len(base)],
+				attribute.String(semconv.AttrGitHubPrAuthor, e.author))...)
+		}
+		c.closeDur.Record(ctx, e.duration, hattrs)
+		c.linesAdded.Record(ctx, e.added, hattrs)
+		c.linesRemoved.Record(ctx, e.removed, hattrs)
 	}
 }
 
