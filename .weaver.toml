@@ -6,3 +6,51 @@ id = "match.resource"
 sample_type = "resource"
 when = 'attributes["service.name"] == "github-activity-exporter"'
 strict_attribute_groups = ["github_activity_exporter.resource"]
+
+# A span name is free-form, so each span is paired with its definition in
+# registry/traces.yaml: GitHub HTTP client spans (otelhttp, the only client
+# spans) with the semconv http.client span plus the GraphQL operation
+# attributes, the exporter's own spans by their constant names. A span no
+# matcher pairs is reported by the span live-check test.
+[[live-check.matchers]]
+id = "match.http.client"
+sample_type = "span"
+when = 'kind == "client"'
+signal = "http.client"
+attribute_groups = ["github_activity_exporter.graphql"]
+
+[[live-check.matchers]]
+id = "match.github_exporter.cycle"
+sample_type = "span"
+when = 'name == "github_exporter.cycle"'
+signal = "github_exporter.cycle"
+
+[[live-check.matchers]]
+id = "match.github_exporter.collect"
+sample_type = "span"
+when = 'name == "github_exporter.collect"'
+signal = "github_exporter.collect"
+
+[[live-check.matchers]]
+id = "match.github_exporter.repo"
+sample_type = "span"
+when = 'name == "github_exporter.repo"'
+signal = "github_exporter.repo"
+
+[[live-check.matchers]]
+id = "match.github_exporter.batch"
+sample_type = "span"
+when = 'name == "github_exporter.batch"'
+signal = "github_exporter.batch"
+
+[[live-check.matchers]]
+id = "match.github_exporter.flush"
+sample_type = "span"
+when = 'name == "github_exporter.flush"'
+signal = "github_exporter.flush"
+
+[[live-check.matchers]]
+id = "match.github_exporter.rate_limit.wait"
+sample_type = "span"
+when = 'name == "github_exporter.rate_limit.wait"'
+signal = "github_exporter.rate_limit.wait"
