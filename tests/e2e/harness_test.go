@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -114,15 +116,6 @@ func startOTLPProxy(t *testing.T, promURL string) string {
 // channel closes once the process has exited.
 func startExporter(t *testing.T, apiURL, otlpURL string, collectionInterval time.Duration, selfTelemetry bool) <-chan struct{} {
 	t.Helper()
-	root := repoRoot()
-	bin := filepath.Join(t.TempDir(), "github-activity-exporter")
-	build := exec.Command("go", "build", "-o", bin, "./cmd/github-activity-exporter")
-	build.Dir = root
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("go build exporter: %v\n%s", err, out)
-	}
-
-	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := fmt.Sprintf(`collection_interval: %s
 export:
   interval: %s
@@ -153,6 +146,51 @@ targets:
     collection:
       pr_author: true
 `, collectionInterval, testExportInterval, otlpURL, freePort(t), selfTelemetry, apiURL)
+	return runExporter(t, cfg, "GOMEMLIMIT=512MiB").exited // go.memory.limit is reported only under a memory limit
+}
+
+// exporterRun is a running exporter process.
+type exporterRun struct {
+	cmd *exec.Cmd
+	// exited closes once the process has exited and its output is read.
+	exited <-chan struct{}
+	out    *lockedBuffer
+}
+
+// output returns everything the process wrote to stdout and stderr so far.
+func (r *exporterRun) output() string { return r.out.String() }
+
+// lockedBuffer is a bytes.Buffer safe for concurrent use.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
+
+// runExporter builds the exporter binary and runs it with config cfg and
+// the extra environment variables env, with no OTEL_EXPORTER_OTLP_*
+// endpoint from the caller's environment, so self-telemetry inherits
+// export.otlp. Its output goes to the test log and to the returned run.
+func runExporter(t *testing.T, cfg string, env ...string) *exporterRun {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "github-activity-exporter")
+	build := exec.Command("go", "build", "-o", bin, "./cmd/github-activity-exporter")
+	build.Dir = repoRoot()
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build exporter: %v\n%s", err, out)
+	}
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -160,20 +198,22 @@ targets:
 	cmd := exec.Command(bin)
 	cmd.Env = append(os.Environ(),
 		"CONFIG_FILE="+cfgPath,
-		// Self-telemetry metrics inherit export.otlp whatever the caller's environment says.
 		"OTEL_EXPORTER_OTLP_ENDPOINT=",
 		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=",
-		// go.memory.limit is reported only under a memory limit.
-		"GOMEMLIMIT=512MiB",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=",
 	)
+	cmd.Env = append(cmd.Env, env...)
 	pr, pw := io.Pipe()
 	cmd.Stdout, cmd.Stderr = pw, pw
+	out := &lockedBuffer{}
 	logged := make(chan struct{})
 	go func() {
 		defer close(logged)
 		sc := bufio.NewScanner(pr)
 		for sc.Scan() {
 			t.Log("exporter: " + sc.Text())
+			_, _ = out.Write(append(sc.Bytes(), '\n'))
 		}
 		_, _ = io.Copy(io.Discard, pr) // keep draining if a line is too long for the scanner
 	}()
@@ -184,14 +224,14 @@ targets:
 	go func() {
 		_ = cmd.Wait()
 		_ = pw.Close()
+		<-logged
 		close(exited)
 	}()
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
 		<-exited
-		<-logged
 	})
-	return exited
+	return &exporterRun{cmd: cmd, exited: exited, out: out}
 }
 
 // repoRoot returns the repository root, found from this file's location.
