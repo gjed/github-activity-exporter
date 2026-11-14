@@ -182,9 +182,10 @@ func NewIssueCollector(
 // filter listing pages each repo on its own.
 func (c *IssueCollector) Collect(ctx context.Context, target string, repos []discovery.Repo) (*IssueCollection, error) {
 	coll := &IssueCollection{}
-	add := func(repo discovery.Repo, stats issueStats, err error) {
+	// ctx is the context of the span of the unit repo was collected in.
+	add := func(ctx context.Context, repo discovery.Repo, stats issueStats, err error) {
 		if err != nil {
-			c.logger.Error("issue collection failed for repo",
+			c.logger.ErrorContext(ctx, "issue collection failed for repo",
 				semconv.AttrExporterTarget, target,
 				semconv.AttrGitHubOrg, repo.Owner,
 				semconv.AttrGitHubRepo, repo.Name,
@@ -208,24 +209,27 @@ func (c *IssueCollector) Collect(ctx context.Context, target string, repos []dis
 		// One repo per unit; results are merged in repo order.
 		stats := make([]issueStats, len(repos))
 		errs := make([]error, len(repos))
+		ctxs := make([]context.Context, len(repos))
 		for i := range errs {
 			errs[i] = errNotStarted
+			ctxs[i] = ctx
 		}
 		c.limiter.each(ctx, len(repos), func(i int) {
 			rctx, span := startRepo(ctx, c.tracer, repos[i])
+			ctxs[i] = rctx
 			stats[i], errs[i] = c.collectRepo(rctx, target, repos[i])
 			endRepo(span, errs[i])
 		})
 		for i, repo := range repos {
-			add(repo, stats[i], errs[i])
+			add(ctxs[i], repo, stats[i], errs[i])
 		}
 		return coll, nil
 	}
 
-	bs, stats, errs := eachBatch(ctx, c.limiter, c.tracer, repos, c.batchSize, c.countBatch)
+	bs, stats, errs, ctxs := eachBatch(ctx, c.limiter, c.tracer, repos, c.batchSize, c.countBatch)
 	for i, batch := range bs {
 		for j, repo := range batch {
-			add(repo, stats[i][j], errs[i][j])
+			add(ctxs[i], repo, stats[i][j], errs[i][j])
 		}
 	}
 	return coll, nil

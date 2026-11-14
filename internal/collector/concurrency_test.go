@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sort"
 	"sync/atomic"
@@ -91,6 +92,12 @@ type concurrencyRun struct {
 // tracer traces the cycles.
 func runCycles(t *testing.T, concurrency int, tracer trace.Tracer) concurrencyRun {
 	t.Helper()
+	return runCyclesLogged(t, concurrency, tracer, nil)
+}
+
+// runCyclesLogged is runCycles logging to logger.
+func runCyclesLogged(t *testing.T, concurrency int, tracer trace.Tracer, logger *slog.Logger) concurrencyRun {
+	t.Helper()
 	ctx := context.Background()
 	mp, reader := newTestMeterProvider()
 	meter := mp.Meter("test")
@@ -121,16 +128,16 @@ func runCycles(t *testing.T, concurrency int, tracer trace.Tracer) concurrencyRu
 	gql := trackedIssueClient{FixtureIssueClient: issues, track: track}
 
 	prColl, err := collector.NewPRCollector(pr, config.PRFilters{},
-		collector.PRCollectorConfig{LookbackDays: 30, Limiter: limiter, Tracer: tracer, PRAuthor: true}, meter, nil)
+		collector.PRCollectorConfig{LookbackDays: 30, Limiter: limiter, Tracer: tracer, PRAuthor: true}, meter, logger)
 	if err != nil {
 		t.Fatalf("NewPRCollector: %v", err)
 	}
-	issColl, err := collector.NewIssueCollector(gql, config.IssueFilters{}, meter, nil,
+	issColl, err := collector.NewIssueCollector(gql, config.IssueFilters{}, meter, logger,
 		collector.WithGraphQLBatchSize(4), collector.WithLimiter(limiter), collector.WithTracer(tracer))
 	if err != nil {
 		t.Fatalf("NewIssueCollector: %v", err)
 	}
-	dashColl, err := collector.NewDashboardCollector(gql, "renovate[bot]", meter, nil,
+	dashColl, err := collector.NewDashboardCollector(gql, "renovate[bot]", meter, logger,
 		collector.WithGraphQLBatchSize(4), collector.WithLimiter(limiter), collector.WithTracer(tracer))
 	if err != nil {
 		t.Fatalf("NewDashboardCollector: %v", err)
@@ -138,7 +145,7 @@ func runCycles(t *testing.T, concurrency int, tracer trace.Tracer) concurrencyRu
 	src := &mutableRepoSource{repos: repos}
 	r, err := collector.NewRunner(config.Target{Name: "tgt"}, src,
 		collector.RunnerCollectors{PR: prColl, Issue: issColl, Dashboard: dashColl},
-		meter, nil, collector.WithSelfMetrics(self), collector.WithCycleTracer(tracer),
+		meter, logger, collector.WithSelfMetrics(self), collector.WithCycleTracer(tracer),
 		collector.WithFlush(func(context.Context) error { return nil }))
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)

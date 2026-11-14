@@ -379,6 +379,8 @@ func (c *PRCollector) Collect(ctx context.Context, target string, repos []discov
 		stats  prStats
 		events prEvents
 		err    error
+		// ctx is the context of the repo's span, for its failure record.
+		ctx context.Context
 	}
 	work := make([]prRepo, len(repos))
 	for i, repo := range repos {
@@ -396,12 +398,14 @@ func (c *PRCollector) Collect(ctx context.Context, target string, repos []discov
 			w.scanFrom = lookbackCutoff
 		}
 		w.err = errNotStarted
+		w.ctx = ctx
 	}
 
 	tracer := tracerOrNoop(c.cfg.Tracer)
 	c.cfg.Limiter.each(ctx, len(repos), func(i int) {
 		w := &work[i]
 		rctx, span := startRepo(ctx, tracer, repos[i])
+		w.ctx = rctx
 		w.stats, w.events, w.err = c.collectRepo(rctx, repos[i], w.ok, w.scanFrom, until, w.counted)
 		endRepo(span, w.err)
 	})
@@ -410,7 +414,7 @@ func (c *PRCollector) Collect(ctx context.Context, target string, repos []discov
 	for i, repo := range repos {
 		w := &work[i]
 		if w.err != nil {
-			c.logger.Error("PR collection failed for repo",
+			c.logger.ErrorContext(w.ctx, "PR collection failed for repo",
 				semconv.AttrExporterTarget, target,
 				semconv.AttrGitHubOrg, repo.Owner,
 				semconv.AttrGitHubRepo, repo.Name,

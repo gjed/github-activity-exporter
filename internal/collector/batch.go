@@ -193,14 +193,16 @@ func aliasIndex(path []any, n int) (int, bool) {
 
 // eachBatch runs fn on every batch of at most size repos through l, each in
 // a github_exporter.batch span of tracer passed to fn as its context, and
-// returns fn's per-repo results and errors indexed like the batches. A repo
-// of a batch that never ran fails with errNotStarted and the batch has no
-// span.
-func eachBatch[T any](ctx context.Context, l *Limiter, tracer trace.Tracer, repos []discovery.Repo, size int, fn func(context.Context, []discovery.Repo) ([]T, []error)) ([][]discovery.Repo, [][]T, [][]error) {
+// returns fn's per-repo results and errors indexed like the batches, and
+// each batch's context, for its failure records. A repo of a batch that never
+// ran fails with errNotStarted and the batch has no span; its context is ctx.
+func eachBatch[T any](ctx context.Context, l *Limiter, tracer trace.Tracer, repos []discovery.Repo, size int, fn func(context.Context, []discovery.Repo) ([]T, []error)) ([][]discovery.Repo, [][]T, [][]error, []context.Context) {
 	bs := batches(repos, size)
 	results := make([][]T, len(bs))
 	errs := make([][]error, len(bs))
+	ctxs := make([]context.Context, len(bs))
 	for i, b := range bs {
+		ctxs[i] = ctx
 		results[i] = make([]T, len(b))
 		errs[i] = make([]error, len(b))
 		for j := range errs[i] {
@@ -211,10 +213,11 @@ func eachBatch[T any](ctx context.Context, l *Limiter, tracer trace.Tracer, repo
 		bctx, span := startSpan(ctx, tracer, sc.SpanGitHubExporterBatch, func() []trace.SpanStartOption {
 			return []trace.SpanStartOption{trace.WithAttributes(attribute.Int(sc.AttrGitHubExporterBatchSize, len(bs[i])))}
 		})
+		ctxs[i] = bctx
 		results[i], errs[i] = fn(bctx, bs[i])
 		endBatch(span, errs[i])
 	})
-	return bs, results, errs
+	return bs, results, errs, ctxs
 }
 
 // batches splits repos into consecutive slices of at most size repos.
