@@ -1,0 +1,31 @@
+# PR activity of one org, with a PAT, with the PR author on the PR size and
+# close duration histograms.
+#
+#   kubectl create secret generic github-activity-exporter \
+#     --from-literal=github-token="$GITHUB_TOKEN" \
+#     --from-literal=otlp-headers='authorization=Bearer <token>'
+#
+# Cardinality: collection.pr_author adds 38 series per author and repo pair
+# that merges or closes a PR, kept until the pod restarts. See "PR author
+# cardinality" in the chart README before enabling it on a large org.
+config:
+  export:
+    otlp:
+      endpoint: https://otlp.example.com:4318
+      headers_env: OTLP_HEADERS
+  targets:
+    - name: my-org
+      orgs:
+        - org: my-org
+      collection:
+        pr_author: true
+
+secret:
+  existingSecret: github-activity-exporter
+  env:
+    GITHUB_TOKEN: github-token
+    OTLP_HEADERS: otlp-headers
+
+dashboard:
+  kpi:
+    enabled: true

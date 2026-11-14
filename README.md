@@ -84,6 +84,7 @@ The path is read from `CONFIG_FILE`. It defaults to `config.yaml` in the working
 collection_interval: 5m           # period between collection cycle starts, see "Collection schedule"
 collection:
   concurrency: 4                  # default for every target: repos or batches collected at once, 1 to 100; see "Collection concurrency"
+  pr_author: false                # default for every target: add github.pr.author to the PR histograms; see "PR size and author"
 export:
   interval: 60s                 # OTLP push period, independent of collection_interval; see "Collection schedule"
   otlp:
@@ -138,9 +139,12 @@ targets:
     graphql_batch_size: 20        # repos per issue count and Dependency Dashboard query, 1 to 100
     collection:
       concurrency: 4              # overrides the top-level collection.concurrency for this target
+      pr_author: false            # overrides the top-level collection.pr_author for this target
 ```
 
 Quote logins that contain brackets in flow lists: `authors: ["renovate[bot]"]`. Unquoted, YAML reads `[bot]` as a nested list.
+
+`authors` matches the REST login of a GitHub App bot (`renovate[bot]`), but the `github.pr.author` attribute records the GraphQL login (`renovate`); see "PR size and author".
 
 `orgs:` accepts organizations and user accounts; the exporter looks up the account type once per process. Which repos of a user account are discovered depends on the auth:
 
@@ -441,6 +445,8 @@ All metric names and attributes are defined in the OTel registry at [`registry/`
 | `github.pr.merged`                          | Counter       | PRs merged                                           |
 | `github.pr.closed`                          | Counter       | PRs closed without merge                             |
 | `github.pr.close.duration`                  | Histogram     | Time from open to close/merge                        |
+| `github.pr.lines.added`                     | Histogram     | Lines added per merged or closed PR                  |
+| `github.pr.lines.removed`                   | Histogram     | Lines removed per merged or closed PR                |
 | `github.pr.automerged`                      | Counter       | PRs merged with no human approval                    |
 | `github.pr.review_status`                   | Gauge         | Open PR count by review decision state               |
 | `github.issue.count`                        | UpDownCounter | Issue count by repo, state, and label                |
@@ -456,7 +462,7 @@ All metric names and attributes are defined in the OTel registry at [`registry/`
 
 Each cycle the exporter reads every open PR of a repo, with no limit, for `github.pr.count`, `github.pr.age` and `github.pr.review_status`. It then reads PRs by last update, newest first, back to the start of the previous cycle's window, and counts the events of the selected PRs that it has not counted yet:
 
-- `github.pr.created`, `github.pr.merged`, `github.pr.closed` (closed without merge; merged PRs count only in `github.pr.merged`), `github.pr.close.duration` and `github.pr.automerged`.
+- `github.pr.created`, `github.pr.merged`, `github.pr.closed` (closed without merge; merged PRs count only in `github.pr.merged`), `github.pr.close.duration`, `github.pr.lines.added`, `github.pr.lines.removed` and `github.pr.automerged`.
 - The window runs from the start of the repo's previous successful cycle, capped at 30 days back, to the start of the current cycle. Each event is counted once; a PR updated while the scan pages, and so missed, is counted by the next cycle.
 - A repo's first cycle records no events. A failed cycle records none and the next successful cycle covers the gap.
 - Counters reset when the exporter restarts. Events that happen while it is down are not counted.
@@ -469,6 +475,20 @@ sum by ("github.org", "github.repo") (increase({"github.pr.created"}[1d]))
 ```
 
 Closed and merged totals are not exported as gauges. Use `increase({"github.pr.merged"}[30d])` instead of `{"github.pr.count", "github.pr.state"="merged"}`.
+
+### PR size and author
+
+`github.pr.lines.added` and `github.pr.lines.removed` record the additions and deletions GitHub reports for each merged or closed PR, on the same event as `github.pr.close.duration`, so each PR is recorded once. The values come with the event scan's query: no extra request, no extra GraphQL points. Bucket boundaries, shared by both: 0, 10, 50, 100, 250, 500, 1000, 2500, 5000, 10000 lines.
+
+```promql
+histogram_quantile(0.9, sum by (le, "github.repo") (rate({"github.pr.lines.added_bucket"}[1d])))
+```
+
+`collection.pr_author: true` (top level for every target, or per target under `targets[].collection`) adds `github.pr.author` to `github.pr.lines.added`, `github.pr.lines.removed` and `github.pr.close.duration`. It is off by default. The counters and gauges never carry it.
+
+The value is the login the GraphQL API returns. For a GitHub App bot that is the app name without the `[bot]` suffix of its REST login: the Renovate app is recorded as `github.pr.author="renovate"`, though the `authors` filter selects it as `renovate[bot]`. A self-hosted bot that runs as a user account (for example `renovate-bot`) has the same login in both. A PR whose author account was deleted is recorded without the attribute.
+
+Each author splits every repo's histogram series. A histogram is 13 series per attribute set (11 buckets, `_sum`, `_count`; 12 for `github.pr.close.duration`), so the setting adds 38 series per author and repo pair that merges or closes a PR. On one org of 392 repos, the 511 pairs seen in 30 days took the three histograms from 6,422 series to 19,418. Pairs are kept until the exporter restarts, not only for 30 days. Past 2,000 attribute sets on one histogram, the OpenTelemetry SDK records new sets under `otel.metric.overflow="true"`, without the author.
 
 ### Metric naming
 
@@ -493,9 +513,9 @@ Two dashboards are generated from the registry by `make generate` ([#19](https:/
 
 `make generate` fails if the GitHub Activity dashboard queries any other metric, or if a `github_exporter.*` metric has no panel on the exporter dashboard. Every query uses the name and type each metric declares in `annotations.prometheus`, in UTF-8 PromQL syntax (`{"github.pr.count", job=~"$job"}`): counters through `rate`, histograms through `histogram_quantile` over `_bucket`, gauges through `last_over_time`. Every panel's Min interval is the hidden constant variable `$min_step`, default `10m`. It must be at least twice `export.interval`, so each window holds two pushes, and twice `collection_interval`, so each window holds a cycle: `histogram_quantile` panels need a new observation in the window, `rate` and `last_over_time` panels only the pushes. The default fits the defaults (60s and 5m). With a longer interval, raise `$min_step` in the dashboard settings or with the chart's `dashboard.minStep`. It needs the backend settings from [Metric naming](#metric-naming).
 
-Variables of both: data source, `job` (the exporter's `service.name`, `github-activity-exporter`, optionally prefixed with `service.namespace/`) and `exporter.target`; the GitHub Activity dashboard adds `github.org` and `github.repo`. Its `job` and `exporter.target` come from the series of its own panels, never from a `github_exporter.*` or self-telemetry metric, so a target is listed as soon as any of its panels has data, whichever collectors the target enables. The exporter dashboard takes them from `github_exporter.scrape.duration`, recorded for every target. The Dependency Dashboard row shows no data unless a target enables `renovate_dashboard`. The exporter dashboard's Self-telemetry row (Go memory, heap allocation rate, goroutines, GitHub API latency p50 and p90 by `url.template` and status) shows no data unless [self-telemetry metrics](#self-telemetry-metrics) are active. Every other panel of both dashboards has data with them off.
+Variables of both: data source, `job` (the exporter's `service.name`, `github-activity-exporter`, optionally prefixed with `service.namespace/`) and `exporter.target`; the GitHub Activity dashboard adds `github.org` and `github.repo`. Its `job` and `exporter.target` come from the series of its own panels, never from a `github_exporter.*` or self-telemetry metric, so a target is listed as soon as any of its panels has data, whichever collectors the target enables. The exporter dashboard takes them from `github_exporter.scrape.duration`, recorded for every target. The Dependency Dashboard row shows no data unless a target enables `renovate_dashboard`, and the PR size by author panel none unless a target sets `collection.pr_author`. The exporter dashboard's Self-telemetry row (Go memory, heap allocation rate, goroutines, GitHub API latency p50 and p90 by `url.template` and status) shows no data unless [self-telemetry metrics](#self-telemetry-metrics) are active. Every other panel of both dashboards has data with them off.
 
-`make test-e2e` (Docker required) runs the exporter twice, with self-telemetry metrics on and off, against a mock GitHub API, pushes OTLP into Prometheus 3.x, and runs every query of every generated dashboard. It fails if a query errors or returns no data, or, with self-telemetry metrics off, if a Self-telemetry panel returns data.
+`make test-e2e` (Docker required) runs the exporter twice, with self-telemetry metrics on and off, against a mock GitHub API, pushes OTLP into Prometheus 3.x, and runs every query of every generated dashboard. Its target sets `collection.pr_author`. It fails if a query errors or returns no data, or, with self-telemetry metrics off, if a Self-telemetry panel returns data.
 
 ## Development
 
