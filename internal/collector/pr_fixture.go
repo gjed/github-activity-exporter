@@ -23,6 +23,8 @@ type ExportedPRNode struct {
 	MergedAt    *time.Time
 	ClosedAt    *time.Time
 	HeadRefName string
+	Additions   int
+	Deletions   int
 	// Author is the GraphQL login: a GitHub App bot has no "[bot]" suffix.
 	Author         string
 	AuthorIsBot    bool
@@ -182,6 +184,8 @@ func toPRNode(n ExportedPRNode) prNode {
 		MergedAt:       n.MergedAt,
 		ClosedAt:       n.ClosedAt,
 		HeadRefName:    n.HeadRefName,
+		Additions:      n.Additions,
+		Deletions:      n.Deletions,
 		ReviewDecision: n.ReviewDecision,
 	}
 	if node.UpdatedAt.IsZero() {

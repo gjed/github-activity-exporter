@@ -322,7 +322,7 @@ func buildTargetRunner(
 
 	// One limiter per target, shared by its collectors.
 	limiter := collector.NewLimiter(t.Concurrency())
-	prCfg := collector.PRCollectorConfig{LookbackDays: 30, Limiter: limiter, Tracer: tracing.tracer}
+	prCfg := collector.PRCollectorConfig{LookbackDays: 30, Limiter: limiter, Tracer: tracing.tracer, PRAuthor: t.PRAuthor()}
 	prColl, err := collector.NewPRCollector(ghc.GraphQL(), t.Filters.PRs, prCfg, otelMeter, logger)
 	if err != nil {
 		return nil, fmt.Errorf("build PR collector: %w", err)
