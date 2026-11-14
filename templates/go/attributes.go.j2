@@ -12,7 +12,9 @@ const (
 {%- set id = attr.name | pascal_case_const
              | replace("Reviewstatus", "ReviewStatus")
              | replace("Ratelimit", "RateLimit")
-             | replace("Github", "GitHub")
+             | replace("Githubexporter", "GitHubExporter")
+                  | replace("Failedrepos", "FailedRepos")
+                  | replace("Github", "GitHub")
              | replace("Renovate", "Renovate") -%}
 	// Attr{{ id }} is the key for the {{ attr.name }} attribute.
 	// {{ attr.brief }}
@@ -30,6 +32,8 @@ const (
 {%- set attr_id = attr.name | pascal_case_const
                   | replace("Reviewstatus", "ReviewStatus")
                   | replace("Ratelimit", "RateLimit")
+                  | replace("Githubexporter", "GitHubExporter")
+                  | replace("Failedrepos", "FailedRepos")
                   | replace("Github", "GitHub") -%}
 	// Values for {{ attr.name }}
 {% for member in attr.type.members %}
@@ -65,6 +69,8 @@ const (
 {%- set attr_id = attr.name | pascal_case_const
                   | replace("Reviewstatus", "ReviewStatus")
                   | replace("Ratelimit", "RateLimit")
+                  | replace("Githubexporter", "GitHubExporter")
+                  | replace("Failedrepos", "FailedRepos")
                   | replace("Github", "GitHub") %}
 
 // Attr{{ attr_id }}Values returns every {{ attr.name }} value.

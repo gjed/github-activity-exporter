@@ -1,0 +1,205 @@
+# Self-telemetry traces (https://github.com/gjed/github-activity-exporter/issues/75),
+# recorded on the self-telemetry TracerProvider when telemetry.enabled and
+# telemetry.traces.enabled are true.
+#
+# The exporter's own spans are declared here. GitHub HTTP client spans come
+# from otelhttp and are the OTel semantic conventions http.client span,
+# imported from the dependency pinned in manifest.yaml; the GraphQL operation
+# attributes they also carry are referenced from the same dependency.
+# .weaver.toml pairs each emitted span with its definition for live-check.
+file_format: definition/2
+imports:
+  spans:
+    - span.http.client
+
+attributes:
+  - key: github_exporter.cycle.repos
+    type: int
+    stability: development
+    brief: Number of repos discovered for the collection cycle.
+    examples: [390]
+
+  - key: github_exporter.cycle.outcome
+    type:
+      allow_custom_values: false
+      members:
+        - id: success
+          value: "success"
+          stability: development
+          brief: Repo discovery succeeded and no repo failed.
+        - id: partial
+          value: "partial"
+          stability: development
+          brief: Repo discovery succeeded and at least one repo failed in a collector.
+        - id: failure
+          value: "failure"
+          stability: development
+          brief: Repo discovery failed; no collector ran.
+    stability: development
+    brief: Outcome of a collection cycle.
+    examples: ["success", "partial"]
+
+  - key: github_exporter.collector
+    type:
+      allow_custom_values: false
+      members:
+        - id: pr
+          value: "pr"
+          stability: development
+          brief: Pull request collector.
+        - id: issue
+          value: "issue"
+          stability: development
+          brief: Issue collector.
+        - id: dashboard
+          value: "dashboard"
+          stability: development
+          brief: Renovate Dependency Dashboard collector.
+    stability: development
+    brief: Collector a span belongs to.
+    examples: ["pr", "issue"]
+
+  - key: github_exporter.failed_repos
+    type: int
+    stability: development
+    brief: Number of repos whose collection failed.
+    examples: [0, 2]
+
+  - key: github_exporter.batch.size
+    type: int
+    stability: development
+    brief: Number of repos read by one batched GraphQL query.
+    examples: [20]
+
+  - key: github_exporter.rate_limit.reason
+    type:
+      allow_custom_values: false
+      members:
+        - id: primary
+          value: "primary"
+          stability: development
+          brief: The request's rate limit pool is paused until its window resets.
+        - id: secondary
+          value: "secondary"
+          stability: development
+          brief: A secondary rate limit paused every request of the target.
+    stability: development
+    brief: Why a GitHub request waited.
+    examples: ["primary", "secondary"]
+
+attribute_groups:
+  # Permitted on GitHub HTTP client spans to the GraphQL endpoint, in addition
+  # to the http.client span attributes.
+  - id: github_activity_exporter.graphql
+    visibility: public
+    stability: development
+    brief: GraphQL operation attributes on GitHub GraphQL client spans.
+    attributes:
+      - ref: graphql.operation.type
+        requirement_level:
+          conditionally_required: If the request is to the GraphQL endpoint.
+      - ref: graphql.operation.name
+        requirement_level:
+          conditionally_required: If the GraphQL document names the operation.
+
+spans:
+  - type: github_exporter.cycle
+    kind: internal
+    requirement_level: recommended
+    name:
+      note: The constant `github_exporter.cycle`.
+    stability: development
+    brief: One collection cycle of a target; the root of its trace.
+    attributes:
+      - ref: exporter.target
+        requirement_level: required
+      - ref: github_exporter.cycle.outcome
+        requirement_level: required
+      - ref: github_exporter.cycle.repos
+        requirement_level:
+          conditionally_required: If repo discovery succeeded.
+      - ref: error.type
+        requirement_level:
+          conditionally_required: If repo discovery failed.
+
+  - type: github_exporter.collect
+    kind: internal
+    requirement_level: recommended
+    name:
+      note: The constant `github_exporter.collect`.
+    stability: development
+    brief: One collector's work in a collection cycle.
+    attributes:
+      - ref: github_exporter.collector
+        requirement_level: required
+      - ref: github_exporter.failed_repos
+        requirement_level: required
+      - ref: error.type
+        requirement_level:
+          conditionally_required: If at least one repo failed.
+
+  - type: github_exporter.repo
+    kind: internal
+    requirement_level: recommended
+    name:
+      note: The constant `github_exporter.repo`.
+    stability: development
+    brief: >-
+      Collection of one repo: a unit of the target's worker pool for the PR
+      collector and the issue title-filter listing.
+    attributes:
+      - ref: github.org
+        requirement_level: required
+      - ref: github.repo
+        requirement_level: required
+      - ref: error.type
+        requirement_level:
+          conditionally_required: If the repo's collection failed.
+
+  - type: github_exporter.batch
+    kind: internal
+    requirement_level: recommended
+    name:
+      note: The constant `github_exporter.batch`.
+    stability: development
+    brief: >-
+      One batched GraphQL query with its per-repo fallbacks: a unit of the
+      target's worker pool for the issue and dashboard collectors.
+    attributes:
+      - ref: github_exporter.batch.size
+        requirement_level: required
+      - ref: github_exporter.failed_repos
+        requirement_level: required
+      - ref: error.type
+        requirement_level:
+          conditionally_required: If at least one repo of the batch failed.
+
+  - type: github_exporter.flush
+    kind: internal
+    requirement_level: recommended
+    name:
+      note: The constant `github_exporter.flush`.
+    stability: development
+    brief: The push of the cycle's metrics at its end (ForceFlush).
+    attributes:
+      - ref: error.type
+        requirement_level:
+          conditionally_required: If the flush failed.
+
+  - type: github_exporter.rate_limit.wait
+    kind: internal
+    requirement_level: recommended
+    name:
+      note: The constant `github_exporter.rate_limit.wait`.
+    stability: development
+    brief: >-
+      A GitHub request waiting for a rate limit pause to end; the span lasts
+      as long as the wait.
+    attributes:
+      - ref: github.api.rate_limit.resource
+        requirement_level: required
+      - ref: github_exporter.rate_limit.reason
+        requirement_level: required
+      - ref: error.type
+        requirement_level:
+          conditionally_required: If the wait was cancelled.

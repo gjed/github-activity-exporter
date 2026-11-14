@@ -9,7 +9,15 @@ templates:
 
   - template: attributes.go.j2
     # The resource attribute group refs OTel attributes set by the Go SDK
-    # resource detectors; they have upstream constants, so skip it.
-    filter: '.groups | map(select(.type == "attribute_group" and .id != "github_activity_exporter.resource"))'
+    # resource detectors, and the GraphQL group OTel attributes set on GitHub
+    # client spans; they have upstream constants, so skip them.
+    filter: '.groups | map(select(.type == "attribute_group" and .id != "github_activity_exporter.resource" and .id != "github_activity_exporter.graphql"))'
     application_mode: single
     file_name: attributes.go
+
+  - template: spans.go.j2
+    # Spans imported from the OTel semantic conventions (registry/traces.yaml)
+    # get no constant: otelhttp names them.
+    filter: '.groups | map(select(.type == "span" and (.lineage.provenance.schema_url | startswith("https://opentelemetry.io/") | not)))'
+    application_mode: single
+    file_name: spans.go
