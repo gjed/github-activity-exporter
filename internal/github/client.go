@@ -285,7 +285,7 @@ func (e GraphQLError) Error() string { return "graphql " + e.Type + ": " + e.Mes
 
 // ErrorType returns the error.type of a failed GitHub collection, bounded:
 // the GraphQL error type when GitHub returned one, the HTTP status code of a
-// REST error response, "_OTHER" otherwise.
+// REST error or rate limit response, "_OTHER" otherwise.
 func ErrorType(err error) string {
 	var gqlErr GraphQLError
 	if errors.As(err, &gqlErr) && gqlErr.Type != "" {
@@ -294,6 +294,14 @@ func ErrorType(err error) string {
 	var restErr *github.ErrorResponse
 	if errors.As(err, &restErr) && restErr.Response != nil {
 		return strconv.Itoa(restErr.Response.StatusCode)
+	}
+	var rlErr *github.RateLimitError
+	if errors.As(err, &rlErr) && rlErr.Response != nil {
+		return strconv.Itoa(rlErr.Response.StatusCode)
+	}
+	var abuseErr *github.AbuseRateLimitError
+	if errors.As(err, &abuseErr) && abuseErr.Response != nil {
+		return strconv.Itoa(abuseErr.Response.StatusCode)
 	}
 	return "_OTHER"
 }
