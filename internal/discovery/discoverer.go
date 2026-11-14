@@ -167,7 +167,7 @@ func (d *Discoverer) refresh(ctx context.Context) ([]Repo, error) {
 	d.initialized = true
 	d.mu.Unlock()
 
-	d.logDiscovered(repos)
+	d.logDiscovered(ctx, repos)
 	// Return a copy so callers cannot mutate the internal cache.
 	cp := make([]Repo, len(repos))
 	copy(cp, repos)
@@ -301,7 +301,7 @@ func (d *Discoverer) listUser(ctx context.Context, user string) ([]*github.Repos
 		}
 	}
 
-	d.logger.Info("user account is not the token owner, discovering public repos only",
+	d.logger.InfoContext(ctx, "user account is not the token owner, discovering public repos only",
 		semconv.AttrExporterTarget, d.target.Name, semconv.AttrGitHubOrg, user, "token_owner", self)
 	opts := &github.RepositoryListByUserOptions{
 		Type:        "owner",
@@ -361,7 +361,7 @@ func (d *Discoverer) listInstallation(ctx context.Context, owner string) ([]*git
 		opts.Page = resp.NextPage
 	}
 	if len(all) == 0 {
-		d.logger.Warn("GitHub App installation has no repos owned by this user account",
+		d.logger.WarnContext(ctx, "GitHub App installation has no repos owned by this user account",
 			semconv.AttrExporterTarget, d.target.Name, semconv.AttrGitHubOrg, owner)
 	}
 	return all, nil
@@ -448,15 +448,15 @@ func (d *Discoverer) matchesAny(name string, patterns []string) bool {
 }
 
 // logDiscovered logs the discovered repo list at info level.
-func (d *Discoverer) logDiscovered(repos []Repo) {
+func (d *Discoverer) logDiscovered(ctx context.Context, repos []Repo) {
 	const maxLoggedRepos = 20
 	if len(repos) <= maxLoggedRepos {
 		names := make([]string, len(repos))
 		for i, r := range repos {
 			names[i] = r.FullName
 		}
-		d.logger.Info("discovered repos", semconv.AttrExporterTarget, d.target.Name, "count", len(repos), "repos", names)
+		d.logger.InfoContext(ctx, "discovered repos", semconv.AttrExporterTarget, d.target.Name, "count", len(repos), "repos", names)
 	} else {
-		d.logger.Info("discovered repos", semconv.AttrExporterTarget, d.target.Name, "count", len(repos))
+		d.logger.InfoContext(ctx, "discovered repos", semconv.AttrExporterTarget, d.target.Name, "count", len(repos))
 	}
 }
