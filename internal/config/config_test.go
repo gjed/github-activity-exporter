@@ -493,6 +493,53 @@ func TestLoad(t *testing.T) {
 			errContains: `collection.concurrency must be between 1 and 100, got 0`,
 		},
 		{
+			name: "collection.pr_author defaults to false",
+			file: "testdata/pat_token.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Targets[0].PRAuthor() {
+					t.Error("PRAuthor() = true, want false")
+				}
+			},
+		},
+		{
+			name: "collection.pr_author global default and target override",
+			file: "testdata/pr_author.yaml",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				want := map[string]bool{"inherits": true, "override": false}
+				for _, tg := range cfg.Targets {
+					if got := tg.PRAuthor(); got != want[tg.Name] {
+						t.Errorf("target %q: PRAuthor() = %v, want %v", tg.Name, got, want[tg.Name])
+					}
+				}
+			},
+		},
+		{
+			name:    "collection.pr_author from env",
+			file:    "testdata/pat_token.yaml",
+			envVars: map[string]string{"GITHUB_ACTIVITY_EXPORTER_COLLECTION_PR_AUTHOR": "true"},
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if !cfg.Targets[0].PRAuthor() {
+					t.Error("PRAuthor() = false, want true")
+				}
+			},
+		},
+		{
+			name:        "collection.pr_author non-boolean is error",
+			file:        "testdata/pr_author_bad.yaml",
+			wantErr:     true,
+			errContains: "pr_author",
+		},
+		{
+			name:        "top-level collection.pr_author non-boolean in env is error",
+			file:        "testdata/pat_token.yaml",
+			envVars:     map[string]string{"GITHUB_ACTIVITY_EXPORTER_COLLECTION_PR_AUTHOR": "maybe"},
+			wantErr:     true,
+			errContains: "collection.pr_author",
+		},
+		{
 			name: "telemetry defaults",
 			file: "testdata/pat_token.yaml",
 			check: func(t *testing.T, cfg *config.Config) {
