@@ -10,9 +10,13 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/gjed/github-activity-exporter/internal/config"
 	"github.com/gjed/github-activity-exporter/internal/discovery"
 	ghclient "github.com/gjed/github-activity-exporter/internal/github"
+	sc "github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
 // RawGraphQLClient sends a GraphQL query as text and returns the response
@@ -34,6 +38,7 @@ type Option func(*collectorOptions)
 type collectorOptions struct {
 	batchSize int
 	limiter   *Limiter
+	tracer    trace.Tracer
 }
 
 // WithGraphQLBatchSize sets the number of repos per batched GraphQL query.
@@ -49,6 +54,12 @@ func WithLimiter(l *Limiter) Option {
 	return func(o *collectorOptions) { o.limiter = l }
 }
 
+// WithTracer records each batch, or each repo of the issue title-filter
+// listing, as a span under the context passed to Collect. Default: no spans.
+func WithTracer(t trace.Tracer) Option {
+	return func(o *collectorOptions) { o.tracer = t }
+}
+
 // applyOptions applies opts to the defaults.
 func applyOptions(opts []Option) collectorOptions {
 	o := collectorOptions{batchSize: config.DefaultGraphQLBatchSize}
@@ -56,6 +67,7 @@ func applyOptions(opts []Option) collectorOptions {
 		opt(&o)
 	}
 	o.batchSize = max(o.batchSize, 1)
+	o.tracer = tracerOrNoop(o.tracer)
 	return o
 }
 
@@ -66,6 +78,9 @@ const errResourceLimits = "RESOURCE_LIMITS_EXCEEDED"
 // repoBatchQuery describes one batched query: the selection read for each
 // repo and the variables every alias shares.
 type repoBatchQuery struct {
+	// name is the operation name, so a trace tells the batched queries apart
+	// (graphql.operation.name).
+	name string
 	// selection is the body of repository(...) { ... }.
 	selection string
 	// varDecls declares the shared variables, e.g. "$cursor: String".
@@ -118,7 +133,7 @@ func runRepoBatch(ctx context.Context, gql RawGraphQLClient, q repoBatchQuery, r
 		vars[o], vars[n] = repo.Owner, repo.Name
 		fmt.Fprintf(&b, " r%d: repository(owner: $%s, name: $%s) %s", i, o, n, q.selection)
 	}
-	query := "query(" + strings.Join(decls, ", ") + ") { rateLimit { cost remaining resetAt }" + b.String() + " }"
+	query := "query " + q.name + "(" + strings.Join(decls, ", ") + ") { rateLimit { cost remaining resetAt }" + b.String() + " }"
 
 	resp, err := gql.QueryRaw(ctx, query, vars)
 	if err != nil {
@@ -139,7 +154,7 @@ func runRepoBatch(ctx context.Context, gql RawGraphQLClient, q repoBatchQuery, r
 		case e.Type == errResourceLimits:
 			out.retry[i] = true
 		case out.failed[i] == nil:
-			out.failed[i] = fmt.Errorf("graphql %s: %s", e.Type, e.Message)
+			out.failed[i] = e
 		}
 	}
 	for i := range repos {
@@ -176,10 +191,12 @@ func aliasIndex(path []any, n int) (int, bool) {
 	return i, true
 }
 
-// eachBatch runs fn on every batch of at most size repos through l, and
+// eachBatch runs fn on every batch of at most size repos through l, each in
+// a github_exporter.batch span of tracer passed to fn as its context, and
 // returns fn's per-repo results and errors indexed like the batches. A repo
-// of a batch that never ran fails with errNotStarted.
-func eachBatch[T any](ctx context.Context, l *Limiter, repos []discovery.Repo, size int, fn func([]discovery.Repo) ([]T, []error)) ([][]discovery.Repo, [][]T, [][]error) {
+// of a batch that never ran fails with errNotStarted and the batch has no
+// span.
+func eachBatch[T any](ctx context.Context, l *Limiter, tracer trace.Tracer, repos []discovery.Repo, size int, fn func(context.Context, []discovery.Repo) ([]T, []error)) ([][]discovery.Repo, [][]T, [][]error) {
 	bs := batches(repos, size)
 	results := make([][]T, len(bs))
 	errs := make([][]error, len(bs))
@@ -191,7 +208,11 @@ func eachBatch[T any](ctx context.Context, l *Limiter, repos []discovery.Repo, s
 		}
 	}
 	l.each(ctx, len(bs), func(i int) {
-		results[i], errs[i] = fn(bs[i])
+		bctx, span := startSpan(ctx, tracer, sc.SpanGitHubExporterBatch, func() []trace.SpanStartOption {
+			return []trace.SpanStartOption{trace.WithAttributes(attribute.Int(sc.AttrGitHubExporterBatchSize, len(bs[i])))}
+		})
+		results[i], errs[i] = fn(bctx, bs[i])
+		endBatch(span, errs[i])
 	})
 	return bs, results, errs
 }

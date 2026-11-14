@@ -83,7 +83,7 @@ func TestRunRepoBatch_Query(t *testing.T) {
 	if strings.Contains(gotQuery, ".github") || strings.Contains(gotQuery, "my-repo.v2") {
 		t.Errorf("query contains a repo name: %s", gotQuery)
 	}
-	for _, s := range []string{"query($states: [IssueState!], $cursor: String, $o0: String!, $n0: String!, $o1: String!, $n1: String!)", "rateLimit { cost remaining resetAt }", " r0: repository(owner: $o0, name: $n0) {open: issues", " r1: repository(owner: $o1, name: $n1) {"} {
+	for _, s := range []string{"query IssueCountBatch($states: [IssueState!], $cursor: String, $o0: String!, $n0: String!, $o1: String!, $n1: String!)", "rateLimit { cost remaining resetAt }", " r0: repository(owner: $o0, name: $n0) {open: issues", " r1: repository(owner: $o1, name: $n1) {"} {
 		if !strings.Contains(gotQuery, s) {
 			t.Errorf("query %q does not contain %q", gotQuery, s)
 		}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/shurcooL/githubv4"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/gjed/github-activity-exporter/internal/collector"
 	"github.com/gjed/github-activity-exporter/internal/config"
@@ -83,8 +84,9 @@ type concurrencyRun struct {
 // runCycles runs four cycles of all three collectors over 30 repos with the
 // given concurrency: open PRs, then events with a failing repo, then the
 // repo's recovery and a removed repo, then nothing new. Issue and dashboard
-// batches include a failed alias and resource-limit fallbacks.
-func runCycles(t *testing.T, concurrency int) concurrencyRun {
+// batches include a failed alias and resource-limit fallbacks. A non-nil
+// tracer traces the cycles.
+func runCycles(t *testing.T, concurrency int, tracer trace.Tracer) concurrencyRun {
 	t.Helper()
 	ctx := context.Background()
 	mp, reader := newTestMeterProvider()
@@ -116,24 +118,25 @@ func runCycles(t *testing.T, concurrency int) concurrencyRun {
 	gql := trackedIssueClient{FixtureIssueClient: issues, track: track}
 
 	prColl, err := collector.NewPRCollector(pr, config.PRFilters{},
-		collector.PRCollectorConfig{LookbackDays: 30, Limiter: limiter}, meter, nil)
+		collector.PRCollectorConfig{LookbackDays: 30, Limiter: limiter, Tracer: tracer}, meter, nil)
 	if err != nil {
 		t.Fatalf("NewPRCollector: %v", err)
 	}
 	issColl, err := collector.NewIssueCollector(gql, config.IssueFilters{}, meter, nil,
-		collector.WithGraphQLBatchSize(4), collector.WithLimiter(limiter))
+		collector.WithGraphQLBatchSize(4), collector.WithLimiter(limiter), collector.WithTracer(tracer))
 	if err != nil {
 		t.Fatalf("NewIssueCollector: %v", err)
 	}
 	dashColl, err := collector.NewDashboardCollector(gql, "renovate[bot]", meter, nil,
-		collector.WithGraphQLBatchSize(4), collector.WithLimiter(limiter))
+		collector.WithGraphQLBatchSize(4), collector.WithLimiter(limiter), collector.WithTracer(tracer))
 	if err != nil {
 		t.Fatalf("NewDashboardCollector: %v", err)
 	}
 	src := &mutableRepoSource{repos: repos}
 	r, err := collector.NewRunner(config.Target{Name: "tgt"}, src,
 		collector.RunnerCollectors{PR: prColl, Issue: issColl, Dashboard: dashColl},
-		meter, nil, collector.WithSelfMetrics(self))
+		meter, nil, collector.WithSelfMetrics(self), collector.WithCycleTracer(tracer),
+		collector.WithFlush(func(context.Context) error { return nil }))
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)
 	}
@@ -206,8 +209,8 @@ func exportedSeries(t *testing.T, rm metricdata.ResourceMetrics) []string {
 // The same cycles export the same series at concurrency 1 and 8, and the
 // number of requests in flight never exceeds the concurrency.
 func TestRunner_SerialAndConcurrentExportTheSame(t *testing.T) {
-	serial := runCycles(t, 1)
-	concurrent := runCycles(t, 8)
+	serial := runCycles(t, 1, nil)
+	concurrent := runCycles(t, 8, nil)
 
 	if serial.peak != 1 {
 		t.Errorf("concurrency 1: peak requests in flight = %d, want 1", serial.peak)
@@ -235,7 +238,7 @@ func TestRunner_SerialAndConcurrentExportTheSame(t *testing.T) {
 // requests in flight across them.
 func TestRunner_SharedLimiterAcrossCollectors(t *testing.T) {
 	for _, n := range []int{2, 4} {
-		if got := runCycles(t, n).peak; got > int64(n) || got < 2 {
+		if got := runCycles(t, n, nil).peak; got > int64(n) || got < 2 {
 			t.Errorf("concurrency %d: peak requests in flight = %d", n, got)
 		}
 	}

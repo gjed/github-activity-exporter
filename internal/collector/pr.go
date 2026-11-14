@@ -12,10 +12,12 @@ import (
 	"github.com/shurcooL/githubv4"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/gjed/github-activity-exporter/internal/config"
 	"github.com/gjed/github-activity-exporter/internal/discovery"
 	"github.com/gjed/github-activity-exporter/internal/filter"
+	ghclient "github.com/gjed/github-activity-exporter/internal/github"
 	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
@@ -72,6 +74,9 @@ type PRCollectorConfig struct {
 	// Limiter runs the repos of a cycle concurrently; nil runs them one at
 	// a time. Share one Limiter between the collectors of a target.
 	Limiter *Limiter
+	// Tracer records each repo as a github_exporter.repo span under the
+	// context passed to Collect; nil records nothing.
+	Tracer trace.Tracer
 }
 
 // PRCollector fetches PRs via GraphQL and records OTel metrics.
@@ -305,6 +310,8 @@ type PRCollection struct {
 
 	// failed lists the FullName of repos whose collection failed this cycle.
 	failed []string
+	// errType is the error.type of the first failure, in repo order.
+	errType string
 }
 
 // FailedRepos returns the FullName of every repo whose collection failed.
@@ -356,9 +363,12 @@ func (c *PRCollector) Collect(ctx context.Context, target string, repos []discov
 		w.err = errNotStarted
 	}
 
+	tracer := tracerOrNoop(c.cfg.Tracer)
 	c.cfg.Limiter.each(ctx, len(repos), func(i int) {
 		w := &work[i]
-		w.stats, w.events, w.err = c.collectRepo(ctx, repos[i], w.ok, w.scanFrom, until, w.counted)
+		rctx, span := startRepo(ctx, tracer, repos[i])
+		w.stats, w.events, w.err = c.collectRepo(rctx, repos[i], w.ok, w.scanFrom, until, w.counted)
+		endRepo(span, w.err)
 	})
 
 	// Merge in repo order, as a serial loop would.
@@ -371,6 +381,9 @@ func (c *PRCollector) Collect(ctx context.Context, target string, repos []discov
 				"err", w.err,
 			)
 			coll.failed = append(coll.failed, repo.FullName)
+			if coll.errType == "" {
+				coll.errType = ghclient.ErrorType(w.err)
+			}
 			continue
 		}
 		c.recordEvents(ctx, target, repo, w.events)
