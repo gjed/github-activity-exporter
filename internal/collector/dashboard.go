@@ -186,8 +186,9 @@ func (c *DashboardCollector) Collect(ctx context.Context, target string, repos [
 		for i, repo := range batch {
 			if errs[b][i] != nil {
 				c.logger.Error("dashboard collection failed",
-					"target", target,
-					"repo", repo.FullName,
+					semconv.AttrExporterTarget, target,
+					semconv.AttrGitHubOrg, repo.Owner,
+					semconv.AttrGitHubRepo, repo.Name,
 					"err", errs[b][i],
 				)
 				coll.failed = append(coll.failed, repo.FullName)

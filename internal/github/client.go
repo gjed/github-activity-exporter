@@ -429,14 +429,14 @@ func (c *Client) updateRateLimit(resource string, remaining int, resetAt time.Ti
 	if pausing && !p.paused {
 		p.paused = true
 		c.logger.Warn("rate limit threshold reached, pausing requests",
-			"resource", resource,
+			sc.AttrGitHubApiRateLimitResource, resource,
 			"remaining", remaining,
 			"reset_at", resetAt,
 		)
 	} else if !pausing && p.paused {
 		p.paused = false
 		c.logger.Info("rate limit recovered, resuming requests",
-			"resource", resource,
+			sc.AttrGitHubApiRateLimitResource, resource,
 			"remaining", remaining,
 		)
 	}
@@ -466,7 +466,7 @@ func (c *Client) waitIfPaused(ctx context.Context, resource string) error {
 		return nil
 	}
 	c.logger.Info("rate limited: waiting for window reset",
-		"resource", resource,
+		sc.AttrGitHubApiRateLimitResource, resource,
 		"wait", waitDur.Round(time.Second),
 	)
 	return c.wait(ctx, waitDur, resource, sc.AttrGitHubExporterRateLimitReasonPrimary)
@@ -668,7 +668,7 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 		if attempt > maxRateLimitRetries || !ok {
 			c.logger.Warn("rate limited: giving up on the request",
 				"status", resp.StatusCode,
-				"resource", resource,
+				sc.AttrGitHubApiRateLimitResource, resource,
 				"secondary", kind == secondaryRateLimit,
 				"attempts", attempt,
 			)
@@ -677,7 +677,7 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 		if kind == secondaryRateLimit {
 			c.logger.Warn("secondary rate limit: pausing all requests of the target",
 				"status", resp.StatusCode,
-				"resource", resource,
+				sc.AttrGitHubApiRateLimitResource, resource,
 				"wait", wait.Round(time.Second),
 				"attempt", attempt,
 			)
@@ -720,7 +720,7 @@ func (t *rateLimitTransport) recordRateLimit(resp *http.Response, pool string) s
 	// Without a reset time, pause would block indefinitely (zero time → no wait).
 	if remaining < rateLimitPauseThreshold && resetAt.IsZero() {
 		t.client.logger.Warn("rate limit low but X-RateLimit-Reset missing; applying 60s fallback backoff",
-			"resource", resource,
+			sc.AttrGitHubApiRateLimitResource, resource,
 			"remaining", remaining,
 		)
 		resetAt = time.Now().Add(60 * time.Second)

@@ -17,6 +17,7 @@ import (
 	"github.com/google/go-github/v93/github"
 
 	"github.com/gjed/github-activity-exporter/internal/config"
+	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
 const defaultRefreshInterval = 60 * time.Minute
@@ -132,7 +133,7 @@ func (d *Discoverer) Start(ctx context.Context) {
 		case <-ticker.C:
 			if _, err := d.refresh(ctx); err != nil && ctx.Err() == nil {
 				d.logger.Error("repo refresh failed, keeping the last discovered repos",
-					"target", d.target.Name, "err", err)
+					semconv.AttrExporterTarget, d.target.Name, "err", err)
 				if d.refreshFailed != nil {
 					d.refreshFailed()
 				}
@@ -301,7 +302,7 @@ func (d *Discoverer) listUser(ctx context.Context, user string) ([]*github.Repos
 	}
 
 	d.logger.Info("user account is not the token owner, discovering public repos only",
-		"target", d.target.Name, "owner", user, "token_owner", self)
+		semconv.AttrExporterTarget, d.target.Name, semconv.AttrGitHubOrg, user, "token_owner", self)
 	opts := &github.RepositoryListByUserOptions{
 		Type:        "owner",
 		ListOptions: github.ListOptions{PerPage: 100},
@@ -361,7 +362,7 @@ func (d *Discoverer) listInstallation(ctx context.Context, owner string) ([]*git
 	}
 	if len(all) == 0 {
 		d.logger.Warn("GitHub App installation has no repos owned by this user account",
-			"target", d.target.Name, "owner", owner)
+			semconv.AttrExporterTarget, d.target.Name, semconv.AttrGitHubOrg, owner)
 	}
 	return all, nil
 }
@@ -372,11 +373,11 @@ func (d *Discoverer) filter(orgCfg config.OrgConfig, all []*github.Repository) [
 	for _, r := range all {
 		// Skip archived (unless opted in) and forks.
 		if r.GetArchived() && !orgCfg.IncludeArchived {
-			d.logger.Debug("excluding archived repo", "repo", r.GetFullName())
+			d.logger.Debug("excluding archived repo", semconv.AttrGitHubOrg, r.GetOwner().GetLogin(), semconv.AttrGitHubRepo, r.GetName())
 			continue
 		}
 		if r.GetFork() {
-			d.logger.Debug("excluding fork", "repo", r.GetFullName())
+			d.logger.Debug("excluding fork", semconv.AttrGitHubOrg, r.GetOwner().GetLogin(), semconv.AttrGitHubRepo, r.GetName())
 			continue
 		}
 
@@ -384,13 +385,13 @@ func (d *Discoverer) filter(orgCfg config.OrgConfig, all []*github.Repository) [
 
 		// Apply include filter.
 		if len(orgCfg.IncludeRepos) > 0 && !d.matchesAny(name, orgCfg.IncludeRepos) {
-			d.logger.Debug("excluding repo (not in include list)", "repo", r.GetFullName())
+			d.logger.Debug("excluding repo (not in include list)", semconv.AttrGitHubOrg, r.GetOwner().GetLogin(), semconv.AttrGitHubRepo, r.GetName())
 			continue
 		}
 
 		// Apply exclude filter.
 		if d.matchesAny(name, orgCfg.ExcludeRepos) {
-			d.logger.Debug("excluding repo (in exclude list)", "repo", r.GetFullName())
+			d.logger.Debug("excluding repo (in exclude list)", semconv.AttrGitHubOrg, r.GetOwner().GetLogin(), semconv.AttrGitHubRepo, r.GetName())
 			continue
 		}
 
@@ -454,8 +455,8 @@ func (d *Discoverer) logDiscovered(repos []Repo) {
 		for i, r := range repos {
 			names[i] = r.FullName
 		}
-		d.logger.Info("discovered repos", "target", d.target.Name, "count", len(repos), "repos", names)
+		d.logger.Info("discovered repos", semconv.AttrExporterTarget, d.target.Name, "count", len(repos), "repos", names)
 	} else {
-		d.logger.Info("discovered repos", "target", d.target.Name, "count", len(repos))
+		d.logger.Info("discovered repos", semconv.AttrExporterTarget, d.target.Name, "count", len(repos))
 	}
 }
