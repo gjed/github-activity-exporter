@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/gjed/github-activity-exporter/internal/collector"
 	"github.com/gjed/github-activity-exporter/internal/config"
@@ -144,8 +145,15 @@ func main() {
 	if tel.Active(telemetry.SignalMetrics) {
 		httpMeterProvider = tel.MeterProvider()
 	}
-	runners, err := buildRunners(ctx, cfg, logger, meter, httpMeterProvider, selfMetrics, tracker,
+	// Collection cycles, GitHub requests and rate limit waits are traced on
+	// the self-telemetry TracerProvider; with traces inactive nothing is.
+	var tracing traces
+	if tel.Active(telemetry.SignalTraces) {
+		tracing = traces{provider: tel.TracerProvider(), tracer: tel.Tracer()}
+	}
+	runners, err := buildRunners(ctx, cfg, logger, meter, httpMeterProvider, tracing, selfMetrics, tracker,
 		collector.WithInterval(cfg.CollectionInterval),
+		collector.WithCycleTracer(tracing.tracer),
 		collector.WithSelfMetrics(selfMetrics),
 		collector.WithFlush(provider.ForceFlush),
 		collector.WithCycleObserver(tracker),
@@ -214,6 +222,14 @@ func activeSignals(tel *telemetry.Telemetry) []string {
 	return active
 }
 
+// traces is what the exporter traces with; both nil when traces are inactive.
+type traces struct {
+	// provider instruments the GitHub HTTP transport.
+	provider trace.TracerProvider
+	// tracer records cycles, collector units and rate limit waits.
+	tracer trace.Tracer
+}
+
 // buildRunners creates one Runner per target with its own GitHub client and collectors.
 func buildRunners(
 	ctx context.Context,
@@ -221,13 +237,14 @@ func buildRunners(
 	logger *slog.Logger,
 	meter metric.Meter,
 	httpMeterProvider metric.MeterProvider,
+	tracing traces,
 	selfMetrics *exporter.SelfMetrics,
 	tracker *health.Tracker,
 	opts ...collector.RunnerOption,
 ) ([]*collector.Runner, error) {
 	runners := make([]*collector.Runner, 0, len(cfg.Targets))
 	for _, t := range cfg.Targets {
-		r, err := buildTargetRunner(ctx, t, logger, meter, httpMeterProvider, selfMetrics, tracker, opts...)
+		r, err := buildTargetRunner(ctx, t, logger, meter, httpMeterProvider, tracing, selfMetrics, tracker, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("target %q: %w", t.Name, err)
 		}
@@ -237,18 +254,20 @@ func buildRunners(
 }
 
 // buildTargetRunner builds a Runner for a single config.Target. A nil
-// httpMeterProvider leaves the GitHub HTTP transport uninstrumented.
+// httpMeterProvider and a nil tracing.provider leave the GitHub HTTP
+// transport uninstrumented.
 func buildTargetRunner(
 	ctx context.Context,
 	t config.Target,
 	logger *slog.Logger,
 	otelMeter metric.Meter,
 	httpMeterProvider metric.MeterProvider,
+	tracing traces,
 	selfMetrics *exporter.SelfMetrics,
 	tracker *health.Tracker,
 	opts ...collector.RunnerOption,
 ) (*collector.Runner, error) {
-	transport, err := ghclient.NewTransport(t.BaseURL, httpMeterProvider, nil)
+	transport, err := ghclient.NewTransport(t.BaseURL, httpMeterProvider, tracing.provider)
 	if err != nil {
 		return nil, fmt.Errorf("build github transport: %w", err)
 	}
@@ -262,6 +281,7 @@ func buildTargetRunner(
 		ghclient.WithLogger(logger),
 		ghclient.WithBaseURL(t.BaseURL),
 		ghclient.WithBaseTransport(transport),
+		ghclient.WithTracer(tracing.tracer),
 		// The hook runs in the client transport and has no context.
 		ghclient.WithRateLimitHook(func(s ghclient.RateLimitState) {
 			selfMetrics.RecordRateLimit(context.Background(), t.Name, s.Resource, s.Remaining, s.ResetAt)
@@ -302,7 +322,7 @@ func buildTargetRunner(
 
 	// One limiter per target, shared by its collectors.
 	limiter := collector.NewLimiter(t.Concurrency())
-	prCfg := collector.PRCollectorConfig{LookbackDays: 30, Limiter: limiter}
+	prCfg := collector.PRCollectorConfig{LookbackDays: 30, Limiter: limiter, Tracer: tracing.tracer}
 	prColl, err := collector.NewPRCollector(ghc.GraphQL(), t.Filters.PRs, prCfg, otelMeter, logger)
 	if err != nil {
 		return nil, fmt.Errorf("build PR collector: %w", err)
@@ -315,12 +335,13 @@ func buildTargetRunner(
 		logger,
 		collector.WithGraphQLBatchSize(t.BatchSize()),
 		collector.WithLimiter(limiter),
+		collector.WithTracer(tracing.tracer),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build issue collector: %w", err)
 	}
 
-	dashColl, err := newDashboardCollector(t, ghc, otelMeter, logger, limiter)
+	dashColl, err := newDashboardCollector(t, ghc, otelMeter, logger, limiter, tracing.tracer)
 	if err != nil {
 		return nil, fmt.Errorf("build dashboard collector: %w", err)
 	}
@@ -371,6 +392,7 @@ func newDashboardCollector(
 	meter metric.Meter,
 	logger *slog.Logger,
 	limiter *collector.Limiter,
+	tracer trace.Tracer,
 ) (*collector.DashboardCollector, error) {
 	if !t.RenovateDashboard.Enabled {
 		return nil, nil
@@ -382,6 +404,7 @@ func newDashboardCollector(
 		logger,
 		collector.WithGraphQLBatchSize(t.BatchSize()),
 		collector.WithLimiter(limiter),
+		collector.WithTracer(tracer),
 	)
 }
 
