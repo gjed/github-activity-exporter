@@ -39,8 +39,14 @@ var selfTelemetryMetrics = []string{
 // metrics active or not, exporting OTLP to otlp.
 func newSelfTelemetry(t *testing.T, active bool, otlp config.OTLP, reg prometheus.Registerer) *telemetry.Telemetry {
 	t.Helper()
+	return newSelfTelemetrySignals(t, config.Telemetry{Enabled: active, Metrics: config.Signal{Enabled: true}}, otlp, reg)
+}
+
+// newSelfTelemetrySignals is newSelfTelemetry with the telemetry config cfg.
+func newSelfTelemetrySignals(t *testing.T, cfg config.Telemetry, otlp config.OTLP, reg prometheus.Registerer) *telemetry.Telemetry {
+	t.Helper()
 	// Keep the developer's environment from redirecting or disabling export.
-	for _, k := range []string{"OTEL_SDK_DISABLED", "OTEL_METRICS_EXPORTER", "OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS"} {
+	for _, k := range []string{"OTEL_SDK_DISABLED", "OTEL_METRICS_EXPORTER", "OTEL_TRACES_EXPORTER", "OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS", "OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_TRACES_SAMPLER", "OTEL_TRACES_SAMPLER_ARG"} {
 		t.Setenv(k, "")
 	}
 	ctx := context.Background()
@@ -48,7 +54,6 @@ func newSelfTelemetry(t *testing.T, active bool, otlp config.OTLP, reg prometheu
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
-	cfg := config.Telemetry{Enabled: active, Metrics: config.Signal{Enabled: true}}
 	tel, err := telemetry.New(ctx, telemetry.Settings{
 		Config: cfg, OTLP: otlp, Resource: res, Version: "test", PrometheusRegisterer: reg,
 	})
