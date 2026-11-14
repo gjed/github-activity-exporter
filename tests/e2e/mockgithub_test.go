@@ -22,8 +22,9 @@ import (
 )
 
 // The mock serves exactly what the exporter calls for one target over
-// base_url <mock>/api/v3: GET /user (PAT check), GET /users/{org} (owner
-// type lookup), GET /orgs/{org}/repos,
+// base_url <mock>/api/v3: GET /user (PAT check), GET /app and POST
+// /app/installations/{id}/access_tokens (GitHub App check and token
+// exchange), GET /users/{org} (owner type lookup), GET /orgs/{org}/repos,
 // and POST /api/graphql (the PR query, and the issue count and Dependency
 // Dashboard queries, per repo or batched with one alias r<i> per repo, whose
 // response shapes mirror the struct tags of prQuery in
@@ -98,6 +99,9 @@ type mockGitHub struct {
 	// URL is the server root without /api/v3.
 	URL string
 
+	// InstallationToken is the token the GitHub App token exchange returns.
+	InstallationToken string
+
 	fixturePRs map[string][]gqlPR
 	fixtureIss map[string][]gqlIssue
 
@@ -115,14 +119,17 @@ func newMockGitHub(t *testing.T) *mockGitHub {
 	t.Helper()
 	now := time.Now().UTC()
 	m := &mockGitHub{
-		fixturePRs: fixturePRs(now),
-		fixtureIss: fixtureIssues(now),
-		eventPRs:   make(map[string][]gqlPR),
-		nextNumber: 1000,
+		fixturePRs:        fixturePRs(now),
+		fixtureIss:        fixtureIssues(now),
+		eventPRs:          make(map[string][]gqlPR),
+		nextNumber:        1000,
+		InstallationToken: "ghs_e2e",
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v3/user", m.user)
+	mux.HandleFunc("GET /api/v3/app", m.app)
+	mux.HandleFunc("POST /api/v3/app/installations/{id}/access_tokens", m.installationToken)
 	mux.HandleFunc("GET /api/v3/users/{name}", m.owner)
 	mux.HandleFunc("GET /api/v3/orgs/{org}/repos", m.orgRepos)
 	mux.HandleFunc("POST /api/graphql", m.graphql)
@@ -173,6 +180,24 @@ func withRateLimitHeaders(next http.Handler) http.Handler {
 func (m *mockGitHub) user(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("X-OAuth-Scopes", "repo")
 	writeJSON(w, map[string]string{"login": "e2e-bot"})
+}
+
+// app answers the GitHub App credential check.
+func (m *mockGitHub) app(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, map[string]any{"id": 1, "slug": "e2e-app"})
+}
+
+// installationToken answers the token exchange with InstallationToken and
+// the read permissions the collectors need.
+func (m *mockGitHub) installationToken(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"token":                m.InstallationToken,
+		"expires_at":           time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		"repository_selection": "all",
+		"permissions":          map[string]string{"metadata": "read", "pull_requests": "read", "issues": "read"},
+	})
 }
 
 func (m *mockGitHub) owner(w http.ResponseWriter, r *http.Request) {
