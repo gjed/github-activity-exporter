@@ -166,7 +166,10 @@ func withRateLimitHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// user answers as GitHub does for a classic PAT with the repo scope, so the
+// startup permission check passes without a probe.
 func (m *mockGitHub) user(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("X-OAuth-Scopes", "repo")
 	writeJSON(w, map[string]string{"login": "e2e-bot"})
 }
 
