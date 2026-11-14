@@ -3,14 +3,18 @@ package collector
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/gjed/github-activity-exporter/internal/config"
 	"github.com/gjed/github-activity-exporter/internal/discovery"
+	ghclient "github.com/gjed/github-activity-exporter/internal/github"
 	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
@@ -68,6 +72,9 @@ type Runner struct {
 	// observer is told when each collection cycle starts and finishes; nil
 	// disables it.
 	observer CycleObserver
+
+	// tracer records each cycle as a trace.
+	tracer trace.Tracer
 }
 
 // CycleObserver is told when each collection cycle of a target starts and
@@ -122,6 +129,15 @@ func WithCycleObserver(o CycleObserver) RunnerOption {
 	return func(r *Runner) { r.observer = o }
 }
 
+// WithCycleTracer records each collection cycle as a trace: a
+// github_exporter.cycle root span with a github_exporter.collect span per
+// collector and a github_exporter.flush span. Pass the same tracer to the
+// collectors (WithTracer, PRCollectorConfig.Tracer) for their unit spans.
+// Default: no spans.
+func WithCycleTracer(t trace.Tracer) RunnerOption {
+	return func(r *Runner) { r.tracer = t }
+}
+
 // NewRunner creates a Runner for the given target. The collection interval
 // defaults to 5 minutes; override it with WithInterval.
 func NewRunner(
@@ -148,6 +164,7 @@ func NewRunner(
 	for _, opt := range opts {
 		opt(r)
 	}
+	r.tracer = tracerOrNoop(r.tracer)
 
 	// Register one batch callback that serves all observable instruments using
 	// the latest collected snapshots. The OTel SDK calls this on every metric
@@ -252,13 +269,19 @@ func (r *Runner) RunOnce(ctx context.Context) {
 	r.runOnce(ctx)
 }
 
-// runOnce performs one collection cycle, then flushes its metrics.
+// runOnce performs one collection cycle, then flushes its metrics, as one
+// trace.
 func (r *Runner) runOnce(ctx context.Context) {
 	if r.observer != nil {
 		r.observer.CycleStarted(r.target)
 	}
-	discoveryOK := r.collect(ctx)
+	ctx, span := startSpan(ctx, r.tracer, semconv.SpanGitHubExporterCycle, func() []trace.SpanStartOption {
+		return []trace.SpanStartOption{trace.WithNewRoot(),
+			trace.WithAttributes(attribute.String(semconv.AttrExporterTarget, r.target))}
+	})
+	discoveryOK := r.collect(ctx, span)
 	r.flushMetrics(ctx)
+	span.End()
 	if r.observer != nil {
 		r.observer.CycleFinished(r.target, discoveryOK)
 	}
@@ -270,7 +293,12 @@ func (r *Runner) flushMetrics(ctx context.Context) {
 	if r.flush == nil || ctx.Err() != nil {
 		return
 	}
-	err := r.flush(ctx)
+	fctx, span := startSpan(ctx, r.tracer, semconv.SpanGitHubExporterFlush, func() []trace.SpanStartOption { return nil })
+	err := r.flush(fctx)
+	if err != nil && ctx.Err() == nil && span.IsRecording() {
+		setFailed(span, "_OTHER", err.Error())
+	}
+	span.End()
 	switch {
 	case err == nil || ctx.Err() != nil:
 		// Shutdown landed mid-flush; it performs its own final flush.
@@ -287,8 +315,9 @@ func (r *Runner) flushMetrics(ctx context.Context) {
 }
 
 // collect discovers repos, runs all collectors, updates snapshots and
-// advances lastCollectedAt. It reports whether repo discovery succeeded.
-func (r *Runner) collect(ctx context.Context) bool {
+// advances lastCollectedAt. It records the outcome on cycle, the cycle span.
+// It reports whether repo discovery succeeded.
+func (r *Runner) collect(ctx context.Context, cycle trace.Span) bool {
 	start := time.Now()
 	r.logger.Debug("collection cycle started", "target", r.target)
 
@@ -303,7 +332,14 @@ func (r *Runner) collect(ctx context.Context) bool {
 	if err != nil {
 		r.logger.Error("repo discovery failed", "target", r.target, "err", err)
 		r.recordAPIErrors(ctx, 1, semconv.AttrGitHubApiEndpointRestRepos)
+		if cycle.IsRecording() {
+			cycle.SetAttributes(attribute.String(semconv.AttrGitHubExporterCycleOutcome, semconv.AttrGitHubExporterCycleOutcomeFailure))
+			setFailed(cycle, ghclient.ErrorType(err), err.Error())
+		}
 		return false
+	}
+	if cycle.IsRecording() {
+		cycle.SetAttributes(attribute.Int(semconv.AttrGitHubExporterCycleRepos, len(repos)))
 	}
 
 	var (
@@ -317,34 +353,62 @@ func (r *Runner) collect(ctx context.Context) bool {
 	var wg sync.WaitGroup
 	if r.collectors.PR != nil {
 		wg.Go(func() {
+			cctx, span := r.startCollect(ctx, semconv.AttrGitHubExporterCollectorPr)
 			var err error
-			prColl, err = r.collectors.PR.Collect(ctx, r.target, repos, lastCollectedAt, start)
+			prColl, err = r.collectors.PR.Collect(cctx, r.target, repos, lastCollectedAt, start)
 			if err != nil {
 				r.logger.Error("PR collection failed", "target", r.target, "err", err)
+			}
+			if prColl != nil {
+				endCollect(span, len(prColl.failed), prColl.errType, err)
+			} else {
+				endCollect(span, 0, "", err)
 			}
 		})
 	}
 
 	if r.collectors.Issue != nil {
 		wg.Go(func() {
+			cctx, span := r.startCollect(ctx, semconv.AttrGitHubExporterCollectorIssue)
 			var err error
-			issColl, err = r.collectors.Issue.Collect(ctx, r.target, repos)
+			issColl, err = r.collectors.Issue.Collect(cctx, r.target, repos)
 			if err != nil {
 				r.logger.Error("issue collection failed", "target", r.target, "err", err)
+			}
+			if issColl != nil {
+				endCollect(span, len(issColl.failed), issColl.errType, err)
+			} else {
+				endCollect(span, 0, "", err)
 			}
 		})
 	}
 
 	if r.collectors.Dashboard != nil {
 		wg.Go(func() {
+			cctx, span := r.startCollect(ctx, semconv.AttrGitHubExporterCollectorDashboard)
 			var err error
-			dashColl, err = r.collectors.Dashboard.Collect(ctx, r.target, repos)
+			dashColl, err = r.collectors.Dashboard.Collect(cctx, r.target, repos)
 			if err != nil {
 				r.logger.Error("dashboard collection failed", "target", r.target, "err", err)
+			}
+			if dashColl != nil {
+				endCollect(span, len(dashColl.failed), dashColl.errType, err)
+			} else {
+				endCollect(span, 0, "", err)
 			}
 		})
 	}
 	wg.Wait()
+
+	if cycle.IsRecording() {
+		outcome := semconv.AttrGitHubExporterCycleOutcomeSuccess
+		if (prColl != nil && len(prColl.failed) > 0) ||
+			(issColl != nil && len(issColl.failed) > 0) ||
+			(dashColl != nil && len(dashColl.failed) > 0) {
+			outcome = semconv.AttrGitHubExporterCycleOutcomePartial
+		}
+		cycle.SetAttributes(attribute.String(semconv.AttrGitHubExporterCycleOutcome, outcome))
+	}
 
 	// Advance lastCollectedAt only for repos whose PR collection succeeded;
 	// failed repos keep their previous timestamp. Repos no longer discovered
@@ -392,6 +456,30 @@ func (r *Runner) collect(ctx context.Context) bool {
 		"duration", time.Since(start),
 	)
 	return true
+}
+
+// startCollect starts the github_exporter.collect span of one collector.
+func (r *Runner) startCollect(ctx context.Context, collector string) (context.Context, trace.Span) {
+	return startSpan(ctx, r.tracer, semconv.SpanGitHubExporterCollect, func() []trace.SpanStartOption {
+		return []trace.SpanStartOption{trace.WithAttributes(attribute.String(semconv.AttrGitHubExporterCollector, collector))}
+	})
+}
+
+// endCollect ends a github_exporter.collect span with the collector's number
+// of failed repos, failed when a repo failed (error.type errType, the first
+// failure's) or the collector returned err.
+func endCollect(span trace.Span, failed int, errType string, err error) {
+	if !span.IsRecording() {
+		return
+	}
+	defer span.End()
+	span.SetAttributes(attribute.Int(semconv.AttrGitHubExporterFailedRepos, failed))
+	switch {
+	case err != nil:
+		setFailed(span, ghclient.ErrorType(err), err.Error())
+	case failed > 0:
+		setFailed(span, errType, fmt.Sprintf("%d repos failed", failed))
+	}
 }
 
 // recordAPIErrors adds n to github_exporter.api.errors for this target and

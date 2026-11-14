@@ -54,6 +54,32 @@ const (
 	AttrRenovateDashboardSection = "renovate.dashboard.section"
 
 
+// AttrGitHubExporterBatchSize is the key for the github_exporter.batch.size attribute.
+	// Number of repos read by one batched GraphQL query.
+	// Stability: development
+	AttrGitHubExporterBatchSize = "github_exporter.batch.size"
+// AttrGitHubExporterCollector is the key for the github_exporter.collector attribute.
+	// Collector a span belongs to.
+	// Stability: development
+	AttrGitHubExporterCollector = "github_exporter.collector"
+// AttrGitHubExporterCycleOutcome is the key for the github_exporter.cycle.outcome attribute.
+	// Outcome of a collection cycle.
+	// Stability: development
+	AttrGitHubExporterCycleOutcome = "github_exporter.cycle.outcome"
+// AttrGitHubExporterCycleRepos is the key for the github_exporter.cycle.repos attribute.
+	// Number of repos discovered for the collection cycle.
+	// Stability: development
+	AttrGitHubExporterCycleRepos = "github_exporter.cycle.repos"
+// AttrGitHubExporterFailedRepos is the key for the github_exporter.failed_repos attribute.
+	// Number of repos whose collection failed.
+	// Stability: development
+	AttrGitHubExporterFailedRepos = "github_exporter.failed_repos"
+// AttrGitHubExporterRateLimitReason is the key for the github_exporter.rate_limit.reason attribute.
+	// Why a GitHub request waited.
+	// Stability: development
+	AttrGitHubExporterRateLimitReason = "github_exporter.rate_limit.reason"
+
+
 )
 
 // Enum values for typed attribute constants.
@@ -121,6 +147,34 @@ AttrRenovateDashboardSectionAwaitingSchedule = "awaiting-schedule"
 AttrRenovateDashboardSectionRateLimited = "rate-limited"
 AttrRenovateDashboardSectionPendingApproval = "pending-approval"
 AttrRenovateDashboardSectionPending = "pending"
+
+
+
+
+
+
+
+// Values for github_exporter.collector
+AttrGitHubExporterCollectorPr = "pr"
+AttrGitHubExporterCollectorIssue = "issue"
+AttrGitHubExporterCollectorDashboard = "dashboard"
+
+
+
+// Values for github_exporter.cycle.outcome
+AttrGitHubExporterCycleOutcomeSuccess = "success"
+AttrGitHubExporterCycleOutcomePartial = "partial"
+AttrGitHubExporterCycleOutcomeFailure = "failure"
+
+
+
+
+
+
+
+// Values for github_exporter.rate_limit.reason
+AttrGitHubExporterRateLimitReasonPrimary = "primary"
+AttrGitHubExporterRateLimitReasonSecondary = "secondary"
 
 
 
@@ -193,5 +247,31 @@ func AttrRenovateDashboardSectionValues() []string {
 		"rate-limited",
 		"pending-approval",
 		"pending",
+	}
+}
+
+// AttrGitHubExporterCollectorValues returns every github_exporter.collector value.
+func AttrGitHubExporterCollectorValues() []string {
+	return []string{
+		"pr",
+		"issue",
+		"dashboard",
+	}
+}
+
+// AttrGitHubExporterCycleOutcomeValues returns every github_exporter.cycle.outcome value.
+func AttrGitHubExporterCycleOutcomeValues() []string {
+	return []string{
+		"success",
+		"partial",
+		"failure",
+	}
+}
+
+// AttrGitHubExporterRateLimitReasonValues returns every github_exporter.rate_limit.reason value.
+func AttrGitHubExporterRateLimitReasonValues() []string {
+	return []string{
+		"primary",
+		"secondary",
 	}
 }

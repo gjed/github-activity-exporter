@@ -13,10 +13,12 @@ import (
 	"github.com/shurcooL/githubv4"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/gjed/github-activity-exporter/internal/config"
 	"github.com/gjed/github-activity-exporter/internal/discovery"
 	"github.com/gjed/github-activity-exporter/internal/filter"
+	ghclient "github.com/gjed/github-activity-exporter/internal/github"
 	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
@@ -46,6 +48,7 @@ type issueCountQuery struct {
 // issueCountBatch reads issueCountRepo for each repo of a batch, with the
 // variables of issueCountQuery except owner and name.
 var issueCountBatch = repoBatchQuery{
+	name:      "IssueCountBatch",
 	selection: selectionOf(reflect.TypeFor[issueCountRepo]()),
 	varDecls:  "$states: [IssueState!], $cursor: String",
 }
@@ -82,6 +85,7 @@ type IssueCollector struct {
 	logger    *slog.Logger
 	batchSize int
 	limiter   *Limiter
+	tracer    trace.Tracer
 
 	// states is the GraphQL $states variable for filters.issues.states:
 	// nil when unset (every state), empty when no valid state is listed.
@@ -121,6 +125,8 @@ type IssueCollection struct {
 
 	// failed lists the FullName of repos whose collection failed this cycle.
 	failed []string
+	// errType is the error.type of the first failure, in repo order.
+	errType string
 }
 
 // FailedRepos returns the FullName of every repo whose collection failed.
@@ -145,6 +151,7 @@ func NewIssueCollector(
 		logger:     logger,
 		batchSize:  o.batchSize,
 		limiter:    o.limiter,
+		tracer:     o.tracer,
 		states:     issueStates(filterCfg.States),
 		listIssues: len(filterCfg.ExcludeTitleRegexps) > 0,
 	}
@@ -183,6 +190,9 @@ func (c *IssueCollector) Collect(ctx context.Context, target string, repos []dis
 				"err", err,
 			)
 			coll.failed = append(coll.failed, repo.FullName)
+			if coll.errType == "" {
+				coll.errType = ghclient.ErrorType(err)
+			}
 			return
 		}
 		coll.results = append(coll.results, IssueCollectResult{
@@ -201,7 +211,9 @@ func (c *IssueCollector) Collect(ctx context.Context, target string, repos []dis
 			errs[i] = errNotStarted
 		}
 		c.limiter.each(ctx, len(repos), func(i int) {
-			stats[i], errs[i] = c.collectRepo(ctx, target, repos[i])
+			rctx, span := startRepo(ctx, c.tracer, repos[i])
+			stats[i], errs[i] = c.collectRepo(rctx, target, repos[i])
+			endRepo(span, errs[i])
 		})
 		for i, repo := range repos {
 			add(repo, stats[i], errs[i])
@@ -209,9 +221,7 @@ func (c *IssueCollector) Collect(ctx context.Context, target string, repos []dis
 		return coll, nil
 	}
 
-	bs, stats, errs := eachBatch(ctx, c.limiter, repos, c.batchSize, func(batch []discovery.Repo) ([]issueStats, []error) {
-		return c.countBatch(ctx, batch)
-	})
+	bs, stats, errs := eachBatch(ctx, c.limiter, c.tracer, repos, c.batchSize, c.countBatch)
 	for i, batch := range bs {
 		for j, repo := range batch {
 			add(repo, stats[i][j], errs[i][j])

@@ -12,8 +12,10 @@ import (
 	"github.com/shurcooL/githubv4"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/gjed/github-activity-exporter/internal/discovery"
+	ghclient "github.com/gjed/github-activity-exporter/internal/github"
 	"github.com/gjed/github-activity-exporter/internal/semconv"
 )
 
@@ -82,6 +84,7 @@ type dashboardQuery struct {
 // dashboardBatch reads dashboardRepo for each repo of a batch, with the
 // variables of dashboardQuery except owner and name.
 var dashboardBatch = repoBatchQuery{
+	name:      "DashboardBatch",
 	selection: selectionOf(reflect.TypeFor[dashboardRepo]()),
 	varDecls:  "$filterBy: IssueFilters, $cursor: String",
 }
@@ -93,6 +96,7 @@ type DashboardCollector struct {
 	logger    *slog.Logger
 	batchSize int
 	limiter   *Limiter
+	tracer    trace.Tracer
 
 	// OTel instruments
 	queueGauge      metric.Int64ObservableGauge
@@ -120,6 +124,8 @@ type DashboardCollection struct {
 
 	// failed lists the FullName of repos whose collection failed this cycle.
 	failed []string
+	// errType is the error.type of the first failure, in repo order.
+	errType string
 }
 
 // FailedRepos returns the FullName of every repo whose collection failed.
@@ -145,6 +151,7 @@ func NewDashboardCollector(
 		logger:    logger,
 		batchSize: o.batchSize,
 		limiter:   o.limiter,
+		tracer:    o.tracer,
 	}
 
 	var err error
@@ -173,9 +180,7 @@ func NewDashboardCollector(
 func (c *DashboardCollector) Collect(ctx context.Context, target string, repos []discovery.Repo) (*DashboardCollection, error) {
 	coll := &DashboardCollection{}
 
-	bs, found, errs := eachBatch(ctx, c.limiter, repos, c.batchSize, func(batch []discovery.Repo) ([]*dashboardNode, []error) {
-		return c.findBatch(ctx, batch)
-	})
+	bs, found, errs := eachBatch(ctx, c.limiter, c.tracer, repos, c.batchSize, c.findBatch)
 	for b, batch := range bs {
 		issues := found[b]
 		for i, repo := range batch {
@@ -186,6 +191,9 @@ func (c *DashboardCollector) Collect(ctx context.Context, target string, repos [
 					"err", errs[b][i],
 				)
 				coll.failed = append(coll.failed, repo.FullName)
+				if coll.errType == "" {
+					coll.errType = ghclient.ErrorType(errs[b][i])
+				}
 				continue
 			}
 			if issues[i] == nil {
