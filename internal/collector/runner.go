@@ -295,7 +295,7 @@ func (r *Runner) flushMetrics(ctx context.Context) {
 	}
 	fctx, span := startSpan(ctx, r.tracer, semconv.SpanGitHubExporterFlush, func() []trace.SpanStartOption { return nil })
 	err := r.flush(fctx)
-	if err != nil && span.IsRecording() {
+	if err != nil && ctx.Err() == nil && span.IsRecording() {
 		setFailed(span, "_OTHER", err.Error())
 	}
 	span.End()
