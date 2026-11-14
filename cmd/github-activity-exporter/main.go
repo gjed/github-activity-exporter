@@ -248,7 +248,7 @@ func buildTargetRunner(
 	tracker *health.Tracker,
 	opts ...collector.RunnerOption,
 ) (*collector.Runner, error) {
-	transport, err := ghclient.NewTransport(t.BaseURL, httpMeterProvider)
+	transport, err := ghclient.NewTransport(t.BaseURL, httpMeterProvider, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build github transport: %w", err)
 	}

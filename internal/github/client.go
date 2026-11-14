@@ -17,6 +17,10 @@ import (
 
 	"github.com/google/go-github/v93/github"
 	"github.com/shurcooL/githubv4"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	"golang.org/x/oauth2"
 
 	sc "github.com/gjed/github-activity-exporter/internal/semconv"
@@ -120,6 +124,9 @@ type Client struct {
 	// sleep waits for d or until ctx is done; replaced in tests.
 	sleep func(ctx context.Context, d time.Duration) error
 
+	// tracer records rate limit waits as spans.
+	tracer trace.Tracer
+
 	// base is the transport under the rate limit transport.
 	base http.RoundTripper
 
@@ -172,6 +179,17 @@ func WithBaseTransport(rt http.RoundTripper) ClientOption {
 	}
 }
 
+// WithTracer records each wait for a rate limit pause as a
+// github_exporter.rate_limit.wait span in the waiting request's context.
+// Default: no spans.
+func WithTracer(t trace.Tracer) ClientOption {
+	return func(c *Client) {
+		if t != nil {
+			c.tracer = t
+		}
+	}
+}
+
 // WithLogger sets the logger for the client.
 func WithLogger(logger *slog.Logger) ClientOption {
 	return func(c *Client) {
@@ -196,6 +214,7 @@ func NewClient(auth Authenticator, opts ...ClientOption) (*Client, error) {
 		rlPools: make(map[string]*poolState),
 		base:    http.DefaultTransport,
 		sleep:   sleepCtx,
+		tracer:  tracenoop.NewTracerProvider().Tracer(""),
 	}
 	for _, o := range opts {
 		o(c)
@@ -260,6 +279,23 @@ type GraphQLError struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
 	Path    []any  `json:"path"`
+}
+
+func (e GraphQLError) Error() string { return "graphql " + e.Type + ": " + e.Message }
+
+// ErrorType returns the error.type of a failed GitHub collection, bounded:
+// the GraphQL error type when GitHub returned one, the HTTP status code of a
+// REST error response, "_OTHER" otherwise.
+func ErrorType(err error) string {
+	var gqlErr GraphQLError
+	if errors.As(err, &gqlErr) && gqlErr.Type != "" {
+		return gqlErr.Type
+	}
+	var restErr *github.ErrorResponse
+	if errors.As(err, &restErr) && restErr.Response != nil {
+		return strconv.Itoa(restErr.Response.StatusCode)
+	}
+	return "_OTHER"
 }
 
 // RawResponse is an undecoded GraphQL response: data per top-level field or
@@ -425,7 +461,33 @@ func (c *Client) waitIfPaused(ctx context.Context, resource string) error {
 		"resource", resource,
 		"wait", waitDur.Round(time.Second),
 	)
-	return c.sleep(ctx, waitDur)
+	return c.wait(ctx, waitDur, resource, sc.AttrGitHubExporterRateLimitReasonPrimary)
+}
+
+// wait sleeps for d as a github_exporter.rate_limit.wait span of a request
+// to pool, paused for reason.
+func (c *Client) wait(ctx context.Context, d time.Duration, pool, reason string) error {
+	ctx, span := c.tracer.Start(ctx, sc.SpanGitHubExporterRateLimitWait, trace.WithAttributes(
+		attribute.String(sc.AttrGitHubApiRateLimitResource, pool),
+		attribute.String(sc.AttrGitHubExporterRateLimitReason, reason),
+	))
+	defer span.End()
+	err := c.sleep(ctx, d)
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		span.SetAttributes(attribute.String(attrErrorType, ErrorType(err)))
+	}
+	return err
+}
+
+// resendKey carries the http.request.resend_count of a retried request to
+// the base transport.
+type resendKey struct{}
+
+// resendCount returns how many times the request in ctx was sent before.
+func resendCount(ctx context.Context) int {
+	n, _ := ctx.Value(resendKey{}).(int)
+	return n
 }
 
 // sleepCtx waits for d or until ctx is done.
@@ -441,11 +503,12 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 }
 
 // waitIfTargetPaused blocks until a secondary rate limit pause of the
-// target ends, if one is in progress. It holds requests of every pool.
+// target ends, if one is in progress. It holds requests of every pool; pool
+// is the waiting request's.
 // waited is the end of the last pause the request already waited for: a
 // pause extended during the wait is waited for again, one already waited
 // for is not.
-func (c *Client) waitIfTargetPaused(ctx context.Context, waited *time.Time) error {
+func (c *Client) waitIfTargetPaused(ctx context.Context, pool string, waited *time.Time) error {
 	for {
 		c.mu.Lock()
 		until := c.pausedUntil
@@ -453,7 +516,7 @@ func (c *Client) waitIfTargetPaused(ctx context.Context, waited *time.Time) erro
 		if time.Until(until) <= 0 || !until.After(*waited) {
 			return nil
 		}
-		if err := c.sleep(ctx, time.Until(until)); err != nil {
+		if err := c.wait(ctx, time.Until(until), pool, sc.AttrGitHubExporterRateLimitReasonSecondary); err != nil {
 			return err
 		}
 		*waited = until
@@ -565,14 +628,14 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 	pool := c.classifyPool(req.URL)
 	var waited time.Time
 	for attempt := 1; ; attempt++ {
-		if err := c.waitIfTargetPaused(req.Context(), &waited); err != nil {
+		if err := c.waitIfTargetPaused(req.Context(), pool, &waited); err != nil {
 			return nil, err
 		}
 		if err := c.waitIfPaused(req.Context(), pool); err != nil {
 			return nil, err
 		}
 		// A target pause may have started during the pool wait.
-		if err := c.waitIfTargetPaused(req.Context(), &waited); err != nil {
+		if err := c.waitIfTargetPaused(req.Context(), pool, &waited); err != nil {
 			return nil, err
 		}
 
@@ -620,7 +683,7 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, secondaryBodyLimit))
 		_ = resp.Body.Close()
-		req = next
+		req = next.WithContext(context.WithValue(next.Context(), resendKey{}, attempt))
 	}
 }
 
