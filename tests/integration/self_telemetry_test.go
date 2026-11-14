@@ -83,7 +83,7 @@ func exerciseGitHub(t *testing.T, tel *telemetry.Telemetry) {
 	if tel.Active(telemetry.SignalMetrics) {
 		mp = tel.MeterProvider()
 	}
-	rt, err := ghclient.NewTransport(srv.URL, mp)
+	rt, err := ghclient.NewTransport(srv.URL, mp, nil)
 	if err != nil {
 		t.Fatalf("NewTransport: %v", err)
 	}

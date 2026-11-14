@@ -66,7 +66,7 @@ func newInstrumented(t *testing.T, baseURL string) (http.RoundTripper, *sdkmetri
 	reader := sdkmetric.NewManualReader()
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
-	rt, err := internalgithub.NewTransport(baseURL, mp)
+	rt, err := internalgithub.NewTransport(baseURL, mp, nil)
 	if err != nil {
 		t.Fatalf("NewTransport: %v", err)
 	}
@@ -74,7 +74,7 @@ func newInstrumented(t *testing.T, baseURL string) (http.RoundTripper, *sdkmetri
 }
 
 func TestNewTransport_NilProviderIsDefault(t *testing.T) {
-	rt, err := internalgithub.NewTransport("https://api.github.com", nil)
+	rt, err := internalgithub.NewTransport("https://api.github.com", nil, nil)
 	if err != nil {
 		t.Fatalf("NewTransport: %v", err)
 	}
