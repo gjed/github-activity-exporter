@@ -359,9 +359,9 @@ func (c *Client) QueryRaw(ctx context.Context, query string, variables map[strin
 		var rl *graphqlRateLimit
 		if err := json.Unmarshal(raw, &rl); err == nil && rl != nil {
 			if resp.Header.Get("X-RateLimit-Remaining") == "" {
-				c.updateRateLimit(sc.AttrGitHubApiRateLimitResourceGraphQL, rl.Remaining, rl.ResetAt)
+				c.updateRateLimit(ctx, sc.AttrGitHubApiRateLimitResourceGraphQL, rl.Remaining, rl.ResetAt)
 			}
-			c.logger.Debug("graphql query cost", "cost", rl.Cost, "remaining", rl.Remaining)
+			c.logger.DebugContext(ctx, "graphql query cost", "cost", rl.Cost, "remaining", rl.Remaining)
 		}
 	}
 	return &out, nil
@@ -416,8 +416,9 @@ func responsePool(header, classified string) string {
 	}
 }
 
-// updateRateLimit records a new rate limit snapshot for a pool and invokes hooks.
-func (c *Client) updateRateLimit(resource string, remaining int, resetAt time.Time) {
+// updateRateLimit records a new rate limit snapshot for a pool and invokes
+// hooks. ctx is the context of the request the snapshot came from.
+func (c *Client) updateRateLimit(ctx context.Context, resource string, remaining int, resetAt time.Time) {
 	c.mu.Lock()
 	p, ok := c.rlPools[resource]
 	if !ok {
@@ -428,14 +429,14 @@ func (c *Client) updateRateLimit(resource string, remaining int, resetAt time.Ti
 	pausing := remaining < rateLimitPauseThreshold
 	if pausing && !p.paused {
 		p.paused = true
-		c.logger.Warn("rate limit threshold reached, pausing requests",
+		c.logger.WarnContext(ctx, "rate limit threshold reached, pausing requests",
 			sc.AttrGitHubApiRateLimitResource, resource,
 			"remaining", remaining,
 			"reset_at", resetAt,
 		)
 	} else if !pausing && p.paused {
 		p.paused = false
-		c.logger.Info("rate limit recovered, resuming requests",
+		c.logger.InfoContext(ctx, "rate limit recovered, resuming requests",
 			sc.AttrGitHubApiRateLimitResource, resource,
 			"remaining", remaining,
 		)
@@ -465,7 +466,7 @@ func (c *Client) waitIfPaused(ctx context.Context, resource string) error {
 	if waitDur <= 0 {
 		return nil
 	}
-	c.logger.Info("rate limited: waiting for window reset",
+	c.logger.InfoContext(ctx, "rate limited: waiting for window reset",
 		sc.AttrGitHubApiRateLimitResource, resource,
 		"wait", waitDur.Round(time.Second),
 	)
@@ -652,7 +653,7 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 			return nil, err
 		}
 		c.reportAuthResult(resp.StatusCode == http.StatusUnauthorized)
-		resource := t.recordRateLimit(resp, pool)
+		resource := t.recordRateLimit(req.Context(), resp, pool)
 
 		kind, wait := classifyRateLimit(resp, attempt)
 		if kind == notRateLimited {
@@ -666,7 +667,7 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 		}
 		next, ok := retryRequest(req)
 		if attempt > maxRateLimitRetries || !ok {
-			c.logger.Warn("rate limited: giving up on the request",
+			c.logger.WarnContext(req.Context(), "rate limited: giving up on the request",
 				"status", resp.StatusCode,
 				sc.AttrGitHubApiRateLimitResource, resource,
 				"secondary", kind == secondaryRateLimit,
@@ -675,7 +676,7 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 			return resp, nil
 		}
 		if kind == secondaryRateLimit {
-			c.logger.Warn("secondary rate limit: pausing all requests of the target",
+			c.logger.WarnContext(req.Context(), "secondary rate limit: pausing all requests of the target",
 				"status", resp.StatusCode,
 				sc.AttrGitHubApiRateLimitResource, resource,
 				"wait", wait.Round(time.Second),
@@ -696,8 +697,9 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 }
 
 // recordRateLimit records the X-RateLimit-* headers of resp, sent for a
-// request classified in pool, and returns the pool they belong to.
-func (t *rateLimitTransport) recordRateLimit(resp *http.Response, pool string) string {
+// request classified in pool, and returns the pool they belong to. ctx is the
+// request's context.
+func (t *rateLimitTransport) recordRateLimit(ctx context.Context, resp *http.Response, pool string) string {
 	resource := responsePool(resp.Header.Get("X-RateLimit-Resource"), pool)
 	rem := resp.Header.Get("X-RateLimit-Remaining")
 	if rem == "" {
@@ -707,7 +709,7 @@ func (t *rateLimitTransport) recordRateLimit(resp *http.Response, pool string) s
 	if err != nil {
 		// Malformed header — skip the update rather than defaulting to 0
 		// (defaulting to 0 would spuriously trigger the pause logic).
-		t.client.logger.Debug("ignoring malformed X-RateLimit-Remaining header", "value", rem)
+		t.client.logger.DebugContext(ctx, "ignoring malformed X-RateLimit-Remaining header", "value", rem)
 		return resource
 	}
 	var resetAt time.Time
@@ -719,13 +721,13 @@ func (t *rateLimitTransport) recordRateLimit(resp *http.Response, pool string) s
 	// Only enter paused state if we have a valid future reset time.
 	// Without a reset time, pause would block indefinitely (zero time → no wait).
 	if remaining < rateLimitPauseThreshold && resetAt.IsZero() {
-		t.client.logger.Warn("rate limit low but X-RateLimit-Reset missing; applying 60s fallback backoff",
+		t.client.logger.WarnContext(ctx, "rate limit low but X-RateLimit-Reset missing; applying 60s fallback backoff",
 			sc.AttrGitHubApiRateLimitResource, resource,
 			"remaining", remaining,
 		)
 		resetAt = time.Now().Add(60 * time.Second)
 	}
-	t.client.updateRateLimit(resource, remaining, resetAt)
+	t.client.updateRateLimit(ctx, resource, remaining, resetAt)
 	return resource
 }
 
