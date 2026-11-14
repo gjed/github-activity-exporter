@@ -140,7 +140,7 @@ Every panel query SHALL be built from the metric's `annotations.prometheus.name`
 #### Scenario: Dashboard contains panels for key metrics
 
 - **WHEN** the KPI dashboard is imported into Grafana
-- **THEN** it contains panels for: PR created/merged/closed rates globally and per repo, open PR count, oldest open PR age, open PRs by review status, PR close duration p50/p90, automerged rate, open issue count, oldest open issue age, and a separate Dependency Dashboard row with the Renovate queue by section and parse errors
+- **THEN** it contains panels for: PR created/merged/closed rates globally and per repo, open PR count, oldest open PR age, open PRs by review status, PR close duration p50/p90, automerged rate, PR lines added and removed p50/p90 per repo, PR lines added and removed p90 per author, open issue count, oldest open issue age, and a separate Dependency Dashboard row with the Renovate queue by section and parse errors
 
 #### Scenario: Exporter dashboard contains panels for the exporter
 
@@ -156,6 +156,11 @@ Every panel query SHALL be built from the metric's `annotations.prometheus.name`
 
 - **WHEN** self-telemetry metrics are inactive
 - **THEN** every KPI dashboard panel shows data, and only the exporter dashboard's self-telemetry row shows no data
+
+#### Scenario: Per-author panel without the author attribute
+
+- **WHEN** no target sets `collection.pr_author: true`
+- **THEN** the KPI dashboard's per-author PR size panel has no series and every other KPI panel shows data
 
 ### Requirement: Schema validated in CI
 
