@@ -21,5 +21,5 @@
 
 - [x] 4.1 `go build ./...`, `go test ./...`, `make check-schema`, `make generate` with no diff
 - [x] 4.2 Real run: `gh auth token` against `gjed` passes
-- [ ] 4.3 Real run: token missing a required permission fails fast naming it
+- [x] 4.3 Real run: token missing a required permission fails fast naming it
 - [x] 4.4 `openspec archive github-permission-check` before the final commit

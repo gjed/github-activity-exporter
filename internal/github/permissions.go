@@ -116,33 +116,43 @@ func checkScopes(header string) error {
 		classicRepoScope, strings.Join(granted, ", "))
 }
 
-// probeResponse is the data of the fine-grained PAT probe query.
-type probeResponse struct {
-	RepositoryOwner *struct {
-		Repositories struct {
-			Nodes []struct {
-				NameWithOwner string `json:"nameWithOwner"`
-			} `json:"nodes"`
-		} `json:"repositories"`
-	} `json:"repositoryOwner"`
+// probeOwner is one repositoryOwner selection of the fine-grained PAT probe
+// query; nodes holds at most one private repo.
+type probeOwner struct {
+	Repositories struct {
+		Nodes []*struct {
+			NameWithOwner string `json:"nameWithOwner"`
+		} `json:"nodes"`
+	} `json:"repositories"`
+}
+
+// probeRepoAlias is the probe query selection that names the probed repo.
+const probeRepoAlias = "repo"
+
+// privateRepo selects one private repo of $owner with the given fields.
+func privateRepo(alias, fields string) string {
+	return alias + `: repositoryOwner(login: $owner) { repositories(first: 1, privacy: PRIVATE) { nodes { ` + fields + ` } } }`
 }
 
 // probeFineGrained reads each probe field on one private repo of each owner
 // the token can see. Every token reads public repos, so an owner with no
 // private repo visible to the token has nothing to check. A FORBIDDEN error
 // on a field means its permission is missing.
+//
+// Each field sits under its own repositoryOwner alias: GitHub nulls the repo
+// node on the first forbidden field and reports no error for the others in
+// the same node, so one shared node would name only one missing permission.
 func (c *Client) probeFineGrained(ctx context.Context, target string, owners []string, reqs []requirement) error {
-	var fields []string
+	selections := []string{privateRepo(probeRepoAlias, "nameWithOwner")}
 	byAlias := map[string]requirement{}
 	for _, r := range reqs {
 		if r.alias == "" {
 			continue
 		}
-		fields = append(fields, r.alias+": "+r.field)
+		selections = append(selections, privateRepo(r.alias, r.field))
 		byAlias[r.alias] = r
 	}
-	query := `query($owner: String!) { repositoryOwner(login: $owner) { repositories(first: 1, privacy: PRIVATE) { nodes { nameWithOwner ` +
-		strings.Join(fields, " ") + ` } } } }`
+	query := `query($owner: String!) { ` + strings.Join(selections, " ") + ` }`
 
 	var missing []requirement
 	var probed []string
@@ -151,21 +161,19 @@ func (c *Client) probeFineGrained(ctx context.Context, target string, owners []s
 		if err != nil {
 			return fmt.Errorf("permission check: probing owner %q: %w", owner, err)
 		}
-		var data probeResponse
-		if raw, ok := resp.Data["repositoryOwner"]; ok {
-			_ = json.Unmarshal(raw, &data.RepositoryOwner)
+		var repo *probeOwner
+		if raw, ok := resp.Data[probeRepoAlias]; ok {
+			_ = json.Unmarshal(raw, &repo)
 		}
-		if data.RepositoryOwner == nil || len(data.RepositoryOwner.Repositories.Nodes) == 0 {
-			if len(resp.Errors) == 0 {
-				c.logger.Info("fine-grained token sees no private repo of owner, nothing to check",
-					"target", target, "owner", owner)
-				continue
-			}
-		} else {
-			probed = append(probed, data.RepositoryOwner.Repositories.Nodes[0].NameWithOwner)
+		if repo != nil && len(repo.Repositories.Nodes) > 0 && repo.Repositories.Nodes[0] != nil {
+			probed = append(probed, repo.Repositories.Nodes[0].NameWithOwner)
+		} else if len(resp.Errors) == 0 {
+			c.logger.Info("fine-grained token sees no private repo of owner, nothing to check",
+				"target", target, "owner", owner)
+			continue
 		}
 		for _, e := range resp.Errors {
-			r, ok := byAlias[lastPathKey(e.Path)]
+			r, ok := byAlias[firstPathKey(e.Path)]
 			if e.Type != "FORBIDDEN" || !ok {
 				return fmt.Errorf("permission check: probing owner %q: %s (%s)", owner, e.Message, e.Type)
 			}
@@ -179,14 +187,13 @@ func (c *Client) probeFineGrained(ctx context.Context, target string, owners []s
 	return nil
 }
 
-// lastPathKey returns the last field name of a GraphQL error path.
-func lastPathKey(path []any) string {
-	for i := len(path) - 1; i >= 0; i-- {
-		if s, ok := path[i].(string); ok {
-			return s
-		}
+// firstPathKey returns the top-level field or alias of a GraphQL error path.
+func firstPathKey(path []any) string {
+	if len(path) == 0 {
+		return ""
 	}
-	return ""
+	s, _ := path[0].(string)
+	return s
 }
 
 // missingError names every missing permission once, with the collectors
