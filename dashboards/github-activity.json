@@ -103,10 +103,55 @@
     }
 ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Total number of pull requests merged via automerge.",
+      "description": "Lines added by a pull request.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
       "id": 8,
+      "interval": "$min_step",
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.5, sum by (le, \"github.org\", \"github.repo\") (rate({\"github.pr.lines.added_bucket\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval])))", "legendFormat": "{{github.org}}/{{github.repo}} p50", "range": true, "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.9, sum by (le, \"github.org\", \"github.repo\") (rate({\"github.pr.lines.added_bucket\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval])))", "legendFormat": "{{github.org}}/{{github.repo}} p90", "range": true, "refId": "B" }
+      ],
+      "title": "PR lines added by repo",
+      "type": "timeseries"
+    }
+,{
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Lines removed by a pull request.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 25 },
+      "id": 9,
+      "interval": "$min_step",
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.5, sum by (le, \"github.org\", \"github.repo\") (rate({\"github.pr.lines.removed_bucket\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval])))", "legendFormat": "{{github.org}}/{{github.repo}} p50", "range": true, "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.9, sum by (le, \"github.org\", \"github.repo\") (rate({\"github.pr.lines.removed_bucket\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval])))", "legendFormat": "{{github.org}}/{{github.repo}} p90", "range": true, "refId": "B" }
+      ],
+      "title": "PR lines removed by repo",
+      "type": "timeseries"
+    }
+,{
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Lines added by a pull request. Lines removed by a pull request.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 33 },
+      "id": 10,
+      "interval": "$min_step",
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.9, sum by (le, \"github.pr.author\") (rate({\"github.pr.lines.added_bucket\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\", \"github.pr.author\"!=\"\"}[$__rate_interval])))", "legendFormat": "{{github.pr.author}} added", "range": true, "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.9, sum by (le, \"github.pr.author\") (rate({\"github.pr.lines.removed_bucket\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\", \"github.pr.author\"!=\"\"}[$__rate_interval])))", "legendFormat": "{{github.pr.author}} removed", "range": true, "refId": "B" }
+      ],
+      "title": "PR lines added and removed p90 by author",
+      "type": "timeseries"
+    }
+,{
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Total number of pull requests merged via automerge.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 33 },
+      "id": 11,
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -115,13 +160,13 @@
       "title": "PRs automerged per hour",
       "type": "timeseries"
     }
-,{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 }, "id": 9, "panels": [], "title": "Issues", "type": "row" }
+,{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 }, "id": 12, "panels": [], "title": "Issues", "type": "row" }
 ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "Number of GitHub issues grouped by state and label.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
-      "id": 10,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 42 },
+      "id": 13,
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -134,8 +179,8 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "Age of the oldest open GitHub issue in seconds (time since creation).",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
-      "id": 11,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 42 },
+      "id": 14,
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -144,13 +189,13 @@
       "title": "Oldest open issue age by repo",
       "type": "timeseries"
     }
-,{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 }, "id": 12, "panels": [], "title": "Dependency Dashboard", "type": "row" }
+,{ "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 }, "id": 15, "panels": [], "title": "Dependency Dashboard", "type": "row" }
 ,{
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "Number of pull requests in each section of the Renovate dependency dashboard.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 43 },
-      "id": 13,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 51 },
+      "id": 16,
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -163,8 +208,8 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "Set to 1 when the Renovate dependency dashboard cannot be parsed, 0 on success.",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 43 },
-      "id": 14,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 51 },
+      "id": 17,
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
@@ -184,13 +229,13 @@
         "allValue": ".*",
         "current": {},
         "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "definition": "label_values({__name__=~\"github\\\\.pr\\\\.created|github\\\\.pr\\\\.merged|github\\\\.pr\\\\.closed|github\\\\.pr\\\\.count|github\\\\.pr\\\\.review_status|github\\\\.pr\\\\.age|github\\\\.pr\\\\.close\\\\.duration_count|github\\\\.pr\\\\.automerged|github\\\\.issue\\\\.count|github\\\\.issue\\\\.age|renovate\\\\.dashboard\\\\.queue|renovate\\\\.dashboard\\\\.parse_error\", job=~\"(.+/)?github-activity-exporter\"}, job)",
+        "definition": "label_values({__name__=~\"github\\\\.pr\\\\.created|github\\\\.pr\\\\.merged|github\\\\.pr\\\\.closed|github\\\\.pr\\\\.count|github\\\\.pr\\\\.review_status|github\\\\.pr\\\\.age|github\\\\.pr\\\\.close\\\\.duration_count|github\\\\.pr\\\\.lines\\\\.added_count|github\\\\.pr\\\\.lines\\\\.removed_count|github\\\\.pr\\\\.automerged|github\\\\.issue\\\\.count|github\\\\.issue\\\\.age|renovate\\\\.dashboard\\\\.queue|renovate\\\\.dashboard\\\\.parse_error\", job=~\"(.+/)?github-activity-exporter\"}, job)",
         "includeAll": true,
         "label": "Job",
         "multi": true,
         "name": "job",
         "options": [],
-        "query": { "qryType": 5, "query": "label_values({__name__=~\"github\\\\.pr\\\\.created|github\\\\.pr\\\\.merged|github\\\\.pr\\\\.closed|github\\\\.pr\\\\.count|github\\\\.pr\\\\.review_status|github\\\\.pr\\\\.age|github\\\\.pr\\\\.close\\\\.duration_count|github\\\\.pr\\\\.automerged|github\\\\.issue\\\\.count|github\\\\.issue\\\\.age|renovate\\\\.dashboard\\\\.queue|renovate\\\\.dashboard\\\\.parse_error\", job=~\"(.+/)?github-activity-exporter\"}, job)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "query": { "qryType": 5, "query": "label_values({__name__=~\"github\\\\.pr\\\\.created|github\\\\.pr\\\\.merged|github\\\\.pr\\\\.closed|github\\\\.pr\\\\.count|github\\\\.pr\\\\.review_status|github\\\\.pr\\\\.age|github\\\\.pr\\\\.close\\\\.duration_count|github\\\\.pr\\\\.lines\\\\.added_count|github\\\\.pr\\\\.lines\\\\.removed_count|github\\\\.pr\\\\.automerged|github\\\\.issue\\\\.count|github\\\\.issue\\\\.age|renovate\\\\.dashboard\\\\.queue|renovate\\\\.dashboard\\\\.parse_error\", job=~\"(.+/)?github-activity-exporter\"}, job)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
         "refresh": 2,
         "regex": "",
         "sort": 1,
@@ -200,13 +245,13 @@
         "allValue": ".*",
         "current": {},
         "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "definition": "label_values({__name__=~\"github\\\\.pr\\\\.created|github\\\\.pr\\\\.merged|github\\\\.pr\\\\.closed|github\\\\.pr\\\\.count|github\\\\.pr\\\\.review_status|github\\\\.pr\\\\.age|github\\\\.pr\\\\.close\\\\.duration_count|github\\\\.pr\\\\.automerged|github\\\\.issue\\\\.count|github\\\\.issue\\\\.age|renovate\\\\.dashboard\\\\.queue|renovate\\\\.dashboard\\\\.parse_error\", job=~\"$job\"}, exporter.target)",
+        "definition": "label_values({__name__=~\"github\\\\.pr\\\\.created|github\\\\.pr\\\\.merged|github\\\\.pr\\\\.closed|github\\\\.pr\\\\.count|github\\\\.pr\\\\.review_status|github\\\\.pr\\\\.age|github\\\\.pr\\\\.close\\\\.duration_count|github\\\\.pr\\\\.lines\\\\.added_count|github\\\\.pr\\\\.lines\\\\.removed_count|github\\\\.pr\\\\.automerged|github\\\\.issue\\\\.count|github\\\\.issue\\\\.age|renovate\\\\.dashboard\\\\.queue|renovate\\\\.dashboard\\\\.parse_error\", job=~\"$job\"}, exporter.target)",
         "includeAll": true,
         "label": "exporter.target",
         "multi": true,
         "name": "target",
         "options": [],
-        "query": { "qryType": 5, "query": "label_values({__name__=~\"github\\\\.pr\\\\.created|github\\\\.pr\\\\.merged|github\\\\.pr\\\\.closed|github\\\\.pr\\\\.count|github\\\\.pr\\\\.review_status|github\\\\.pr\\\\.age|github\\\\.pr\\\\.close\\\\.duration_count|github\\\\.pr\\\\.automerged|github\\\\.issue\\\\.count|github\\\\.issue\\\\.age|renovate\\\\.dashboard\\\\.queue|renovate\\\\.dashboard\\\\.parse_error\", job=~\"$job\"}, exporter.target)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "query": { "qryType": 5, "query": "label_values({__name__=~\"github\\\\.pr\\\\.created|github\\\\.pr\\\\.merged|github\\\\.pr\\\\.closed|github\\\\.pr\\\\.count|github\\\\.pr\\\\.review_status|github\\\\.pr\\\\.age|github\\\\.pr\\\\.close\\\\.duration_count|github\\\\.pr\\\\.lines\\\\.added_count|github\\\\.pr\\\\.lines\\\\.removed_count|github\\\\.pr\\\\.automerged|github\\\\.issue\\\\.count|github\\\\.issue\\\\.age|renovate\\\\.dashboard\\\\.queue|renovate\\\\.dashboard\\\\.parse_error\", job=~\"$job\"}, exporter.target)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
         "refresh": 2,
         "regex": "",
         "sort": 1,

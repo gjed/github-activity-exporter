@@ -86,6 +86,8 @@ type gqlPR struct {
 	MergedAt       *time.Time               `json:"mergedAt"`
 	ClosedAt       *time.Time               `json:"closedAt"`
 	HeadRefName    string                   `json:"headRefName"`
+	Additions      int                      `json:"additions"`
+	Deletions      int                      `json:"deletions"`
 	Author         *gqlAuthor               `json:"author"`
 	Labels         gqlNodes[gqlName]        `json:"labels"`
 	Reviews        gqlNodes[gqlReviewState] `json:"reviews"`
@@ -417,10 +419,12 @@ func (m *mockGitHub) recordEventPRs(fullName string, now time.Time) {
 	merged := gqlPR{
 		Number: m.nextNumber, State: "MERGED", CreatedAt: now, UpdatedAt: now,
 		MergedAt: &now, ClosedAt: &now, HeadRefName: "feat/e2e", Author: dev,
+		Additions: 120, Deletions: 30,
 	}
 	closed := gqlPR{
 		Number: m.nextNumber + 1, State: "CLOSED", CreatedAt: now, UpdatedAt: now,
 		ClosedAt: &now, HeadRefName: "feat/e2e-closed", Author: dev,
+		Additions: 8, Deletions: 2,
 	}
 	m.nextNumber += 2
 	m.eventPRs[fullName] = append(m.eventPRs[fullName], merged, closed)
