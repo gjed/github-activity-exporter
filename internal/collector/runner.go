@@ -305,9 +305,9 @@ func (r *Runner) flushMetrics(ctx context.Context) {
 	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
 		// Timed out, e.g. queued behind another target's slow export. Export
 		// failures are already counted in otlp.errors by the OTLP exporter.
-		r.logger.Warn("metrics flush timed out", semconv.AttrExporterTarget, r.target, "err", err)
+		r.logger.WarnContext(ctx, "metrics flush timed out", semconv.AttrExporterTarget, r.target, "err", err)
 	default:
-		r.logger.Warn("metrics flush failed", semconv.AttrExporterTarget, r.target, "err", err)
+		r.logger.WarnContext(ctx, "metrics flush failed", semconv.AttrExporterTarget, r.target, "err", err)
 		if r.self != nil {
 			r.self.RecordOTLPError(ctx, r.target)
 		}
@@ -319,7 +319,7 @@ func (r *Runner) flushMetrics(ctx context.Context) {
 // It reports whether repo discovery succeeded.
 func (r *Runner) collect(ctx context.Context, cycle trace.Span) bool {
 	start := time.Now()
-	r.logger.Debug("collection cycle started", semconv.AttrExporterTarget, r.target)
+	r.logger.DebugContext(ctx, "collection cycle started", semconv.AttrExporterTarget, r.target)
 
 	r.mu.RLock()
 	lastCollectedAt := make(map[string]time.Time, len(r.lastCollectedAt))
@@ -330,7 +330,7 @@ func (r *Runner) collect(ctx context.Context, cycle trace.Span) bool {
 
 	repos, err := r.source.Repos(ctx)
 	if err != nil {
-		r.logger.Error("repo discovery failed", semconv.AttrExporterTarget, r.target, "err", err)
+		r.logger.ErrorContext(ctx, "repo discovery failed", semconv.AttrExporterTarget, r.target, "err", err)
 		r.recordAPIErrors(ctx, 1, semconv.AttrGitHubApiEndpointRestRepos)
 		if cycle.IsRecording() {
 			cycle.SetAttributes(attribute.String(semconv.AttrGitHubExporterCycleOutcome, semconv.AttrGitHubExporterCycleOutcomeFailure))
@@ -357,7 +357,7 @@ func (r *Runner) collect(ctx context.Context, cycle trace.Span) bool {
 			var err error
 			prColl, err = r.collectors.PR.Collect(cctx, r.target, repos, lastCollectedAt, start)
 			if err != nil {
-				r.logger.Error("PR collection failed", semconv.AttrExporterTarget, r.target, "err", err)
+				r.logger.ErrorContext(cctx, "PR collection failed", semconv.AttrExporterTarget, r.target, "err", err)
 			}
 			if prColl != nil {
 				endCollect(span, len(prColl.failed), prColl.errType, err)
@@ -373,7 +373,7 @@ func (r *Runner) collect(ctx context.Context, cycle trace.Span) bool {
 			var err error
 			issColl, err = r.collectors.Issue.Collect(cctx, r.target, repos)
 			if err != nil {
-				r.logger.Error("issue collection failed", semconv.AttrExporterTarget, r.target, "err", err)
+				r.logger.ErrorContext(cctx, "issue collection failed", semconv.AttrExporterTarget, r.target, "err", err)
 			}
 			if issColl != nil {
 				endCollect(span, len(issColl.failed), issColl.errType, err)
@@ -389,7 +389,7 @@ func (r *Runner) collect(ctx context.Context, cycle trace.Span) bool {
 			var err error
 			dashColl, err = r.collectors.Dashboard.Collect(cctx, r.target, repos)
 			if err != nil {
-				r.logger.Error("dashboard collection failed", semconv.AttrExporterTarget, r.target, "err", err)
+				r.logger.ErrorContext(cctx, "dashboard collection failed", semconv.AttrExporterTarget, r.target, "err", err)
 			}
 			if dashColl != nil {
 				endCollect(span, len(dashColl.failed), dashColl.errType, err)
@@ -450,7 +450,7 @@ func (r *Runner) collect(ctx context.Context, cycle trace.Span) bool {
 		r.self.RecordScrapeDuration(ctx, r.target, start)
 	}
 
-	r.logger.Debug("collection cycle complete",
+	r.logger.DebugContext(ctx, "collection cycle complete",
 		semconv.AttrExporterTarget, r.target,
 		"repos", len(repos),
 		"duration", time.Since(start),

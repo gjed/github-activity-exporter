@@ -180,12 +180,12 @@ func NewDashboardCollector(
 func (c *DashboardCollector) Collect(ctx context.Context, target string, repos []discovery.Repo) (*DashboardCollection, error) {
 	coll := &DashboardCollection{}
 
-	bs, found, errs := eachBatch(ctx, c.limiter, c.tracer, repos, c.batchSize, c.findBatch)
+	bs, found, errs, ctxs := eachBatch(ctx, c.limiter, c.tracer, repos, c.batchSize, c.findBatch)
 	for b, batch := range bs {
 		issues := found[b]
 		for i, repo := range batch {
 			if errs[b][i] != nil {
-				c.logger.Error("dashboard collection failed",
+				c.logger.ErrorContext(ctxs[b], "dashboard collection failed",
 					semconv.AttrExporterTarget, target,
 					semconv.AttrGitHubOrg, repo.Owner,
 					semconv.AttrGitHubRepo, repo.Name,
