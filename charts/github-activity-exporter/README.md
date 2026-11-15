@@ -146,4 +146,25 @@ The chart ships the two generated dashboards of its version, each in its own Con
 
 Each is off by default and turned on with its own `enabled: true`. Each ConfigMap carries its own `labels` (default `grafana_dashboard: "1"`) and `annotations`, so the two can match different sidecar label selectors and land in different folders, for example `annotations: {grafana_folder: GitHub}` and `annotations: {grafana_folder: Observability}`. Every panel's Min interval is the dashboard variable `$min_step`, default `10m`; it must be at least twice `config.export.interval` and twice `config.collection_interval`. With a longer interval, set `dashboard.minStep` (for example `30m` for `collection_interval: 15m`); it applies to both dashboards.
 
+Both ConfigMaps are created in the release namespace unless `dashboard.namespace` is set; `dashboard.kpi.namespace` and `dashboard.exporter.namespace` override it for one dashboard. The rendered ConfigMaps always carry `metadata.namespace`, so `helm template | kubectl apply` and ArgoCD put them in the same place as `helm install`. The [Grafana chart](https://github.com/grafana-community/helm-charts/tree/main/charts/grafana)'s dashboard sidecar only watches its own namespace when `sidecar.dashboards.searchNamespace` is unset. With Grafana in `monitoring` and the exporter released in `github-activity-exporter`, point the dashboards at Grafana's namespace:
+
+```yaml
+dashboard:
+  namespace: monitoring
+  kpi:
+    enabled: true
+    labels:
+      grafana_dashboard: "true"
+    annotations:
+      grafana_folder: GitHub
+  exporter:
+    enabled: true
+    labels:
+      grafana_dashboard: "true"
+    annotations:
+      grafana_folder: GitHub
+```
+
+The labels must match the sidecar's `sidecar.dashboards.label` and `labelValue`. The target namespace must exist; the chart does not create it. Whoever installs the release, the Helm user or the ArgoCD project, needs permission to create, update and delete ConfigMaps in that namespace, and the ArgoCD Application's project `destinations` must allow it as well as the release namespace.
+
 `dashboard.enabled`, `dashboard.labels` and `dashboard.annotations` were renamed to `dashboard.kpi.enabled`, `dashboard.kpi.labels` and `dashboard.kpi.annotations`. Rendering fails while a values file still sets them. The KPI ConfigMap keeps its name and data key, so upgrading replaces it in place.

@@ -77,12 +77,18 @@ dashboard:
   # e.g. 30m for collection_interval: 15m. Empty keeps the generated default (10m).
   # Applies to every enabled dashboard.
   minStep: ""
+  # Namespace of every dashboard ConfigMap, e.g. Grafana's namespace when its
+  # dashboard sidecar only watches its own. Empty means the release namespace.
+  # The installer needs permission to create ConfigMaps there.
+  namespace: ""
   # GitHub activity KPIs: dashboards/github-activity.json.
   kpi:
     enabled: false
     labels:
       grafana_dashboard: "1"
     annotations: {}
+    # Overrides dashboard.namespace for this dashboard. Empty means dashboard.namespace.
+    namespace: ""
   # The exporter's own metrics (collection cycles, API and OTLP errors, rate
   # limits, self-telemetry): dashboards/github-activity-exporter.json.
   exporter:
@@ -90,6 +96,8 @@ dashboard:
     labels:
       grafana_dashboard: "1"
     annotations: {}
+    # Overrides dashboard.namespace for this dashboard. Empty means dashboard.namespace.
+    namespace: ""
 
 podAnnotations: {}
 podLabels: {}
