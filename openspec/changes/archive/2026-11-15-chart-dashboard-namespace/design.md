@@ -9,7 +9,7 @@
 **Goals:**
 
 - Put the dashboard ConfigMaps in a namespace other than the release namespace with one value.
-- Explicit `metadata.namespace` in rendered output, so manifests applied outside `helm install` (`helm template | kubectl apply`, ArgoCD) land in the right namespace.
+- Default rendering unchanged, so `helm template | kubectl apply -n <ns>` keeps working.
 
 **Non-Goals:**
 
@@ -24,12 +24,14 @@
 Inside the existing loop:
 
 ```yaml
-namespace: {{ $values.namespace | default $.Values.dashboard.namespace | default $.Release.Namespace }}
+{{- with $values.namespace | default $.Values.dashboard.namespace }}
+namespace: {{ . }}
+{{- end }}
 ```
 
-Empty strings fall through `default`, so `dashboard.namespace: ""` means the release namespace and a per-dashboard `""` means `dashboard.namespace`. Rendering the release namespace explicitly (rather than omitting the field when empty) is required for `helm template | kubectl apply -n other` and for ArgoCD, which would otherwise apply the ConfigMaps to whatever namespace the tool defaults to.
+Empty strings fall through `default`, so a per-dashboard `""` means `dashboard.namespace`, and with both empty the field is omitted like on every other chart resource, so the object lands in the release namespace.
 
-Alternative: `{{- with }}` and omit the field when empty. Rejected: the object's namespace would then depend on the apply tool, which is the problem the issue describes.
+Alternative: always render the field, falling back to `$.Release.Namespace`. Rejected in review: `helm template` without `--namespace` then renders `namespace: default` on these two objects only, and `kubectl apply -n <ns>` rejects them, a workflow that works without the change. ArgoCD passes the destination namespace to `helm template` either way.
 
 ### Per-dashboard overrides included
 
