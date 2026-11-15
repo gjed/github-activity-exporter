@@ -245,7 +245,7 @@ The integration tests SHALL scrape `/metrics`, convert the exposition to live-ch
 
 #### Scenario: Exposition conforms to the contract
 
-- **WHEN** every registry metric is recorded and `/metrics` is scraped with `Accept: application/openmetrics-text;version=1.0.0` first, or with plain text
+- **WHEN** every registry metric is recorded and `/metrics` is scraped with the Prometheus 3.x default `Accept` header (`application/openmetrics-text;version=1.0.0;escaping=allow-utf-8` first, then `text/plain;version=1.0.0;escaping=allow-utf-8`), or with `text/plain;version=1.0.0;escaping=allow-utf-8` alone
 - **THEN** live-check sees exactly the registry metric names, no non-registry metric, and no violation other than a missing required attribute
 
 #### Scenario: Self-telemetry metrics on /metrics
