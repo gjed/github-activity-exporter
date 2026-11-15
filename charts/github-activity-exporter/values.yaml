@@ -10,7 +10,7 @@ fullnameOverride: ""
 
 # Exporter config file, rendered verbatim into a ConfigMap mounted at
 # /etc/github-activity-exporter/config.yaml. The chart does not model its keys:
-# see https://github.com/gjed/github-activity-exporter#config-file.
+# see https://github.com/gjed/github-activity-exporter/blob/main/docs/configuration.md#config-file.
 # Keep credentials out of it; reference them through `secret` instead.
 config: {}
 

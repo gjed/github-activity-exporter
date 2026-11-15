@@ -5,7 +5,7 @@
 #     --from-file=app-key.pem=./my-app.private-key.pem \
 #     --from-literal=otlp-headers='authorization=Bearer <token>'
 #
-# Sizing (see "Collection concurrency" in the exporter README): a serial cycle
+# Sizing (see "Collection concurrency" in docs/collection.md): a serial cycle
 # of a 400-repo org takes about 5 minutes, about 0.6 s per request. With 8
 # requests in flight it fits a 5m collection_interval with room to spare.
 # Each cycle spends the same GraphQL points whatever the concurrency, so
