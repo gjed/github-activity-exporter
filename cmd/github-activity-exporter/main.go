@@ -127,6 +127,9 @@ func main() {
 		os.Exit(1)
 	}
 	// From here on, records also go over OTLP when the logs signal is active.
+	// stdoutLogger stays stdout-only for shutdown errors: exporting those over
+	// OTLP would attempt to use the backend we're shutting down (feedback loop).
+	stdoutLogger := logger
 	logger = tel.Logger(stdout, logLevel)
 	// Self-telemetry metrics inheriting export.otlp ride in the product push:
 	// one writer for the shared resource's target_info.
@@ -210,10 +213,10 @@ func main() {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := provider.Shutdown(shutCtx); err != nil {
-		logger.Error("shutdown error", "err", err)
+		stdoutLogger.Error("shutdown error", "err", err)
 	}
 	if err := tel.Shutdown(shutCtx); err != nil {
-		logger.Error("self-telemetry shutdown error", "err", err)
+		stdoutLogger.Error("self-telemetry shutdown error", "err", err)
 	}
 }
 

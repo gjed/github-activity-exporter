@@ -397,7 +397,7 @@ Attribute keys are the registry attribute names, on stdout too:
 | `owner`                                                                      | `github.org`                            |
 | `resource` (rate limit pool)                                                 | `github.api.rate_limit.resource`        |
 
-Some lines stay on stdout only: lines logged before self-telemetry starts (config, health server), the Prometheus bridge and profiles lines, and the errors of the OTLP exporters themselves (`OTLP export failed`, the unauthorized push hint, `opentelemetry error`), so an OTLP backend that is down never gets its own export errors queued for export. A cycle's `metrics flush failed` is exported with its flush span. While the backend is down, the batch processor drops records once its queue is full; stdout keeps them all. No line, on either output, carries a GitHub token, a GitHub App key or an OTLP header value.
+Some lines stay on stdout only: lines logged before self-telemetry starts (config, health server), the Prometheus bridge and profiles lines, and the errors of the OTLP exporters themselves (`OTLP export failed`, the unauthorized push hint, `opentelemetry error`, `shutdown error`, `self-telemetry shutdown error`), so an OTLP backend that is down never gets its own export errors queued for export. A cycle's `metrics flush failed` is exported with its flush span. While the backend is down, the batch processor drops records once its queue is full; stdout keeps them all. No line, on either output, carries a GitHub token, a GitHub App key or an OTLP header value.
 
 With logs inactive, the exporter creates no log exporter and opens no connection for logs, and the stdout lines have no `trace_id` or `span_id`.
 
