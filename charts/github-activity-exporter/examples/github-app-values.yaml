@@ -43,6 +43,8 @@ metrics:
     enabled: true
 
 dashboard:
+  # Grafana's namespace when its dashboard sidecar only watches its own.
+  # namespace: monitoring
   kpi:
     enabled: true
   exporter:
