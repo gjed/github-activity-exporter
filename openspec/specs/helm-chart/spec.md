@@ -134,7 +134,7 @@ The chart SHALL ship each generated dashboard in its own ConfigMap, toggled sepa
 - `dashboard.kpi.enabled` creates `<fullname>-dashboard` with data key `github-activity.json`, the repository's `dashboards/github-activity.json`.
 - `dashboard.exporter.enabled` creates `<fullname>-exporter-dashboard` with data key `github-activity-exporter.json`, the repository's `dashboards/github-activity-exporter.json`.
 
-Both default to disabled. Each ConfigMap SHALL carry its own `dashboard.<name>.labels` (default `grafana_dashboard: "1"`) and `dashboard.<name>.annotations`. Each ConfigMap SHALL always render `metadata.namespace`: `dashboard.<name>.namespace` when non-empty, else `dashboard.namespace` when non-empty, else the release namespace. The content SHALL be the generated file byte for byte unless `dashboard.minStep` is set; a non-empty `dashboard.minStep` SHALL replace the default of the `min_step` variable of every shipped dashboard and change nothing else. Rendering SHALL fail with a message naming the replacement key when `dashboard.enabled`, `dashboard.labels` or `dashboard.annotations` is set.
+Both default to disabled. Each ConfigMap SHALL carry its own `dashboard.<name>.labels` (default `grafana_dashboard: "1"`) and `dashboard.<name>.annotations`. Each ConfigMap SHALL render `metadata.namespace` as `dashboard.<name>.namespace` when non-empty, else `dashboard.namespace` when non-empty; with both empty it SHALL render no `metadata.namespace`, like every other chart resource, and land in the release namespace. The content SHALL be the generated file byte for byte unless `dashboard.minStep` is set; a non-empty `dashboard.minStep` SHALL replace the default of the `min_step` variable of every shipped dashboard and change nothing else. Rendering SHALL fail with a message naming the replacement key when `dashboard.enabled`, `dashboard.labels` or `dashboard.annotations` is set.
 
 #### Scenario: Dashboard matches the generated file
 
@@ -164,7 +164,7 @@ Both default to disabled. Each ConfigMap SHALL carry its own `dashboard.<name>.l
 #### Scenario: Release namespace by default
 
 - **WHEN** both dashboards are enabled and no `namespace` value is set
-- **THEN** both ConfigMaps render `metadata.namespace` equal to the release namespace
+- **THEN** neither ConfigMap renders `metadata.namespace` and both land in the release namespace
 
 #### Scenario: Dashboard namespace
 

@@ -8,7 +8,7 @@ Both dashboard ConfigMaps always land in the release namespace, and the Grafana 
 
 - New value `dashboard.namespace` (default empty, meaning the release namespace) sets `metadata.namespace` of both dashboard ConfigMaps.
 - New values `dashboard.kpi.namespace` and `dashboard.exporter.namespace` (default empty) override it per dashboard.
-- `templates/dashboard.yaml` always renders `metadata.namespace`: the per-dashboard value, else `dashboard.namespace`, else the release namespace, so `helm template | kubectl apply` and ArgoCD place the ConfigMaps explicitly.
+- `templates/dashboard.yaml` renders `metadata.namespace` from the per-dashboard value, else `dashboard.namespace`; with both empty it renders no namespace, like every other chart resource.
 - Chart README "Grafana dashboards": the values, an example for a sidecar that only watches its own namespace, and the permissions the installer and the ArgoCD Application need in the target namespace.
 - `examples/github-app-values.yaml` (enables both dashboards): commented `namespace` value.
 
@@ -25,5 +25,5 @@ The rename guard for `dashboard.enabled`/`labels`/`annotations`, the `minStep` h
 ## Impact
 
 - `charts/github-activity-exporter/templates/dashboard.yaml`, `values.yaml`, `README.md`, `examples/github-app-values.yaml`.
-- Default rendering gains an explicit `metadata.namespace: <release namespace>` on the dashboard ConfigMaps; installed objects are unchanged.
+- Default rendering is unchanged.
 - Generated `dashboards/*.json` are not touched.
