@@ -9,3 +9,5 @@ appVersion: "0.0.0"
 home: https://github.com/gjed/github-activity-exporter
 sources:
   - https://github.com/gjed/github-activity-exporter
+annotations:
+  artifacthub.io/license: Apache-2.0
