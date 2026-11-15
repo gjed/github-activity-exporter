@@ -32,6 +32,8 @@ jobs:
             echo "code=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Also fails the step under bash -e if HEAD^1 is missing; the piped
+          # git diff below would otherwise fail open and skip every job.
           git diff --name-only --no-renames HEAD^1 HEAD
           if git diff --name-only --no-renames HEAD^1 HEAD |
             grep -qvxE '.*\.md|docs/.*|LICENSE|openspec/.*|\.github/CODEOWNERS'; then
