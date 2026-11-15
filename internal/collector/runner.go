@@ -305,9 +305,9 @@ func (r *Runner) flushMetrics(ctx context.Context) {
 	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
 		// Timed out, e.g. queued behind another target's slow export. Export
 		// failures are already counted in otlp.errors by the OTLP exporter.
-		r.logger.WarnContext(ctx, "metrics flush timed out", semconv.AttrExporterTarget, r.target, "err", err)
+		r.logger.WarnContext(fctx, "metrics flush timed out", semconv.AttrExporterTarget, r.target, "err", err)
 	default:
-		r.logger.WarnContext(ctx, "metrics flush failed", semconv.AttrExporterTarget, r.target, "err", err)
+		r.logger.WarnContext(fctx, "metrics flush failed", semconv.AttrExporterTarget, r.target, "err", err)
 		if r.self != nil {
 			r.self.RecordOTLPError(ctx, r.target)
 		}

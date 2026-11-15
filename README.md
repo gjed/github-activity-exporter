@@ -386,7 +386,7 @@ env:
 
 The exporter logs JSON lines to stdout in every mode. With self-telemetry logs active ([#76](https://github.com/gjed/github-activity-exporter/issues/76)), each line is also an OTLP log record with the message as body, the same attributes, the shared resource and the instrumentation scope `github.com/gjed/github-activity-exporter`. The level is `info` for both outputs. The severity follows the [OTel log data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/#field-severitynumber): `DEBUG`, `INFO`, `WARN` and `ERROR` are SeverityNumber 5, 9, 13 and 17, with the level as SeverityText.
 
-With traces active too, a line logged inside a span carries the span's trace and span IDs: as the trace context of the OTLP record, and as `trace_id` and `span_id` on the stdout line. The cycle lines carry the cycle span, a failed collector its `github_exporter.collect` span, a failed repo its `github_exporter.repo` or `github_exporter.batch` span, and the rate limit lines the span of the repo or batch whose request hit the limit. Lines outside a cycle, such as startup lines, carry neither.
+With traces active too, a line logged inside a span carries the span's trace and span IDs: as the trace context of the OTLP record, and as `trace_id` and `span_id` on the stdout line. The cycle lines carry the cycle span, a failed metrics flush its `github_exporter.flush` span, a failed collector its `github_exporter.collect` span, a failed repo its `github_exporter.repo` or `github_exporter.batch` span, and the rate limit lines the span of the repo or batch whose request hit the limit. Lines outside a cycle, such as startup lines, carry neither.
 
 Attribute keys are the registry attribute names, on stdout too:
 
@@ -397,7 +397,7 @@ Attribute keys are the registry attribute names, on stdout too:
 | `owner`                                                                      | `github.org`                            |
 | `resource` (rate limit pool)                                                 | `github.api.rate_limit.resource`        |
 
-Some lines stay on stdout only: lines logged before self-telemetry starts (config, health server), the Prometheus bridge and profiles lines, and the errors of the OTLP exporters themselves (`OTLP export failed`, the unauthorized push hint, `opentelemetry error`), so an OTLP backend that is down never gets its own export errors queued for export. A cycle's `metrics flush failed` is a cycle line and is exported. While the backend is down, the batch processor drops records once its queue is full; stdout keeps them all. No line, on either output, carries a GitHub token, a GitHub App key or an OTLP header value.
+Some lines stay on stdout only: lines logged before self-telemetry starts (config, health server), the Prometheus bridge and profiles lines, and the errors of the OTLP exporters themselves (`OTLP export failed`, the unauthorized push hint, `opentelemetry error`), so an OTLP backend that is down never gets its own export errors queued for export. A cycle's `metrics flush failed` is exported with its flush span. While the backend is down, the batch processor drops records once its queue is full; stdout keeps them all. No line, on either output, carries a GitHub token, a GitHub App key or an OTLP header value.
 
 With logs inactive, the exporter creates no log exporter and opens no connection for logs, and the stdout lines have no `trace_id` or `span_id`.
 
