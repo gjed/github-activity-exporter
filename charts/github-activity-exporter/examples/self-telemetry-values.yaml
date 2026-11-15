@@ -36,7 +36,7 @@ env:
   - name: GOMEMLIMIT
     value: 230MiB
   # One cycle in ten is traced; drop both to trace every cycle (the default,
-  # parentbased_always_on). See the README, "Traces", for the span volume.
+  # parentbased_always_on). See docs/self-telemetry.md, "Traces", for the span volume.
   - name: OTEL_TRACES_SAMPLER
     value: parentbased_traceidratio
   - name: OTEL_TRACES_SAMPLER_ARG

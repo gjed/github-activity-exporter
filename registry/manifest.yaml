@@ -2,7 +2,7 @@
 # every metric in signals.yaml declares annotations.prometheus.{name,type}.
 # policies/registry/ enforces it (make check-schema) and tests/integration
 # verifies OTLP and /metrics against it with weaver live-check. Backend
-# requirements are in README.md.
+# requirements are in README.md, "Backend requirements".
 file_format: definition_manifest/2.0
 name: github-activity-exporter
 description: >-

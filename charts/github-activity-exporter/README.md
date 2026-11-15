@@ -20,7 +20,7 @@ Examples:
 
 ## Config
 
-`config` is the exporter's [config file](https://github.com/gjed/github-activity-exporter#config-file), rendered verbatim into a ConfigMap mounted at `/etc/github-activity-exporter/config.yaml`. The chart does not model its keys, so any key the exporter understands, including keys added after this chart version, works without a chart change. A checksum of the config is a pod annotation, so changing it replaces the pod.
+`config` is the exporter's [config file](https://github.com/gjed/github-activity-exporter/blob/main/docs/configuration.md#config-file), rendered verbatim into a ConfigMap mounted at `/etc/github-activity-exporter/config.yaml`. The chart does not model its keys, so any key the exporter understands, including keys added after this chart version, works without a chart change. A checksum of the config is a pod annotation, so changing it replaces the pod.
 
 The chart reads two keys to check they match the ports it wires, and fails rendering otherwise:
 
@@ -46,7 +46,7 @@ Secret material comes from one Secret: `secret.existingSecret`, or a Secret the 
 | GitHub App key, base64 PEM | `auth.app.private_key_env: GITHUB_APP_KEY`                               | `env: {GITHUB_APP_KEY: <key>}` |
 | OTLP headers               | `export.otlp.headers_env: OTLP_HEADERS`                                  | `env: {OTLP_HEADERS: <key>}`   |
 
-The `export.otlp.headers_env` variable holds `name=value` pairs separated by commas, for example `authorization=Bearer <token>,x-scope-orgid=my-tenant`. They are merged into `export.otlp.headers`, the variable winning for the same name, so non-secret headers such as `x-scope-orgid` can stay in `config`. See [OTLP headers from the environment](https://github.com/gjed/github-activity-exporter#otlp-headers-from-the-environment). `OTEL_EXPORTER_OTLP_HEADERS` does not authenticate the GitHub metrics push: it configures self-telemetry only.
+The `export.otlp.headers_env` variable holds `name=value` pairs separated by commas, for example `authorization=Bearer <token>,x-scope-orgid=my-tenant`. They are merged into `export.otlp.headers`, the variable winning for the same name, so non-secret headers such as `x-scope-orgid` can stay in `config`. See [OTLP headers from the environment](https://github.com/gjed/github-activity-exporter/blob/main/docs/configuration.md#otlp-headers-from-the-environment). `OTEL_EXPORTER_OTLP_HEADERS` does not authenticate the GitHub metrics push: it configures self-telemetry only.
 
 When the Secret holds only the raw token and the backend needs `authorization: Bearer <token>`, build the header in `env` with a Kubernetes [dependent env var](https://kubernetes.io/docs/tasks/inject-data-application/define-interdependent-environment-variables/). The chart puts every `secret.env` var before the `env` entries, so `$(OTLP_TOKEN)` resolves; no second Secret is needed:
 
@@ -84,7 +84,7 @@ Each target's credential needs read access only:
 | GraphQL `repository.issues`                        | issue collector                                               | Issues: read        | `repo`                   | Issues: read        |
 | GraphQL `repository.issues(filterBy: {createdBy})` | Dependency Dashboard collector (`renovate_dashboard.enabled`) | Issues: read        | `repo`                   | Issues: read        |
 
-The minimum is Metadata, Pull requests and Issues read-only for a GitHub App or a fine-grained PAT, and the `repo` scope for a classic PAT. At startup the exporter checks them per target and exits with an error naming the target and every missing permission, so the pod restarts until the credential is fixed and never becomes ready. See [GitHub permissions](https://github.com/gjed/github-activity-exporter#github-permissions) for how each auth mode is checked.
+The minimum is Metadata, Pull requests and Issues read-only for a GitHub App or a fine-grained PAT, and the `repo` scope for a classic PAT. At startup the exporter checks them per target and exits with an error naming the target and every missing permission, so the pod restarts until the credential is fixed and never becomes ready. See [GitHub permissions](https://github.com/gjed/github-activity-exporter/blob/main/docs/github-permissions.md) for how each auth mode is checked.
 
 A GitHub App for an organization: post this manifest as the `manifest` form field to `https://github.com/organizations/<org>/settings/apps/new` ([registering a GitHub App from a manifest](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest)). It has no webhook. Install it on the organization and wire its private key as in [Secrets](#secrets).
 
@@ -129,11 +129,11 @@ The pod runs as UID/GID 65532 with a read-only root filesystem, no privilege esc
 
 ## Profiles
 
-[`examples/profiles-values.yaml`](examples/profiles-values.yaml) turns on profiles: the exporter pushes Go pprof profiles to the `pprof` receiver of an OpenTelemetry Collector, which forwards them as OTLP profiles (see [Profiles](https://github.com/gjed/github-activity-exporter#profiles)). The push is outbound only, so the chart opens no port for it and there is no `/debug/pprof/` endpoint on the health port. The push has no authentication: point `telemetry.profiles.endpoint` at a Collector inside the cluster, never at one reachable from outside it. A bad profiles setting is logged as an error and the pod runs with profiles off.
+[`examples/profiles-values.yaml`](examples/profiles-values.yaml) turns on profiles: the exporter pushes Go pprof profiles to the `pprof` receiver of an OpenTelemetry Collector, which forwards them as OTLP profiles (see [Profiles](https://github.com/gjed/github-activity-exporter/blob/main/docs/self-telemetry.md#profiles)). The push is outbound only, so the chart opens no port for it and there is no `/debug/pprof/` endpoint on the health port. The push has no authentication: point `telemetry.profiles.endpoint` at a Collector inside the cluster, never at one reachable from outside it. A bad profiles setting is logged as an error and the pod runs with profiles off.
 
 ## PR author cardinality
 
-`collection.pr_author: true` adds the `github.pr.author` attribute to `github.pr.lines.added`, `github.pr.lines.removed` and `github.pr.close.duration` (see [PR size and author](https://github.com/gjed/github-activity-exporter#pr-size-and-author)). Warning: it is unbounded. Each author and repo pair that merges or closes a PR adds 38 series, and pairs stay until the pod restarts. On one org of 392 repos it took those histograms from 6,422 to 19,418 series in 30 days. Turn it on per target, for orgs where the author breakdown is worth the series, and watch the active series of your backend after enabling it. Past 2,000 attribute sets on one histogram, counted across all targets of the pod, new sets are recorded in a single `otel.metric.overflow="true"` series with no author, target, org or repo.
+`collection.pr_author: true` adds the `github.pr.author` attribute to `github.pr.lines.added`, `github.pr.lines.removed` and `github.pr.close.duration` (see [PR size and author](https://github.com/gjed/github-activity-exporter/blob/main/docs/metrics.md#pr-size-and-author)). Warning: it is unbounded. Each author and repo pair that merges or closes a PR adds 38 series, and pairs stay until the pod restarts. On one org of 392 repos it took those histograms from 6,422 to 19,418 series in 30 days. Turn it on per target, for orgs where the author breakdown is worth the series, and watch the active series of your backend after enabling it. Past 2,000 attribute sets on one histogram, counted across all targets of the pod, new sets are recorded in a single `otel.metric.overflow="true"` series with no author, target, org or repo.
 
 ## Grafana dashboards
 
