@@ -25,11 +25,11 @@ Inside the existing loop:
 
 ```yaml
 {{- with $values.namespace | default $.Values.dashboard.namespace }}
-namespace: {{ . }}
+namespace: {{ . | quote }}
 {{- end }}
 ```
 
-Empty strings fall through `default`, so a per-dashboard `""` means `dashboard.namespace`, and with both empty the field is omitted like on every other chart resource, so the object lands in the release namespace.
+Empty strings fall through `default`, so a per-dashboard `""` means `dashboard.namespace`, and with both empty the field is omitted like on every other chart resource, so the object lands in the release namespace. `quote` keeps an all-digit namespace a string.
 
 Alternative: always render the field, falling back to `$.Release.Namespace`. Rejected in review: `helm template` without `--namespace` then renders `namespace: default` on these two objects only, and `kubectl apply -n <ns>` rejects them, a workflow that works without the change. ArgoCD passes the destination namespace to `helm template` either way.
 
