@@ -37,7 +37,7 @@ kind: ConfigMap
 metadata:
   name: {{ include "github-activity-exporter.fullname" $ }}-{{ $d.suffix }}
   {{- with $values.namespace | default $.Values.dashboard.namespace }}
-  namespace: {{ . }}
+  namespace: {{ . | quote }}
   {{- end }}
   labels:
     {{- include "github-activity-exporter.labels" $ | nindent 4 }}
