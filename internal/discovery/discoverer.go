@@ -216,7 +216,7 @@ func (d *Discoverer) listOwnerRepos(ctx context.Context, orgCfg config.OrgConfig
 	if err != nil {
 		return nil, err
 	}
-	return d.filter(orgCfg, all), nil
+	return d.filter(ctx, orgCfg, all), nil
 }
 
 // ownerType returns the cached account type of owner, looking it up with
@@ -368,30 +368,30 @@ func (d *Discoverer) listInstallation(ctx context.Context, owner string) ([]*git
 }
 
 // filter applies archived/fork exclusion and the include/exclude globs.
-func (d *Discoverer) filter(orgCfg config.OrgConfig, all []*github.Repository) []Repo {
+func (d *Discoverer) filter(ctx context.Context, orgCfg config.OrgConfig, all []*github.Repository) []Repo {
 	var repos []Repo
 	for _, r := range all {
 		// Skip archived (unless opted in) and forks.
 		if r.GetArchived() && !orgCfg.IncludeArchived {
-			d.logger.Debug("excluding archived repo", semconv.AttrGitHubOrg, r.GetOwner().GetLogin(), semconv.AttrGitHubRepo, r.GetName())
+			d.logger.DebugContext(ctx, "excluding archived repo", semconv.AttrGitHubOrg, r.GetOwner().GetLogin(), semconv.AttrGitHubRepo, r.GetName())
 			continue
 		}
 		if r.GetFork() {
-			d.logger.Debug("excluding fork", semconv.AttrGitHubOrg, r.GetOwner().GetLogin(), semconv.AttrGitHubRepo, r.GetName())
+			d.logger.DebugContext(ctx, "excluding fork", semconv.AttrGitHubOrg, r.GetOwner().GetLogin(), semconv.AttrGitHubRepo, r.GetName())
 			continue
 		}
 
 		name := r.GetName()
 
 		// Apply include filter.
-		if len(orgCfg.IncludeRepos) > 0 && !d.matchesAny(name, orgCfg.IncludeRepos) {
-			d.logger.Debug("excluding repo (not in include list)", semconv.AttrGitHubOrg, r.GetOwner().GetLogin(), semconv.AttrGitHubRepo, r.GetName())
+		if len(orgCfg.IncludeRepos) > 0 && !d.matchesAny(ctx, name, orgCfg.IncludeRepos) {
+			d.logger.DebugContext(ctx, "excluding repo (not in include list)", semconv.AttrGitHubOrg, r.GetOwner().GetLogin(), semconv.AttrGitHubRepo, r.GetName())
 			continue
 		}
 
 		// Apply exclude filter.
-		if d.matchesAny(name, orgCfg.ExcludeRepos) {
-			d.logger.Debug("excluding repo (in exclude list)", semconv.AttrGitHubOrg, r.GetOwner().GetLogin(), semconv.AttrGitHubRepo, r.GetName())
+		if d.matchesAny(ctx, name, orgCfg.ExcludeRepos) {
+			d.logger.DebugContext(ctx, "excluding repo (in exclude list)", semconv.AttrGitHubOrg, r.GetOwner().GetLogin(), semconv.AttrGitHubRepo, r.GetName())
 			continue
 		}
 
@@ -431,13 +431,13 @@ func splitOwnerRepo(full string) (owner, name string) {
 
 // matchesAny returns true if name matches at least one glob pattern.
 // Invalid patterns are logged via d.logger as warnings and treated as non-matching.
-func (d *Discoverer) matchesAny(name string, patterns []string) bool {
+func (d *Discoverer) matchesAny(ctx context.Context, name string, patterns []string) bool {
 	for _, pat := range patterns {
 		ok, err := filepath.Match(pat, name)
 		if err != nil {
 			// filepath.Match only errors on malformed syntax (e.g. unclosed bracket).
 			// Log and skip rather than silently dropping the pattern.
-			d.logger.Warn("invalid glob pattern — skipping", "pattern", pat, "err", err)
+			d.logger.WarnContext(ctx, "invalid glob pattern — skipping", "pattern", pat, "err", err)
 			continue
 		}
 		if ok {
