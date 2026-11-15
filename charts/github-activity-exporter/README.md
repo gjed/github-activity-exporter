@@ -133,7 +133,7 @@ The pod runs as UID/GID 65532 with a read-only root filesystem, no privilege esc
 
 ## PR author cardinality
 
-`collection.pr_author: true` adds the `github.pr.author` attribute to `github.pr.lines.added`, `github.pr.lines.removed` and `github.pr.close.duration` (see [PR size and author](https://github.com/gjed/github-activity-exporter#pr-size-and-author)). Warning: it is unbounded. Each author and repo pair that merges or closes a PR adds 38 series, and pairs stay until the pod restarts. On one org of 392 repos it took those histograms from 6,422 to 19,418 series in 30 days. Turn it on per target, for orgs where the author breakdown is worth the series, and watch the active series of your backend after enabling it. Past 2,000 attribute sets on one histogram, new sets are recorded without the author under `otel.metric.overflow="true"`.
+`collection.pr_author: true` adds the `github.pr.author` attribute to `github.pr.lines.added`, `github.pr.lines.removed` and `github.pr.close.duration` (see [PR size and author](https://github.com/gjed/github-activity-exporter#pr-size-and-author)). Warning: it is unbounded. Each author and repo pair that merges or closes a PR adds 38 series, and pairs stay until the pod restarts. On one org of 392 repos it took those histograms from 6,422 to 19,418 series in 30 days. Turn it on per target, for orgs where the author breakdown is worth the series, and watch the active series of your backend after enabling it. Past 2,000 attribute sets on one histogram, counted across all targets of the pod, new sets are recorded in a single `otel.metric.overflow="true"` series with no author, target, org or repo.
 
 ## Grafana dashboards
 
