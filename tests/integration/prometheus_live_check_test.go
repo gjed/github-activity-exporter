@@ -28,11 +28,13 @@ import (
 )
 
 // scrapeAccept are the Accept headers the /metrics tests scrape with.
-// /metrics does not serve OpenMetrics, so the openmetrics request falls back
-// to the text format: it covers that fallback, not the OpenMetrics encoding.
+// /metrics does not serve OpenMetrics, so the openmetrics request negotiates
+// its text/plain;version=1.0.0 clause: it covers that negotiation, not the
+// OpenMetrics encoding. An OpenMetrics-only Accept matches no served format
+// and gets the default underscore escaping.
 var scrapeAccept = map[string]string{
-	// Prometheus 3.x and Alloy default scrape: OpenMetrics first.
-	"openmetrics": "application/openmetrics-text;version=1.0.0;escaping=allow-utf-8",
+	// Prometheus v3.16.0 default scrape_protocols: OpenMetrics first.
+	"openmetrics": "application/openmetrics-text;version=1.0.0;escaping=allow-utf-8;q=0.7,application/openmetrics-text;version=0.0.1;q=0.6,text/plain;version=1.0.0;escaping=allow-utf-8;q=0.5,text/plain;version=0.0.4;q=0.4,*/*;q=0.3",
 	"text":        "text/plain;version=1.0.0;escaping=allow-utf-8",
 }
 
