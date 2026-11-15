@@ -52,6 +52,39 @@ func TestPrometheusLiveCheck_NamesAndTypes(t *testing.T) {
 	}
 }
 
+// TestPrometheusNegotiation scrapes /metrics with each Accept header in the
+// metric-export spec and asserts the negotiated Content-Type and whether
+// github.pr.count keeps its UTF-8 name or is escaped to github_pr_count.
+func TestPrometheusNegotiation(t *testing.T) {
+	const (
+		text100UTF8   = "text/plain; version=1.0.0; charset=utf-8; escaping=allow-utf-8"
+		text004Escape = "text/plain; version=0.0.4; charset=utf-8; escaping=underscores"
+		utf8Name      = `# TYPE "github.pr.count" gauge`
+		escapedName   = "# TYPE github_pr_count gauge"
+	)
+	cases := []struct {
+		name, accept, contentType, typeLine string
+	}{
+		{"text 1.0.0", scrapeAccept["text"], text100UTF8, utf8Name},
+		{"prometheus default", scrapeAccept["openmetrics"], text100UTF8, utf8Name},
+		{"openmetrics only", "application/openmetrics-text;version=1.0.0;escaping=allow-utf-8", text004Escape, escapedName},
+		{"text 0.0.4", "text/plain;version=0.0.4", text004Escape, escapedName},
+		{"no accept", "", text004Escape, escapedName},
+	}
+	url := "http://" + startRegistryBridge(t) + "/metrics"
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			body, contentType := scrapeResponse(t, url, c.accept)
+			if contentType != c.contentType {
+				t.Errorf("Content-Type = %q, want %q", contentType, c.contentType)
+			}
+			if !strings.Contains(body, c.typeLine+"\n") {
+				t.Errorf("/metrics has no line %q:\n%s", c.typeLine, body)
+			}
+		})
+	}
+}
+
 // TestPrometheusLiveCheck_SuffixedNameDetected exposes github.pr.automerged
 // as github.pr.automerged_total and asserts live-check rejects it.
 func TestPrometheusLiveCheck_SuffixedNameDetected(t *testing.T) {
@@ -97,6 +130,19 @@ func TestPrometheusLiveCheck_ImportedWrongTypeDetected(t *testing.T) {
 // the Prometheus bridge enabled and returns the parsed /metrics scrape.
 func scrapeAllRegistryMetrics(t *testing.T, accept string) map[string]*dto.MetricFamily {
 	t.Helper()
+	body := scrape(t, "http://"+startRegistryBridge(t)+"/metrics", accept)
+	parser := expfmt.NewTextParser(model.UTF8Validation)
+	families, err := parser.TextToMetricFamilies(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("parse /metrics: %v\n%s", err, body)
+	}
+	return families
+}
+
+// startRegistryBridge records every registry metric on an exporter with the
+// Prometheus bridge enabled and returns the bridge's listen address.
+func startRegistryBridge(t *testing.T) string {
+	t.Helper()
 	addr := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	p, err := exporter.New(context.Background(), exporter.Config{
 		OTLPEndpoint:      "http://127.0.0.1:1", // unreachable: the 1h interval never fires; Shutdown's final push fails and is ignored
@@ -114,25 +160,28 @@ func scrapeAllRegistryMetrics(t *testing.T, accept string) map[string]*dto.Metri
 	})
 
 	emitAllRegistryMetrics(t, p)
-
-	body := scrape(t, "http://"+addr+"/metrics", accept)
-	parser := expfmt.NewTextParser(model.UTF8Validation)
-	families, err := parser.TextToMetricFamilies(strings.NewReader(body))
-	if err != nil {
-		t.Fatalf("parse /metrics: %v\n%s", err, body)
-	}
-	return families
+	return addr
 }
 
 // scrape GETs url with the given Accept header, retrying until the bridge's
 // HTTP server listens.
 func scrape(t *testing.T, url, accept string) string {
 	t.Helper()
+	body, _ := scrapeResponse(t, url, accept)
+	return body
+}
+
+// scrapeResponse is scrape that also returns the response Content-Type. An
+// empty accept sends no Accept header.
+func scrapeResponse(t *testing.T, url, accept string) (body, contentType string) {
+	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("Accept", accept)
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
 	var resp *http.Response
 	deadline := time.Now().Add(2 * time.Second)
 	for {
@@ -150,7 +199,7 @@ func scrape(t *testing.T, url, accept string) string {
 	if err != nil {
 		t.Fatalf("read /metrics: %v", err)
 	}
-	return string(b)
+	return string(b), resp.Header.Get("Content-Type")
 }
 
 // runPrometheusLiveCheck converts families to live-check samples, runs
