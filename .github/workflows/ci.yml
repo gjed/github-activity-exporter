@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+# No token scopes by default; each job declares the minimum it uses.
+permissions: {}
+
 jobs:
   changes:
     name: Changes
@@ -48,6 +51,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.code == 'true'
+    # Annotations come from problem matchers and need no scope; pull-requests:
+    # read is only for only-new-issues, which is not set.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
 
@@ -92,6 +99,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.code == 'true'
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -112,6 +121,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.code == 'true'
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
 
@@ -221,6 +232,8 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     needs: test
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
 
@@ -243,6 +256,8 @@ jobs:
     if: >-
       github.event_name == 'pull_request' && github.base_ref == 'main' &&
       needs.changes.outputs.code == 'true'
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
 
