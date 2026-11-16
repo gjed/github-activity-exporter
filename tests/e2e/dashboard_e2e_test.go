@@ -196,6 +196,160 @@ func TestDashboardContinuity(t *testing.T) {
 	}
 }
 
+// TestDashboardGaugesAcrossInstances runs two exporter processes against one
+// mock GitHub and one Prometheus, as an old and a new pod do inside one
+// $__rate_interval after a restart. Each has its own random
+// service.instance.id, so its own instance label. Every gauge panel of every
+// generated dashboard must show, per series, the larger of the values it
+// shows for each instance alone, not their sum.
+func TestDashboardGaugesAcrossInstances(t *testing.T) {
+	requireDocker(t)
+
+	promURL := startPrometheus(t)
+	mock := newMockGitHub(t)
+	// One proxy each: each process gets its rejected push, so each records
+	// github_exporter.otlp.errors.
+	exitedA := startExporter(t, mock.URL+"/api/v3", startOTLPProxy(t, promURL), testCollectionInterval, true)
+	exitedB := startExporter(t, mock.URL+"/api/v3", startOTLPProxy(t, promURL), testCollectionInterval, true)
+	waitForInstances(t, promURL, expectedSeriesNames(t, true), 2, exitedA, exitedB)
+
+	instances := promLabelValues(t, promURL, "instance")
+	if len(instances) != 2 {
+		t.Fatalf("instance label values %v, want two exporter processes", instances)
+	}
+	// One evaluation time for every query, so the gauges that change between
+	// pushes (go.memory.*, go.goroutine.count) compare the same samples.
+	at := fmt.Sprintf("%.3f", float64(time.Now().UnixMilli())/1000)
+
+	var checked int
+	for _, file := range dashboardFiles(t) {
+		d, vars := loadDashboard(t, file)
+		for _, v := range d.Templating.List {
+			if v.Type == "query" {
+				if err := resolveVariable(promURL, v, vars); err != nil {
+					t.Fatalf("%s: variable %q: %v", file, v.Name, err)
+				}
+			}
+		}
+		window, err := rateInterval(vars["min_step"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		vars["__rate_interval"] = promDuration(window)
+		vars["__interval"] = promDuration(window)
+
+		for _, pt := range collectTargets(d.Panels) {
+			if !strings.Contains(pt.expr, "last_over_time(") {
+				continue
+			}
+			checked++
+			t.Run(fmt.Sprintf("%s/%s/%s", file, pt.panel, pt.refID), func(t *testing.T) {
+				expr, err := expandVars(pt.expr, vars)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := seriesValues(t, promURL, expr, at)
+				want := make(map[string]float64)
+				for _, inst := range instances {
+					one := strings.ReplaceAll(expr, `job=~"`+vars["job"]+`"`, `job=~"`+vars["job"]+`", instance="`+inst+`"`)
+					if one == expr {
+						t.Fatalf("no job matcher to restrict to an instance\nexpr: %s", expr)
+					}
+					for k, v := range seriesValues(t, promURL, one, at) {
+						if w, ok := want[k]; !ok || v > w {
+							want[k] = v
+						}
+					}
+				}
+				if len(want) == 0 {
+					t.Fatalf("no series for either instance\nexpr: %s", expr)
+				}
+				for k, w := range want {
+					if g, ok := got[k]; !ok || g != w {
+						t.Errorf("series %s = %v (present %t), want %v, the larger single-instance value\nexpr: %s", k, g, ok, w, expr)
+					}
+				}
+				for k := range got {
+					if _, ok := want[k]; !ok {
+						t.Errorf("series %s not in either single-instance result\nexpr: %s", k, expr)
+					}
+				}
+				t.Logf("panel %q refId %s: %v", pt.panel, pt.refID, got)
+			})
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no gauge panel in the generated dashboards")
+	}
+
+	for _, u := range mock.unhandledRequests() {
+		t.Errorf("mock GitHub: unhandled request: %s", u)
+	}
+}
+
+// seriesValues runs expr as an instant query at time at and returns each
+// series' value keyed by its label set.
+func seriesValues(t *testing.T, promURL, expr, at string) map[string]float64 {
+	t.Helper()
+	body, err := promGet(promURL + "/api/v1/query?" + url.Values{"query": {expr}, "time": {at}}.Encode())
+	if err != nil {
+		t.Fatalf("%v\nexpr: %s\nresponse: %s", err, expr, truncate(body, 800))
+	}
+	var resp struct {
+		Data struct {
+			Result []struct {
+				Metric map[string]string `json:"metric"`
+				Value  [2]any            `json:"value"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("decode: %v\nexpr: %s", err, expr)
+	}
+	out := make(map[string]float64, len(resp.Data.Result))
+	for _, s := range resp.Data.Result {
+		key, _ := json.Marshal(s.Metric) // map keys are sorted
+		f, err := strconv.ParseFloat(fmt.Sprint(s.Value[1]), 64)
+		if err != nil {
+			t.Fatalf("value %v: %v\nexpr: %s", s.Value[1], err, expr)
+		}
+		out[string(key)] = f
+	}
+	return out
+}
+
+// waitForInstances polls until every expected series has at least
+// warmupSamples samples in the window from each of n instances.
+func waitForInstances(t *testing.T, promURL string, want []string, n int, exited ...<-chan struct{}) {
+	t.Helper()
+	var missing []string
+	deadline := time.Now().Add(pollDeadline)
+	for {
+		for _, ch := range exited {
+			select {
+			case <-ch:
+				t.Fatal("an exporter exited before Prometheus had enough samples")
+			default:
+			}
+		}
+		missing = missing[:0]
+		for _, name := range want {
+			expr := fmt.Sprintf("count(count by (instance) (count_over_time({__name__=%q}[%s]) >= %d)) >= %d", name, warmupWindow, warmupSamples, n)
+			body, err := promGet(promURL + "/api/v1/query?query=" + url.QueryEscape(expr))
+			if c, cerr := checkResult(body); err != nil || cerr != nil || c == 0 {
+				missing = append(missing, name)
+			}
+		}
+		if len(missing) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("after %s, not every series has %d samples in %s from %d instances; missing: %v", pollDeadline, warmupSamples, warmupWindow, n, missing)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
 // checkSingleWriter is the evidence that a stock Prometheus, without an
 // out-of-order window, ingests every push: the target_info samples written by
 // the run have strictly increasing timestamps, Prometheus counted no
