@@ -95,7 +95,7 @@ The system SHALL generate two Grafana dashboards from the Weaver registry using 
 - `dashboards/github-activity.json` (KPI dashboard): only metrics in the `github.*` and `renovate.*` namespaces. It SHALL define the variables `datasource`, `job`, `exporter.target`, `github.org`, `github.repo` and `min_step`, and no variable SHALL resolve from a `github_exporter.*` or self-telemetry metric.
 - `dashboards/github-activity-exporter.json` (exporter dashboard): every `github_exporter.*` metric of the registry and the self-telemetry runtime and HTTP client metrics. It SHALL define the variables `datasource`, `job`, `exporter.target` and `min_step`.
 
-Every panel query SHALL be built from the metric's `annotations.prometheus.name` and `annotations.prometheus.type` in UTF-8 PromQL syntax, with names and UTF-8 label names quoted; for an imported metric the annotation comes from its refinement. Both dashboards SHALL filter every query by `job` and, for metrics recorded per target, by `exporter.target`.
+Every panel query SHALL be built from the metric's `annotations.prometheus.name` and `annotations.prometheus.type` in UTF-8 PromQL syntax, with names and UTF-8 label names quoted; for an imported metric the annotation comes from its refinement. Both dashboards SHALL filter every query by `job` and, for metrics recorded per target, by `exporter.target`. Every gauge query SHALL reduce its series to one per metric identity, with `max`, before the panel's own aggregation: the identity is `job`, `exporter.target` for metrics recorded per target, and every attribute the registry declares on the metric.
 
 #### Scenario: Dashboard regenerated on schema change
 
@@ -105,7 +105,17 @@ Every panel query SHALL be built from the metric's `annotations.prometheus.name`
 #### Scenario: Query shape follows the Prometheus type
 
 - **WHEN** `make generate` renders a panel for a metric
-- **THEN** a `counter` is queried through `rate` or `increase`, a `histogram` through `histogram_quantile` over `<name>_bucket`, a `gauge` through `last_over_time`, every window is `$__rate_interval`, and the metric name comes from `annotations.prometheus.name`
+- **THEN** a `counter` is queried through `rate` or `increase`, a `histogram` through `histogram_quantile` over `<name>_bucket`, a `gauge` through `last_over_time` reduced with `max by` its identity, every window is `$__rate_interval`, and the metric name comes from `annotations.prometheus.name`
+
+#### Scenario: Gauge identity follows the registry
+
+- **WHEN** a gauge metric gains or loses an attribute in the registry and `make generate` is run
+- **THEN** the identity of every gauge query of that metric gains or loses the attribute, with no template change
+
+#### Scenario: Gauge panels across exporter processes
+
+- **WHEN** two exporter processes with different `service.instance.id` write the same gauge series to one backend inside one `$__rate_interval` window
+- **THEN** every gauge panel of both dashboards shows, per series, the maximum of the values the panel shows for each process alone, not their sum
 
 #### Scenario: Panel Min interval from a variable
 
