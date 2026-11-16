@@ -53,7 +53,7 @@
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.pr.state\") (last_over_time({\"github.pr.count\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\", \"github.pr.label\"=\"\"}[$__rate_interval]))", "legendFormat": "{{github.pr.state}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.pr.state\") (max by (job, \"exporter.target\", \"github.org\", \"github.pr.label\", \"github.pr.state\", \"github.repo\") (last_over_time({\"github.pr.count\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\", \"github.pr.label\"=\"\"}[$__rate_interval])))", "legendFormat": "{{github.pr.state}}", "range": true, "refId": "A" }
       ],
       "title": "Open PRs by state",
       "type": "timeseries"
@@ -67,7 +67,7 @@
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.pr.review_status\") (last_over_time({\"github.pr.review_status\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval]))", "legendFormat": "{{github.pr.review_status}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.pr.review_status\") (max by (job, \"exporter.target\", \"github.org\", \"github.pr.review_status\", \"github.repo\") (last_over_time({\"github.pr.review_status\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval])))", "legendFormat": "{{github.pr.review_status}}", "range": true, "refId": "A" }
       ],
       "title": "Open PRs by review status",
       "type": "timeseries"
@@ -81,7 +81,7 @@
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"github.org\", \"github.repo\") (last_over_time({\"github.pr.age\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval]))", "legendFormat": "{{github.org}}/{{github.repo}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"github.org\", \"github.repo\") (max by (job, \"exporter.target\", \"github.org\", \"github.repo\") (last_over_time({\"github.pr.age\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval])))", "legendFormat": "{{github.org}}/{{github.repo}}", "range": true, "refId": "A" }
       ],
       "title": "Oldest open PR age by repo",
       "type": "timeseries"
@@ -170,7 +170,7 @@
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.issue.state\") (last_over_time({\"github.issue.count\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\", \"github.issue.state\"!=\"\"}[$__rate_interval]))", "legendFormat": "{{github.issue.state}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.issue.state\") (max by (job, \"exporter.target\", \"github.issue.label\", \"github.issue.state\", \"github.org\", \"github.repo\") (last_over_time({\"github.issue.count\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\", \"github.issue.state\"!=\"\"}[$__rate_interval])))", "legendFormat": "{{github.issue.state}}", "range": true, "refId": "A" }
       ],
       "title": "Issues by state",
       "type": "timeseries"
@@ -184,7 +184,7 @@
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"github.org\", \"github.repo\") (last_over_time({\"github.issue.age\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval]))", "legendFormat": "{{github.org}}/{{github.repo}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"github.org\", \"github.repo\") (max by (job, \"exporter.target\", \"github.org\", \"github.repo\") (last_over_time({\"github.issue.age\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval])))", "legendFormat": "{{github.org}}/{{github.repo}}", "range": true, "refId": "A" }
       ],
       "title": "Oldest open issue age by repo",
       "type": "timeseries"
@@ -199,7 +199,7 @@
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.org\", \"github.repo\", \"renovate.dashboard.section\") (last_over_time({\"renovate.dashboard.queue\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval]))", "legendFormat": "{{github.org}}/{{github.repo}} {{renovate.dashboard.section}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum by (\"github.org\", \"github.repo\", \"renovate.dashboard.section\") (max by (job, \"exporter.target\", \"github.org\", \"github.repo\", \"renovate.dashboard.section\") (last_over_time({\"renovate.dashboard.queue\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval])))", "legendFormat": "{{github.org}}/{{github.repo}} {{renovate.dashboard.section}}", "range": true, "refId": "A" }
       ],
       "title": "Renovate queue by section",
       "type": "timeseries"
@@ -213,7 +213,7 @@
       "interval": "$min_step",
       "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"github.org\", \"github.repo\") (last_over_time({\"renovate.dashboard.parse_error\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval]))", "legendFormat": "{{github.org}}/{{github.repo}}", "range": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "max by (\"github.org\", \"github.repo\") (max by (job, \"exporter.target\", \"github.org\", \"github.repo\") (last_over_time({\"renovate.dashboard.parse_error\", job=~\"$job\", \"exporter.target\"=~\"$target\", \"github.org\"=~\"$org\", \"github.repo\"=~\"$repo\"}[$__rate_interval])))", "legendFormat": "{{github.org}}/{{github.repo}}", "range": true, "refId": "A" }
       ],
       "title": "Dependency Dashboard parse errors",
       "type": "timeseries"

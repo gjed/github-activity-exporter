@@ -12,7 +12,7 @@
   annotations.prometheus.type (the naming contract, see registry/signals.yaml):
     counter   -> rate()
     histogram -> histogram_quantile() over <name>_bucket
-    gauge     -> the raw series, aggregated
+    gauge     -> the raw series, one per metric identity, aggregated
   Names and UTF-8 label names are quoted (Prometheus 3.x / Mimir UTF-8
   selector syntax). Legends use bare label names: Grafana looks up the text
   between {{ }} as the label key.
@@ -62,9 +62,13 @@
     against annotations.prometheus.type; records name in st.used.
       rate:     counter,   sum by (...) (rate(...)) * scale
       quantile: histogram, histogram_quantile(q, sum by (le, ...) (rate(<name>_bucket)))
-      sum/max/min: gauge,  agg by (...) (last_over_time(...)) + offset
+      sum/max/min: gauge,  agg by (...) (max by (<identity>) (last_over_time(...))) + offset
     Gauges go through last_over_time so a series does not go stale between
-    pushes that are one export.interval apart. -#}
+    pushes that are one export.interval apart. The inner max collapses the
+    series of several exporter processes (an old and a new pod inside one
+    window differ in instance, service.instance.id, k8s.pod.name, ...) to one
+    per identity: job, exporter.target when per_target, and every attribute
+    the registry declares on the metric. -#}
 {%- macro expr(ctx, st, name, shape, by=[], q="0.5", matchers=[], scale="", offset="", per_target=true) -%}
 {{- check_metric(ctx, name) -}}
 {%- if name not in st.used %}{% set st.used = st.used + [name] %}{% endif -%}
@@ -78,7 +82,9 @@ sum{{ by_clause(m, by) }} (rate({{ sel(m, "", matchers, per_target) }}[$__rate_i
 histogram_quantile({{ q }}, sum{{ by_clause(m, ["le"] + by) }} (rate({{ sel(m, "_bucket", matchers, per_target) }}[$__rate_interval])))
 {%- else -%}
 {%- if type != "gauge" %}{{ dashboard_wrong_prometheus_type(name) }}{% endif -%}
-{{ shape }}{{ by_clause(m, by) }} (last_over_time({{ sel(m, "", matchers, per_target) }}[$__rate_interval])){{ offset }}
+{%- set attrs = m.attributes | map(attribute="key") | list -%}
+{%- set identity = (["exporter.target"] if per_target and "exporter.target" not in attrs else []) + attrs -%}
+{{ shape }}{{ by_clause(m, by) }} (max by (job{% for l in identity %}, \"{{ l }}\"{% endfor %}) (last_over_time({{ sel(m, "", matchers, per_target) }}[$__rate_interval]))){{ offset }}
 {%- endif -%}
 {%- endmacro -%}
 
