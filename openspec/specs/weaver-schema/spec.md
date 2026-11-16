@@ -115,7 +115,7 @@ Every panel query SHALL be built from the metric's `annotations.prometheus.name`
 #### Scenario: Gauge panels across exporter processes
 
 - **WHEN** two exporter processes with different `service.instance.id` write the same gauge series to one backend inside one `$__rate_interval` window
-- **THEN** every gauge panel of both dashboards shows, per series, the maximum of the values the panel shows for each process alone, not their sum
+- **THEN** every gauge panel of both dashboards takes, per metric identity, the larger of the values the processes wrote, before the panel's own aggregation, so two processes that write the same values show the value of one process, not their sum
 
 #### Scenario: Panel Min interval from a variable
 
