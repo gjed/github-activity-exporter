@@ -202,6 +202,13 @@ func TestDashboardContinuity(t *testing.T) {
 // service.instance.id, so its own instance label. Every gauge panel of every
 // generated dashboard must show, per series, the larger of the values it
 // shows for each instance alone, not their sum.
+//
+// That equals the dashboards' per-identity max only when, for each panel
+// series, one instance has the larger value at every identity the series
+// aggregates. It holds here: both processes read one mock GitHub, so the
+// product gauges are identical per identity, and each self-telemetry panel
+// series covers a single identity (job, plus go.memory.type). Diverging
+// inputs per process break the precondition, not the dashboards.
 func TestDashboardGaugesAcrossInstances(t *testing.T) {
 	requireDocker(t)
 
